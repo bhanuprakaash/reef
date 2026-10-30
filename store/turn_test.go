@@ -186,11 +186,12 @@ func TestFailRunningTurns_ValidDirectRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: "lead", To: "architect", Body: "do"})
+	bots := identityTestBots(t, s)
+	req, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: bots["lead"], ToBotID: bots["architect"], Body: "do"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{SpaceID: ch.ID, Role: "architect", Backend: "claude",
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: ch.ID, Role: "architect", BotID: bots["architect"], Backend: "claude",
 		WakeText: "do", DirectMessageID: req.IDRef()}); err != nil {
 		t.Fatal(err)
 	}

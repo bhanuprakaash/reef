@@ -52,6 +52,7 @@ type Runner struct {
 	st        *store.Store
 	ag        agent.Agent
 	spaceID   int64
+	botID     *int64
 	role      string
 	backend   string
 	preamble  string
@@ -99,7 +100,7 @@ func (r *Runner) Run(
 	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
-		SpaceID: r.spaceID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
+		SpaceID: r.spaceID, BotID: r.botID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
 		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
 		WakeMessageID: r.WakeMessage, Scopes: r.Scopes,
 	})
@@ -267,7 +268,7 @@ func (r *Runner) Watch() {
 					r.idleSession = ev
 				case ev.Kind == agent.KindCompacted:
 					r.firstPromptSent = false
-					err := r.st.SetTurnCompacted(context.Background(), r.spaceID, r.role, r.sessionID)
+					err := r.st.SetTurnCompacted(context.Background(), r.spaceID, *r.botID, r.sessionID)
 					if err != nil {
 						log.Printf("keep compaction of %s in Space %d: %v", r.role, r.spaceID, err)
 					}
@@ -313,7 +314,7 @@ func (r *Runner) keepSession(ev agent.Event) {
 }
 
 func (r *Runner) keepBackground(ctx context.Context, text string) error {
-	_, err := r.st.CreateMessage(ctx, store.Message{SpaceID: r.spaceID, Author: r.role, Body: text})
+	_, err := r.st.CreateMessage(ctx, store.Message{SpaceID: r.spaceID, BotID: r.botID, Author: r.role, Body: text})
 	return err
 }
 
@@ -366,11 +367,11 @@ func (r *Runner) delta(ctx context.Context) (string, error) {
 	if err != nil || r.sessionID == "" {
 		return "", err
 	}
-	since, ok, err := r.st.LastSentAt(ctx, ch.ID, r.role, r.sessionID)
+	since, ok, err := r.st.LastSentAt(ctx, ch.ID, *r.botID, r.sessionID)
 	if err != nil || !ok {
 		return "", err
 	}
-	return changedSince(ctx, r.st, r.Memory, ch, r.role, since)
+	return changedSince(ctx, r.st, r.Memory, ch, *r.botID, since)
 }
 
 // checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
@@ -437,17 +438,17 @@ func (r *Runner) keepReply(
 			return r.st.SetDirectRequestState(ctx, r.direct.ID, store.DirectAnswered)
 		}
 		if state == _replyDone {
-			_, err := r.st.CreateDirectResponse(ctx, r.direct.ID, r.role, reply)
+			_, err := r.st.CreateDirectResponse(ctx, r.direct.ID, r.botID, r.role, reply)
 			return err
 		}
-		_, err := r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.role, reply)
+		_, err := r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.botID, r.role, reply)
 		return err
 	}
 	if reply == "" {
 		return nil
 	}
 	_, err := r.st.CreateMessage(ctx, store.Message{
-		SpaceID: r.spaceID, ParentID: parent, Author: r.role, Body: reply,
+		SpaceID: r.spaceID, BotID: r.botID, ParentID: parent, Author: r.role, Body: reply,
 	})
 	return err
 }

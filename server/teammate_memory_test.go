@@ -42,7 +42,7 @@ func TestRenamingATeammateKeepsItsMemoryItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := st.CreateToken(ctx, c.ID, "sam")
+	tok, err := testToken(t, st, ctx, c.ID, "sam")
 	if err != nil {
 		t.Fatal(err)
 	}

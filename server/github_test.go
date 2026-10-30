@@ -572,7 +572,7 @@ const _ghFailedCheck = `{"number":12,"url":"https://github.com/x/y/pull/12","sta
 	`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",` +
 	`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/9/job/9"}]}`
 
-func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
+func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -580,7 +580,7 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -594,6 +594,19 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	coordinatorID := *testServerBot(t, st, "lead")
+	coordinator, err := st.Teammate(ctx, coordinatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator.Name = "Maya"
+	if _, err = st.UpdateTeammate(ctx, coordinator); err != nil {
+		t.Fatal(err)
+	}
+	replacement := *testServerBot(t, st, "lead")
+	if _, err = st.AddSpaceMember(ctx, 1, replacement); err != nil {
+		t.Fatal(err)
+	}
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -609,8 +622,8 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	setGhResponse(t, respFile, _ghFailedCheck)
 	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
-	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"developer","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"Maya","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"Maya","status":"done"}`)
 
 	fake.mu.Lock()
 	texts := append([]string(nil), fake.ran...)
@@ -675,7 +688,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -729,8 +742,8 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 	// Drain both turns so the wake's own chain, started once the log fetch returns, does not
 	// race the test's cleanup.
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done"}`, `turn {"role":"developer","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+		`turn {"role":"lead","status":"done"}`, `turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 }
 
 // TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy covers a wake that cannot run because
@@ -744,7 +757,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -804,8 +817,8 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 
 	h.s.pollGitHub(ctx)
-	sub.want(t, `turn {"role":"developer","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"developer","status":"done"}`)
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`)
 
 	fake.mu.Lock()
 	ran = len(fake.ran)
@@ -827,7 +840,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	}
 }
 
-func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
+func TestPollGitHub_SoloTeamFailedCheckWakesCoordinator(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -835,7 +848,9 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	dataDir := t.TempDir()
-	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
+	fake := &fakeSession{st: st}
+	h := newHandler(st, testMemory(t, st), dataDir, space.NewTrees(dataDir), func(_ context.Context, id int64) (session, error) { fake.spaceID.Store(id); return fake, nil })
+	t.Cleanup(h.Close)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
@@ -847,7 +862,9 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	t.Setenv("GH_FAKE_RESPONSE", respFile)
 	setGhResponse(t, respFile, _ghFailedCheck)
 
+	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
+	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	msgs, err := st.Messages(ctx, 1, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -860,7 +877,7 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(turns) != 0 {
-		t.Fatalf("turns = %+v, want none: a solo team has no developer to wake", turns)
+		t.Fatalf("fake session should not create turns: %+v", turns)
 	}
 }
 
@@ -874,7 +891,7 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -908,8 +925,8 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 
 	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
-	sub.want(t, _idleFrame, "note {}", "note {}", "note {}", `turn {"role":"developer","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+	sub.want(t, _idleFrame, "note {}", "note {}", "note {}", `turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 
 	fake.mu.Lock()
 	texts := append([]string(nil), fake.ran...)
@@ -960,7 +977,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -996,8 +1013,8 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		if run == 1 {
 			want = []string{"note {}", "note {}"} // the PR note, then the check note
 		}
-		want = append(want, `turn {"role":"developer","status":"running"}`,
-			`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+		want = append(want, `turn {"role":"lead","status":"running"}`,
+			`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 		sub.want(t, want...)
 	}
 	fake.mu.Lock()

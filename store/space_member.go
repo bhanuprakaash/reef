@@ -74,11 +74,15 @@ func (s *Store) MoveConversation(ctx context.Context, id, teammateID int64) (Spa
 		return Space{}, fmt.Errorf("%w: conversation %d already moved to Space %d",
 			ErrConflict, id, *conv.MovedTo)
 	}
-	leadID, err := s.SpaceMemberTeammateID(ctx, id, conv.Role)
+	team, err := s.SpaceTeam(ctx, id)
 	if err != nil {
 		return Space{}, err
 	}
-	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: conv.Role, Backend: conv.Backend,
+	if len(team.Roles) == 0 {
+		return Space{}, fmt.Errorf("%w: conversation has no lead", ErrInvalid)
+	}
+	leadID := team.Roles[0].TeammateID
+	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: team.Roles[0].Name, Backend: conv.Backend,
 		PermissionMode: conv.PermissionMode, Kind: KindFree}
 	return s.insertSpace(ctx, moved, nil, func(tx *sql.Tx, newID int64) error {
 		res, err := tx.ExecContext(ctx,
@@ -108,7 +112,8 @@ func (s *Store) MoveConversation(ctx context.Context, id, teammateID int64) (Spa
 func (s *Store) SpaceMemberTeammateID(ctx context.Context, id int64, role string) (int64, error) {
 	var teammateID int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT teammate_id FROM space_member WHERE space_id = ? AND name = ?", id, role).
+		"SELECT member.teammate_id FROM space_member member JOIN teammate ON teammate.id = member.teammate_id "+
+			"WHERE member.space_id = ? AND teammate.name = ?", id, role).
 		Scan(&teammateID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("role %s in Space %d: %w", role, id, ErrNotFound)

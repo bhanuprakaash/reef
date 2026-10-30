@@ -232,7 +232,7 @@ func TestProposalRoutes(t *testing.T) {
 	propose := func(brief string) {
 		t.Helper()
 		_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-			SpaceID: 2, Role: "lead", Brief: brief,
+			SpaceID: 2, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Brief: brief,
 			Items: []store.ProposedItem{{Kind: "decision", Body: "use SQLite", Why: "simple", Scope: "work_item"}},
 		})
 		if err != nil {
@@ -242,7 +242,7 @@ func TestProposalRoutes(t *testing.T) {
 
 	propose("first brief")
 	status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", "")
-	if status != 200 || !strings.Contains(body, `"id":1,"spaceId":2,"role":"lead","kind":"wrap","brief":"first brief"`) {
+	if status != 200 || !strings.Contains(body, `"id":1,"spaceId":2,"botId":1,"role":"lead","kind":"wrap","brief":"first brief"`) {
 		t.Fatalf("proposal = %d %s, want proposal 1", status, body)
 	}
 	status, body = do(t, http.MethodPost, env.url+"/proposals/1/approve", "")

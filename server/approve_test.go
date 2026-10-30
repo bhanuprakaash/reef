@@ -63,7 +63,7 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 		2: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
 		3: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusRetired},
 		4: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
-		5: {memory.Ref{Kind: "teammate", ID: "architect"}, memory.StatusAccepted},
+		5: {memory.Ref{Kind: "teammate", ID: "2"}, memory.StatusAccepted},
 		6: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusAccepted},
 	}
 	for id, w := range want {
@@ -93,7 +93,7 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 func TestApproveProposalLeadTeamLessonIsCandidate(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
-	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 	}}); err != nil {
@@ -110,7 +110,7 @@ func TestApproveProposalLeadTeamLessonIsCandidate(t *testing.T) {
 	items := map[string]any{"items": []any{
 		map[string]any{"kind": "lesson", "body": "ask before refactoring", "scope": "team"},
 	}, "brief": "v2"}
-	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	developer, err := testToken(t, st, ctx, ch.ID, "developer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestApproveProposalLeadTeamLessonIsCandidate(t *testing.T) {
 	if want := `invalid: only the lead of team "core" can propose team items`; got != want || !isErr {
 		t.Errorf("developer propose_wrap = %q (error %v), want %q", got, isErr, want)
 	}
-	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	lead, err := testToken(t, st, ctx, ch.ID, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}

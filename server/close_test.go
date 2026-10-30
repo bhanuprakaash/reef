@@ -17,7 +17,7 @@ func TestApproveProposal_ClosesSpaceAndStopsItsAgent(t *testing.T) {
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-		SpaceID: int64(id), Role: "lead", Brief: "brief",
+		SpaceID: int64(id), Role: "lead", BotID: testServerBot(t, env.st, "lead"), Brief: "brief",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,7 @@ func TestWrap_RefusedWhileProposalPending(t *testing.T) {
 	env := newLiveEnv(t)
 	id := env.workItemSpace(t)
 	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-		SpaceID: int64(id), Role: "lead", Brief: "brief",
+		SpaceID: int64(id), Role: "lead", BotID: testServerBot(t, env.st, "lead"), Brief: "brief",
 	})
 	if err != nil {
 		t.Fatal(err)

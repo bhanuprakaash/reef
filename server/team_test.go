@@ -247,7 +247,7 @@ func TestSpaceTeam(t *testing.T) {
 		{"request overrides lead", `{"projectId":1,"name":"c","team":"core","backend":"claude"}`, 201,
 			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"core"`},
 		{"lead role names the space", `{"projectId":1,"name":"e","team":"crew"}`, 201,
-			`"name":"e","role":"boss"`},
+			`"name":"e","role":"crew-boss"`},
 		{"unknown team", `{"projectId":1,"name":"d","team":"nope"}`, 400,
 			`{"error":"invalid: unknown team nope"}`},
 	}
@@ -262,9 +262,9 @@ func TestSpaceTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
+	want := `{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"core-lead","lead":true,"write":false,"backend":"codex",` +
 		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
-		`{"teammateId":3,"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
+		`{"teammateId":3,"name":"core-architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
@@ -366,7 +366,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
 			{Command: "my-mcp", Args: []string{"--key", "sk-secret-789"}},
 		}},
@@ -379,7 +379,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
+	body := `{"roles":[{"teammateId":1,"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
 		`"persona":"","skills":[],"tools":[]}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
 	if status != 200 || strings.Contains(resBody, "mcpServers") {

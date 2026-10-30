@@ -41,12 +41,12 @@ var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReas
 
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
-	RunAs(
-		ctx context.Context, role, text string, parent, messageID *int64, onEvent func(agent.Event),
+	RunBot(
+		ctx context.Context, botID int64, text string, parent, messageID *int64, onEvent func(agent.Event),
 	) error
-	WakeAs(ctx context.Context, role, routed string, scopes store.Scopes, parent, messageID *int64,
+	WakeBot(ctx context.Context, botID int64, routed string, scopes store.Scopes, parent, messageID *int64,
 		onEvent func(agent.Event)) error
-	RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage,
+	RunDirectBot(ctx context.Context, botID int64, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	SetOnNote(f func())
@@ -62,6 +62,7 @@ type frame struct {
 
 type turnState struct {
 	Role            string `json:"role,omitempty"`
+	BotID           *int64 `json:"botId,omitempty"`
 	Status          string `json:"status"`
 	Error           string `json:"error,omitempty"`
 	Note            string `json:"note,omitempty"`
@@ -124,6 +125,7 @@ type live struct {
 // after, and the direct messages after the one with id afterDirect.
 type retry struct {
 	role        string
+	botID       *int64
 	after       int64
 	afterDirect int64
 }
@@ -371,10 +373,18 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if t.kind == _message {
 		s.nameSpace(ctx, id, ch.Backend, t.text)
 	}
-	queue := []wake{{from: _userAuthor, role: role, text: t.text, parent: t.parent}}
+	team, err := s.st.SpaceTeam(ctx, id)
+	if err != nil {
+		return c.release(err)
+	}
+	if len(team.Roles) == 0 {
+		return c.release(fmt.Errorf("Space %d has no lead: %w", id, store.ErrConflict))
+	}
+	leadID := team.Roles[0].TeammateID
+	queue := []wake{{from: _userAuthor, role: role, botID: &leadID, text: t.text, parent: t.parent}}
 	switch t.kind {
 	case _message:
-		if queue, err = s.route(ctx, id, []store.Message{msg}, _userAuthor); err != nil {
+		if queue, err = s.route(ctx, id, []store.Message{msg}, nil); err != nil {
 			return c.release(err)
 		}
 	case _move:
@@ -449,7 +459,7 @@ func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, 
 	if err != nil {
 		return false, err
 	}
-	ws, err := s.route(ctx, id, []store.Message{msg}, _userAuthor)
+	ws, err := s.route(ctx, id, []store.Message{msg}, nil)
 	if err != nil {
 		return false, err
 	}
@@ -471,29 +481,40 @@ func (s *server) runOne(
 		l.mu.Unlock()
 	}
 	var err error
-	switch kind {
-	case _wrap:
-		_, err = sess.Wrap(ctx, onEvent)
-	case _move:
-		if err = sess.RunAs(ctx, w.role, w.text, nil, w.wakeMessage(), onEvent); err == nil {
-			err = s.finishMove(ctx, id, w)
-		}
-	default:
-		if w.direct != nil {
-			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
-		} else if len(w.scopes) > 0 {
-			err = sess.WakeAs(ctx, w.role, w.text, w.scopes, w.parent, w.wakeMessage(), onEvent)
-		} else {
-			err = sess.RunAs(ctx, w.role, w.text, w.parent, w.wakeMessage(), onEvent)
+	if w.botID == nil {
+		err = fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid)
+	} else {
+		bot, lookupErr := s.st.Teammate(ctx, *w.botID)
+		err = lookupErr
+		if err == nil {
+			w.role = bot.Name
 		}
 	}
-	end = turnState{Role: w.role, Status: "done", DirectMessageID: w.direct.IDRef()}
+	if err == nil {
+		switch kind {
+		case _wrap:
+			_, err = sess.Wrap(ctx, onEvent)
+		case _move:
+			if err = sess.RunBot(ctx, *w.botID, w.text, nil, w.wakeMessage(), onEvent); err == nil {
+				err = s.finishMove(ctx, id, w)
+			}
+		default:
+			if w.direct != nil {
+				err = sess.RunDirectBot(ctx, *w.botID, w.text, *w.direct, onEvent)
+			} else if len(w.scopes) > 0 {
+				err = sess.WakeBot(ctx, *w.botID, w.text, w.scopes, w.parent, w.wakeMessage(), onEvent)
+			} else {
+				err = sess.RunBot(ctx, *w.botID, w.text, w.parent, w.wakeMessage(), onEvent)
+			}
+		}
+	}
+	end = turnState{Role: w.role, BotID: w.botID, Status: "done", DirectMessageID: w.direct.IDRef()}
 	if errors.Is(err, space.ErrNoProposal) {
 		err = nil
 		end.Note = space.ErrNoProposal.Error()
 	}
 	if err != nil {
-		end = turnState{Role: w.role, Status: "failed", Error: err.Error(), DirectMessageID: w.direct.IDRef()}
+		end = turnState{Role: w.role, BotID: w.botID, Status: "failed", Error: err.Error(), DirectMessageID: w.direct.IDRef()}
 		if ctx.Err() != nil {
 			end.Error = "interrupted"
 		}
@@ -555,7 +576,17 @@ func (s *server) checkSpace(
 		l.publishLocked("pause", pauseState{Reason: ch.Paused})
 		l.mu.Unlock()
 	}
-	return ch.Role, err
+	if err != nil {
+		return "", err
+	}
+	team, err := s.st.SpaceTeam(ctx, ch.ID)
+	if err != nil {
+		return "", err
+	}
+	if len(team.Roles) == 0 {
+		return "", fmt.Errorf("%w: Space has no lead", store.ErrInvalid)
+	}
+	return team.Roles[0].Name, nil
 }
 
 // hold stores ws as the holds of a pause on Space id. When one cannot be stored it returns
@@ -574,7 +605,7 @@ func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) 
 // direct message id instead of a public message id, so the two are never confused.
 func holdForWake(w wake, spaceID int64, text string) store.Hold {
 	h := store.Hold{
-		SpaceID: spaceID, From: w.from, To: w.role, MessageID: w.messageID,
+		SpaceID: spaceID, From: w.from, To: w.role, FromBotID: w.fromBotID, ToBotID: w.botID, MessageID: w.messageID,
 		Text: text, Parent: w.parent, Scopes: w.scopes,
 	}
 	if w.direct != nil {
@@ -587,7 +618,7 @@ func holdForWake(w wake, spaceID int64, text string) store.Hold {
 
 func (s *server) wakeOf(ctx context.Context, h store.Hold) (wake, error) {
 	w := wake{
-		from: h.From, messageID: h.MessageID, role: h.To, text: h.Text, parent: h.Parent,
+		from: h.From, fromBotID: h.FromBotID, botID: h.ToBotID, messageID: h.MessageID, role: h.To, text: h.Text, parent: h.Parent,
 		hold: h.ID, scopes: h.Scopes,
 	}
 	if h.DirectMessageID != nil {
@@ -715,11 +746,11 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 	held, again := slices.Clone(l.held), l.retry
 	l.mu.Unlock()
 	if again != nil {
-		ws, _, err := s.wakes(ctx, id, again.after, again.role)
+		ws, _, err := s.wakes(ctx, id, again.after, again.botID)
 		if err != nil {
 			return nil, fmt.Errorf("route messages: %w", err)
 		}
-		direct, _, err := s.directWakes(ctx, id, again.afterDirect, again.role)
+		direct, _, err := s.directWakes(ctx, id, again.afterDirect, again.botID)
 		if err != nil {
 			return nil, fmt.Errorf("route direct messages: %w", err)
 		}
@@ -733,7 +764,7 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 
 // failSent gives every request role sent after direct message after, during the turn that
 // just ended unrun by a stop or a failure, a failed response with body "stopped" or "failed".
-func (s *server) failSent(ctx context.Context, spaceID int64, role string, after int64, stopped bool) {
+func (s *server) failSent(ctx context.Context, spaceID int64, botID *int64, after int64, stopped bool) {
 	body := "failed"
 	if stopped {
 		body = "stopped"
@@ -744,7 +775,7 @@ func (s *server) failSent(ctx context.Context, spaceID int64, role string, after
 		return
 	}
 	for _, m := range msgs {
-		if m.From != role || m.ReplyToID != nil {
+		if botID == nil || m.FromBotID == nil || *m.FromBotID != *botID || m.ReplyToID != nil {
 			continue
 		}
 		if err := recordFailedDirect(ctx, s.st, m.ID, m.To, body); err != nil {
@@ -1112,6 +1143,14 @@ func (c *chain) start(
 			c.hint = kindStr
 		}
 	}
+	if queue[0].botID == nil {
+		return c.release(fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid))
+	}
+	bot, err := c.s.st.Teammate(ctx, *queue[0].botID)
+	if err != nil {
+		return c.release(err)
+	}
+	queue[0].role = bot.Name
 	afterDirect, err := c.s.st.LastDirectMessageID(ctx, c.id)
 	if err != nil {
 		return c.release(err)
@@ -1142,7 +1181,7 @@ func (c *chain) start(
 		l.publishLocked("pause", pauseState{})
 	}
 	l.publishLocked("turn", turnState{
-		Role: queue[0].role, Status: "running", DirectMessageID: queue[0].direct.IDRef()})
+		Role: queue[0].role, BotID: queue[0].botID, Status: "running", DirectMessageID: queue[0].direct.IDRef()})
 	l.mu.Unlock()
 	for _, h := range dropped {
 		if h.DirectMessageID != nil {
@@ -1202,20 +1241,20 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		w, queue = queue[0], queue[1:]
 		end, ok := s.runOne(c.ctx, c.id, l, sess, kind, w)
 		if !ok || c.ctx.Err() != nil {
-			s.failSent(context.WithoutCancel(c.ctx), c.id, w.role, afterDirect, c.ctx.Err() != nil)
+			s.failSent(context.WithoutCancel(c.ctx), c.id, w.botID, afterDirect, c.ctx.Err() != nil)
 		}
 		var stall error
 		var again *retry
 		if ok && kind == _message && c.ctx.Err() == nil {
-			ws, last, err := s.wakes(c.ctx, c.id, after, w.role)
+			ws, last, err := s.wakes(c.ctx, c.id, after, w.botID)
 			if err != nil {
 				stall = fmt.Errorf("route messages: %w", err)
-				again = &retry{role: w.role, after: after, afterDirect: afterDirect}
+				again = &retry{role: w.role, botID: w.botID, after: after, afterDirect: afterDirect}
 			} else {
-				direct, directLast, directErr := s.directWakes(c.ctx, c.id, afterDirect, w.role)
+				direct, directLast, directErr := s.directWakes(c.ctx, c.id, afterDirect, w.botID)
 				if directErr != nil {
 					stall = fmt.Errorf("route direct messages: %w", directErr)
-					again = &retry{role: w.role, after: after, afterDirect: afterDirect}
+					again = &retry{role: w.role, botID: w.botID, after: after, afterDirect: afterDirect}
 				} else {
 					afterDirect = directLast
 					queue = append(queue, inStoredOrder(ws, direct)...)
@@ -1247,6 +1286,17 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		if err == nil {
 			_, err = s.checkSpace(c.ctx, l, kind, ch)
 		}
+		if err == nil {
+			if queue[0].botID == nil {
+				err = fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid)
+			} else {
+				var bot store.Teammate
+				bot, err = s.st.Teammate(c.ctx, *queue[0].botID)
+				if err == nil {
+					queue[0].role = bot.Name
+				}
+			}
+		}
 		l.mu.Lock()
 		if err == nil && !l.countHop(queue[0]) {
 			err = s.capLocked(c.ctx, c.id, l)
@@ -1268,7 +1318,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			return
 		}
 		l.publishLocked("turn", turnState{
-			Role: queue[0].role, Status: "running", DirectMessageID: queue[0].direct.IDRef()})
+			Role: queue[0].role, BotID: queue[0].botID, Status: "running", DirectMessageID: queue[0].direct.IDRef()})
 		l.mu.Unlock()
 	}
 }
@@ -1362,6 +1412,6 @@ func recordFailedDirect(
 	if dm.ReplyToID != nil {
 		return st.SetDirectRequestState(ctx, *dm.ReplyToID, store.FailedDirectState(body))
 	}
-	_, err = st.CreateFailedDirectResponse(ctx, directID, role, body)
+	_, err = st.CreateFailedDirectResponse(ctx, directID, dm.ToBotID, role, body)
 	return err
 }

@@ -77,7 +77,7 @@ func (e *liveEnv) handoffTeam(t *testing.T, wake string) int {
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}
-	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles})
+	_, err := testServerTeam(t, e.st, context.Background(), store.Team{Name: "core", Roles: roles})
 	if err != nil {
 		t.Fatal(err)
 	}

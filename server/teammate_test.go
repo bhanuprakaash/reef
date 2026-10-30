@@ -49,7 +49,7 @@ func TestTeammateAndMembership(t *testing.T) {
 			`{"name":"sam","persona":"You test.","skills":["how"],"backend":"claude","face":"otter","colour":"violet","tools":["Read","Grep"],"write":false}`,
 			200, `{"id":3,"name":"sam","persona":"You test.","skills":["how"],"backend":"claude","face":"otter","colour":"violet","tools":["Read","Grep"],"mcp":[],"write":false,"permissionMode":""}`},
 		{"membership uses profile", http.MethodGet, "/teams/core", "", 200,
-			`{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"boss","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[],"mcp":[]},` +
+			`{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"core-boss","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[],"mcp":[]},` +
 				`{"teammateId":3,"name":"sam","lead":false,"write":false,"backend":"claude","permissionMode":"","persona":"You test.","skills":["how"],"face":"otter","colour":"violet","tools":["Read","Grep"],"mcp":[]}]}`},
 		{"reject membership settings", http.MethodPut, "/teams/core/members/3",
 			`{"lead":false,"tools":["Read","Edit"]}`,

@@ -15,7 +15,7 @@ func (e *liveEnv) failedTurn(t *testing.T, role, text string, parent *int64) sto
 	t.Helper()
 	ctx := context.Background()
 	turn, err := e.st.CreateTurn(ctx, store.Turn{
-		SpaceID: 1, Role: role, Backend: "claude", WakeText: text, WakeParent: parent,
+		SpaceID: 1, Role: role, BotID: testServerBot(t, e.st, role), Backend: "claude", WakeText: text, WakeParent: parent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestRetry_RoutedWakeThatNeverSentIsBuiltAgain(t *testing.T) {
 			ctx := context.Background()
 			env := newLiveEnv(t)
 			turn, err := env.st.CreateTurn(ctx, store.Turn{
-				SpaceID: 1, Role: "lead", Backend: "claude", WakeText: "routed text", Scopes: scopes,
+				SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "routed text", Scopes: scopes,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -103,16 +103,16 @@ func TestRetry_DirectTurnKeepsReplyPrivate(t *testing.T) {
 	env := newLiveEnv(t)
 	spaceID, _ := env.teamSpace(t)
 	req, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: int64(spaceID), From: "lead", To: "architect", Body: "plan it",
+		SpaceID: int64(spaceID), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "plan it",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.CreateFailedDirectResponse(ctx, req.ID, "architect", "partial"); err != nil {
+	if _, err := env.st.CreateFailedDirectResponse(ctx, req.ID, req.ToBotID, "architect", "partial"); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: int64(spaceID), Role: "architect", Backend: "claude",
+		SpaceID: int64(spaceID), Role: "architect", BotID: testServerBot(t, env.st, "architect"), Backend: "claude",
 		WakeText: "direct wake", DirectMessageID: &req.ID,
 	})
 	if err != nil {
@@ -158,7 +158,7 @@ func TestRetry_Refused(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	done, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: 1, Role: "lead", Backend: "claude", WakeText: "hello",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "hello",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -168,7 +168,7 @@ func TestRetry_Refused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: 1, Role: "lead", Backend: "claude", WakeText: "hello",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "hello",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestRetry_RefusedWhenSuperseded(t *testing.T) {
 	env := newLiveEnv(t)
 	env.failedTurn(t, "lead", "build it", nil)
 	later, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: 1, Role: "lead", Backend: "claude", WakeText: "build it again",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "build it again",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +251,7 @@ func TestRetry_StoppedTurnIsRetryableButNotInTheInbox(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	turn, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: 1, Role: "lead", Backend: "claude", WakeText: "build it",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "build it",
 	})
 	if err != nil {
 		t.Fatal(err)

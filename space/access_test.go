@@ -16,7 +16,7 @@ import (
 func TestSession_RunAsConfigFollowsWrite(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
 			Name: "tester", Backend: "claude", PermissionMode: "acceptEdits",
@@ -97,7 +97,7 @@ func TestSession_RunAsDeniesUnpickedSkills(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "tester", Backend: "claude", Tools: []string{"Read"}, Skills: []string{"how"}},
 		{Name: "reviewer", Backend: "codex", Skills: []string{"how"}},

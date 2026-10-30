@@ -174,6 +174,7 @@ type evalAgent struct {
 	events  chan agent.Event
 	closed  sync.Once
 	role    string
+	botID   *int64
 	session string
 	started bool
 	mcp     *mcp.ClientSession // the real reef tools a replayed turn calls
@@ -192,7 +193,7 @@ func (a *evalAgent) open(ctx context.Context, cfg agent.Config, sessionID string
 	if err != nil {
 		return err
 	}
-	a.role, a.session = tok.Role, sessionID
+	a.role, a.session, a.botID = tok.Role, sessionID, tok.BotID
 	if sessionID == "" {
 		a.session = "session-" + tok.Role
 	}
@@ -259,7 +260,7 @@ func (a *evalAgent) Send(ctx context.Context, prompt string) error {
 			return err
 		}
 		_, err = e.store().CreateMessage(ctx, store.Message{
-			SpaceID: 1, ParentID: parent, Author: a.role, Body: tool,
+			SpaceID: 1, ParentID: parent, BotID: a.botID, Author: a.role, Body: tool,
 		})
 		if err != nil {
 			return err
@@ -452,7 +453,7 @@ func newEval(t *testing.T, backend string) *evalEnv {
 		t: t, backend: backend, dir: dir, st: st, blocked: make(chan struct{}, 1),
 		totals: map[string]float64{}, used: map[string]agent.Usage{}, turns: map[string]int{}, replays: map[string]int{},
 	}
-	_, err = st.ApplyTeam(context.Background(), store.Team{
+	_, err = testServerTeam(t, st, context.Background(), store.Team{
 		Name: "small",
 		Roles: []store.Role{
 			{Name: "lead", Lead: true, Backend: backend},

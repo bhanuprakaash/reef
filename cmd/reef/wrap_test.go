@@ -77,6 +77,12 @@ func TestCLI_Wrap(t *testing.T) {
 		{SpaceID: brief.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
 		{SpaceID: sch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "search plan"},
 	} {
+		prop.BotID = testCLIBot(t, st, prop.Role)
+		if prop.Role != "lead" {
+			if _, err := st.AddSpaceMember(ctx, prop.SpaceID, *prop.BotID); err != nil {
+				t.Fatal(err)
+			}
+		}
 		if _, err := st.CreateProposal(ctx, prop); err != nil {
 			t.Fatal(err)
 		}
@@ -150,7 +156,7 @@ func TestCLI_WrapApprovePrintsAWarningForEachLookalike(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{
-		SpaceID: 1, Role: "architect", Brief: "sign in",
+		SpaceID: 1, BotID: testCLIBot(t, st, "architect"), Role: "architect", Brief: "sign in",
 		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions for login.", Scope: "work_item"}},
 	}); err != nil {
 		t.Fatal(err)

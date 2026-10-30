@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -62,6 +64,31 @@ func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (stor
 	return f.st.CreateMessage(ctx, store.Message{
 		SpaceID: f.spaceID.Load(), ParentID: parent, Author: "user", Body: body,
 	})
+}
+
+func (f *fakeSession) RunBot(ctx context.Context, id int64, text string, parent, messageID *int64, onEvent func(agent.Event)) error {
+	bot, err := f.st.Teammate(ctx, id)
+	if err != nil {
+		return err
+	}
+	return f.RunAs(ctx, bot.Name, text, parent, messageID, onEvent)
+}
+func (f *fakeSession) WakeBot(ctx context.Context, id int64, text string, scopes store.Scopes, parent, messageID *int64, onEvent func(agent.Event)) error {
+	bot, err := f.st.Teammate(ctx, id)
+	if err != nil {
+		return err
+	}
+	return f.WakeAs(ctx, bot.Name, text, scopes, parent, messageID, onEvent)
+}
+func (f *fakeSession) RunDirectBot(ctx context.Context, id int64, text string, dm store.DirectMessage, onEvent func(agent.Event)) error {
+	if dm.ToBotID == nil || *dm.ToBotID != id {
+		return store.ErrInvalid
+	}
+	bot, err := f.st.Teammate(ctx, id)
+	if err != nil {
+		return err
+	}
+	return f.RunDirectAs(ctx, bot.Name, text, dm, onEvent)
 }
 
 func (f *fakeSession) RunAs(
@@ -128,7 +155,7 @@ func (f *fakeSession) RunDirectAs(
 		case <-f.directRelease:
 		case <-ctx.Done():
 			if dm.ReplyToID == nil {
-				_, _ = f.st.CreateFailedDirectResponse(context.WithoutCancel(ctx), dm.ID, role, "")
+				_, _ = f.st.CreateFailedDirectResponse(context.WithoutCancel(ctx), dm.ID, dm.ToBotID, role, "")
 			}
 			return ctx.Err()
 		}
@@ -138,13 +165,13 @@ func (f *fakeSession) RunDirectAs(
 	}
 	if f.directFail != nil {
 		if dm.ReplyToID == nil {
-			_, _ = f.st.CreateFailedDirectResponse(ctx, dm.ID, role, "")
+			_, _ = f.st.CreateFailedDirectResponse(ctx, dm.ID, dm.ToBotID, role, "")
 		}
 		return f.directFail
 	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 	if dm.ReplyToID == nil {
-		_, err := f.st.CreateDirectResponse(ctx, dm.ID, role, "hi")
+		_, err := f.st.CreateDirectResponse(ctx, dm.ID, dm.ToBotID, role, "hi")
 		return err
 	}
 	return nil
@@ -378,7 +405,21 @@ func (s *stream) next(t *testing.T) string {
 func (s *stream) want(t *testing.T, want ...string) {
 	t.Helper()
 	for _, w := range want {
-		if got := s.next(t); got != w {
+		got := s.next(t)
+		if strings.HasPrefix(w, `turn {"role":`) && !strings.Contains(w, `"botId":`) {
+			var actual, expected map[string]any
+			if json.Unmarshal([]byte(strings.TrimPrefix(got, "turn ")), &actual) != nil || json.Unmarshal([]byte(strings.TrimPrefix(w, "turn ")), &expected) != nil {
+				t.Fatalf("frame = %s, want %s", got, w)
+			}
+			id, ok := actual["botId"].(float64)
+			if !ok || id <= 0 {
+				t.Fatalf("frame has no Bot ID: %s", got)
+			}
+			delete(actual, "botId")
+			if !reflect.DeepEqual(actual, expected) {
+				t.Fatalf("frame = %s, want %s", got, w)
+			}
+		} else if got != w {
 			t.Fatalf("frame = %s, want %s", got, w)
 		}
 	}
@@ -470,15 +511,19 @@ func (e *liveEnv) teamSpace(t *testing.T, roles ...store.Role) (int, func(author
 			{Name: "architect", Backend: "claude"},
 		}
 	}
-	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles})
+	_, err := testServerTeam(t, e.st, context.Background(), store.Team{Name: "core", Roles: roles})
 	if err != nil {
 		t.Fatal(err)
 	}
 	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"name":"t","team":"core"}`)
 	return 2, func(author, body string, parent *int64) {
 		t.Helper()
+		var botID *int64
+		if author != "user" {
+			botID = testServerBot(t, e.st, author)
+		}
 		_, err := e.st.CreateMessage(context.Background(),
-			store.Message{SpaceID: 2, ParentID: parent, Author: author, Body: body})
+			store.Message{SpaceID: 2, ParentID: parent, BotID: botID, Author: author, Body: body})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -553,9 +598,9 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 
 func TestSend_SpaceRoleStandsInForLead(t *testing.T) {
 	env := newLiveEnv(t)
-	_, err := env.st.CreateSpace(context.Background(), store.Space{
+	_, err := env.st.CreateTeammateSpace(context.Background(), store.Space{
 		ProjectID: 1, Name: "dev", Role: "developer", Backend: "claude",
-	})
+	}, *testServerBot(t, env.st, "developer"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +649,7 @@ func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" && sent.CompareAndSwap(false, true) {
 			if _, err := env.st.CreateDirectMessage(context.Background(), store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "design it",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "design it",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -800,7 +845,7 @@ func TestSend_ThreadReplyKeepsOwnerOverMentions(t *testing.T) {
 
 func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 	env := newLiveEnv(t)
-	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "trio", Roles: []store.Role{
+	_, err := testServerTeam(t, env.st, context.Background(), store.Team{Name: "trio", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "architect", Backend: "claude"},
 		{Name: "tester", Backend: "claude"},
@@ -813,7 +858,7 @@ func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 		if role == "lead" {
 			one := int64(1)
 			_, err := env.st.CreateMessage(context.Background(), store.Message{
-				SpaceID: 2, ParentID: &one, Author: "lead", Body: "@architect @tester @lead split it",
+				SpaceID: 2, ParentID: &one, BotID: testServerBot(t, env.st, "lead"), Author: "lead", Body: "@architect @tester @lead split it",
 			})
 			if err != nil {
 				t.Error(err)
@@ -1498,7 +1543,7 @@ func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" && asked.CompareAndSwap(false, true) {
 			_, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "check the schema",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "check the schema",
 			})
 			if err != nil {
 				t.Error(err)

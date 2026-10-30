@@ -23,7 +23,7 @@ func TestRunner_NotesReachTheNextTurnOnce(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "developer", "claude", "")
 	r.Memory = testMemory(t, st)
 
 	if err := r.Run(ctx, "[Space 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
@@ -62,28 +62,28 @@ func TestRunner_NextPromptNamesAFailedRequestOnce(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "lead", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "lead", "claude", "")
 	r.Memory = testMemory(t, st)
 
 	if err := r.Run(ctx, "[Space 1, message 1]\nhello", nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	failed, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "architect", Body: "Review the plan\nand the tests",
+		SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: testBotID(t, st, "lead"), ToBotID: testBotID(t, st, "architect"), Body: "Review the plan\nand the tests",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	answered, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "tester", Body: "Run the checks",
+		SpaceID: ch.ID, From: "lead", To: "tester", FromBotID: testBotID(t, st, "lead"), ToBotID: testBotID(t, st, "tester"), Body: "Run the checks",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateFailedDirectResponse(ctx, failed.ID, "architect", "failed"); err != nil {
+	if _, err := st.CreateFailedDirectResponse(ctx, failed.ID, testBotID(t, st, "architect"), "architect", "failed"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateDirectResponse(ctx, answered.ID, "tester", "green"); err != nil {
+	if _, err := st.CreateDirectResponse(ctx, answered.ID, testBotID(t, st, "tester"), "tester", "green"); err != nil {
 		t.Fatal(err)
 	}
 	for _, text := range []string{"[Space 1, message 2]\nagain", "[Space 1, message 3]\nonce more"} {
@@ -107,7 +107,7 @@ func TestRunner_NotesReachARetry(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "developer", "claude", "")
 	r.Memory = testMemory(t, st)
 
 	if err := r.Run(ctx, "[Space 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
@@ -150,13 +150,13 @@ func TestRunner_PreambleKeepsNotes(t *testing.T) {
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
 	// An earlier session of the role already sent a turn.
-	prior := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	prior := newTestRunner(t, st, ag, ch.ID, "developer", "claude", "")
 	if err := prior.Run(ctx, "[Space 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	reefNote(t, st, ch.ID, "Rolled back to before turn 1.")
 
-	r := NewRunner(st, ag, ch.ID, "developer", "claude", "CONTEXT")
+	r := newTestRunner(t, st, ag, ch.ID, "developer", "claude", "CONTEXT")
 	if err := r.Run(ctx, "[Space 1, message 2]\nlead wrote: @developer again", nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestRunner_NotesSkipARoleWithNoTurnAndFitPlainText(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "developer", "claude", "")
 	r.Memory = testMemory(t, st)
 
 	reefNote(t, st, ch.ID, "early")

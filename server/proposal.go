@@ -116,10 +116,10 @@ func ApproveProposal(
 		if err != nil {
 			return Approval{}, err
 		}
-		scopes, err := space.Scopes(ctx, st, c, p.Role)
-		if err != nil {
-			return Approval{}, err
+		if p.BotID == nil {
+			return Approval{}, fmt.Errorf("%w: proposal has no Bot ID", store.ErrInvalid)
 		}
+		scopes := space.BotScopes(c, *p.BotID)
 		if a.Added, a.Warnings, err = saveItems(ctx, ms, scopes, p); err != nil {
 			return Approval{}, err
 		}
@@ -173,7 +173,7 @@ func saveItems(
 		}
 		res, err := ms.Remember(ctx,
 			memory.Writer{
-				Author: p.Role, Role: p.Role, Scope: scopes[i],
+				Author: p.Role, Role: p.Role, BotID: p.BotID, Approved: true, Scope: scopes[i],
 				Links: []memory.Link{{
 					Rel: memory.RelSource, ToKind: "proposal", ToID: strconv.FormatInt(p.ID, 10),
 				}},

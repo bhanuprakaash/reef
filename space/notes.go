@@ -16,13 +16,13 @@ import (
 // it. A turn that failed before it sent does not count: the agent never saw it. A role with no
 // earlier sent turn gets none: it starts from the files as they are.
 func (r *Runner) withNotes(ctx context.Context, turn store.Turn, text string) (string, error) {
-	turns, err := r.st.Turns(ctx, store.TurnFilter{SpaceID: &r.spaceID})
+	turns, err := r.st.Turns(ctx, store.TurnFilter{SpaceID: &r.spaceID, BotID: r.botID})
 	if err != nil {
 		return "", err
 	}
 	var since time.Time
 	for _, t := range turns {
-		if t.Role == r.role && t.ID < turn.ID && t.Sent {
+		if t.ID < turn.ID && t.Sent {
 			since = t.StartedAt
 		}
 	}
@@ -51,7 +51,7 @@ func (r *Runner) withNotes(ctx context.Context, turn store.Turn, text string) (s
 // failedRequests is the direct requests the role sent that are failed and got their failed
 // response after since, oldest first.
 func (r *Runner) failedRequests(ctx context.Context, since time.Time) ([]store.DirectMessage, error) {
-	msgs, err := r.st.DirectMessagesForRole(ctx, r.spaceID, r.role, 0)
+	msgs, err := r.st.DirectMessagesForBot(ctx, r.spaceID, *r.botID, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (r *Runner) failedRequests(ctx context.Context, since time.Time) ([]store.D
 	}
 	var failed []store.DirectMessage
 	for _, m := range msgs {
-		if answered[m.ID] && m.From == r.role && m.State == store.DirectFailed {
+		if answered[m.ID] && m.FromBotID != nil && *m.FromBotID == *r.botID && m.State == store.DirectFailed {
 			failed = append(failed, m)
 		}
 	}

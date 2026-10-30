@@ -99,7 +99,12 @@ func (s *Store) UpdateTeammate(ctx context.Context, t Teammate) (Teammate, error
 	if err != nil {
 		return Teammate{}, err
 	}
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Teammate{}, fmt.Errorf("begin update teammate: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		"UPDATE teammate SET name = ?, persona = ?, skills = ?, backend = ?, model = ?, provider = ?, "+
 			"face = ?, colour = ?, tools = ?, mcp_servers = ?, write = ?, permission_mode = ? "+
 			"WHERE id = ?",
@@ -113,6 +118,14 @@ func (s *Store) UpdateTeammate(ctx context.Context, t Teammate) (Teammate, error
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return Teammate{}, fmt.Errorf("teammate %d: %w", t.ID, ErrNotFound)
+	}
+	for _, table := range []string{"team_member", "space_member"} {
+		if _, err := tx.ExecContext(ctx, "UPDATE "+table+" SET name = ? WHERE teammate_id = ?", t.Name, t.ID); err != nil {
+			return Teammate{}, fmt.Errorf("update teammate membership: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Teammate{}, fmt.Errorf("commit update teammate: %w", err)
 	}
 	return s.Teammate(ctx, t.ID)
 }

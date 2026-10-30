@@ -29,12 +29,13 @@ type Session struct {
 	dataDir  string
 	exe      string
 	ch       store.Space
+	leadID   int64
 	project  store.Project
 	mk       func(backend string) (agent.Agent, error)
 	lock     *os.File
 	onPrompt func(prompt string)
 	onNote   func()
-	members  map[string]*member
+	members  map[int64]*member
 	trees    *Trees
 }
 
@@ -49,6 +50,7 @@ type member struct {
 }
 
 type runInput struct {
+	botID  *int64
 	text   string
 	parent *int64
 	// messageID is the public message that woke the turn.
@@ -111,9 +113,18 @@ func Open(
 	if err != nil {
 		return nil, err
 	}
+	team, err := st.SpaceTeam(ctx, spaceID)
+	if err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	if len(team.Roles) == 0 {
+		_ = lock.Close()
+		return nil, fmt.Errorf("%w: Space %d has no members", store.ErrConflict, spaceID)
+	}
 	s := &Session{
-		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
-		members: map[string]*member{}, trees: trees,
+		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].TeammateID, project: p, mk: mk, lock: lock,
+		members: map[int64]*member{}, trees: trees,
 	}
 	defer func() {
 		if err != nil {
@@ -132,7 +143,7 @@ func (s *Session) Start(ctx context.Context) error {
 	if err := s.ch.Writable(); err != nil {
 		return err
 	}
-	_, err := s.member(ctx, s.ch.Role, runInput{})
+	_, err := s.member(ctx, "", runInput{botID: &s.leadID})
 	return err
 }
 
@@ -170,7 +181,7 @@ func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Me
 func (s *Session) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	return s.RunAs(ctx, s.ch.Role, text, parent, nil, onEvent)
+	return s.RunBot(ctx, s.leadID, text, parent, nil, onEvent)
 }
 
 // RunAs is Run for any role of the Space's team. A specialist's agent is closed when
@@ -199,32 +210,68 @@ func (s *Session) WakeAs(
 		runInput{text: routed, parent: parent, messageID: messageID, scopes: scopes, onEvent: onEvent})
 }
 
+func (s *Session) RunBot(ctx context.Context, id int64, text string, parent, messageID *int64, onEvent func(agent.Event)) error {
+	return s.runAs(ctx, "", runInput{botID: &id, text: text, parent: parent, messageID: messageID, onEvent: onEvent})
+}
+
+func (s *Session) WakeBot(ctx context.Context, id int64, routed string, scopes store.Scopes, parent, messageID *int64, onEvent func(agent.Event)) error {
+	if s.allReadBot(ctx, id, scopes) {
+		return nil
+	}
+	return s.runAs(ctx, "", runInput{botID: &id, text: routed, parent: parent, messageID: messageID, scopes: scopes, onEvent: onEvent})
+}
+
+func (s *Session) RunDirectBot(ctx context.Context, id int64, text string, dm store.DirectMessage, onEvent func(agent.Event)) error {
+	if dm.ToBotID == nil || *dm.ToBotID != id {
+		return fmt.Errorf("%w: direct recipient does not match Bot", store.ErrInvalid)
+	}
+	return s.runDirect(ctx, "", runInput{botID: &id, text: text, direct: &dm, onEvent: onEvent})
+}
+
 // allRead reports whether role's session has been sent every message of scopes, so no agent
 // need start. It is false when it cannot tell: the turn then starts and finds out.
 func (s *Session) allRead(ctx context.Context, role string, scopes store.Scopes) bool {
 	ctx = context.WithoutCancel(ctx)
+	team, err := s.st.SpaceTeam(ctx, s.ch.ID)
+	if err != nil {
+		return false
+	}
+	r, err := s.roleSetup(team, role)
+	if err != nil {
+		return false
+	}
+	return s.readScopes(ctx, r, scopes)
+}
+
+func (s *Session) allReadBot(ctx context.Context, id int64, scopes store.Scopes) bool {
+	ctx = context.WithoutCancel(ctx)
+	team, err := s.st.SpaceTeam(ctx, s.ch.ID)
+	if err != nil {
+		return false
+	}
+	for _, r := range team.Roles {
+		if r.TeammateID == id {
+			return s.readScopes(ctx, r, scopes)
+		}
+	}
+	return false
+}
+
+func (s *Session) readScopes(ctx context.Context, r store.Role, scopes store.Scopes) bool {
 	sessionID := ""
-	if m, ok := s.members[role]; ok {
+	if m, ok := s.members[r.TeammateID]; ok {
 		if m.run.sessionGone {
 			return false
 		}
 		sessionID = m.run.sessionID
 	} else {
-		team, err := s.st.SpaceTeam(ctx, s.ch.ID)
-		if err != nil {
-			return false
-		}
-		r, err := s.roleSetup(team, role)
-		if err != nil {
-			return false
-		}
-		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, role, r.Backend)
+		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, r.TeammateID, r.Backend)
 		if err != nil {
 			return false
 		}
 		sessionID = last.SessionID
 	}
-	text, _, err := wakeText(ctx, s.st, s.ch.ID, role, sessionID, scopes)
+	text, _, err := wakeText(ctx, s.st, s.ch.ID, r.TeammateID, sessionID, scopes)
 	return err == nil && text == ""
 }
 
@@ -234,10 +281,10 @@ func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
 		return err
 	}
 	err = s.run(ctx, m, in)
-	if role == s.ch.Role {
+	if *m.run.botID == s.leadID {
 		return err
 	}
-	delete(s.members, role)
+	delete(s.members, *m.run.botID)
 	if cerr := m.close(s.st); cerr != nil {
 		log.Printf("close %s of Space %d: %v", role, s.ch.ID, cerr)
 	}
@@ -246,22 +293,31 @@ func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
 
 // RunDirectAs runs a role for a direct message, keeping the request/response boundary in
 // Runner while applying the same role setup, worktree access and session lifetime as RunAs.
-func (s *Session) RunDirectAs(
-	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
-) error {
-	m, err := s.member(ctx, role, runInput{text: text, direct: &dm})
+func (s *Session) RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event)) error {
+	id, err := s.st.SpaceMemberTeammateID(context.WithoutCancel(ctx), s.ch.ID, role)
 	if err != nil {
-		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, role, ""); rerr != nil &&
-			!errors.Is(rerr, store.ErrConflict) {
+		return err
+	}
+	return s.RunDirectBot(ctx, id, text, dm, onEvent)
+}
+
+func (s *Session) runDirect(ctx context.Context, role string, in runInput) error {
+	dm := in.direct
+	m, err := s.member(ctx, role, in)
+	if err != nil {
+		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, dm.ToBotID, role, ""); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
 			log.Printf("direct response for %d: %v", dm.ID, rerr)
 		}
 		return err
 	}
-	err = s.run(ctx, m, runInput{text: text, direct: &dm, onEvent: onEvent})
-	if role != s.ch.Role {
-		delete(s.members, role)
+	if dm.ToBotID == nil || *dm.ToBotID != *m.run.botID {
+		return fmt.Errorf("%w: direct recipient does not match Bot", store.ErrInvalid)
+	}
+	err = s.run(ctx, m, in)
+	if *m.run.botID != s.leadID {
+		delete(s.members, *m.run.botID)
 		if closeErr := m.close(s.st); closeErr != nil {
-			log.Printf("close %s of Space %d: %v", role, s.ch.ID, closeErr)
+			log.Printf("close %s of Space %d: %v", m.run.role, s.ch.ID, closeErr)
 		}
 	}
 	return err
@@ -270,7 +326,7 @@ func (s *Session) RunDirectAs(
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
 func (s *Session) run(ctx context.Context, m *member, in runInput) error {
-	if m.run.role == s.ch.Role {
+	if *m.run.botID == s.leadID {
 		defer m.run.Watch()
 	}
 	if !m.write {
@@ -280,10 +336,10 @@ func (s *Session) run(ctx context.Context, m *member, in runInput) error {
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
 		in.text = m.run.wake(in.text)
-		err = s.failTurn(ctx, m.run.role, m.run.backend, in, err)
+		err = s.failTurn(ctx, m.run.role, m.run.backend, m.run.botID, in, err)
 		if in.direct != nil {
 			if _, rerr := s.st.CreateFailedDirectResponse(
-				context.WithoutCancel(ctx), in.direct.ID, m.run.role, "",
+				context.WithoutCancel(ctx), in.direct.ID, m.run.botID, m.run.role, "",
 			); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
 				err = errors.Join(err, rerr)
 			}
@@ -302,9 +358,9 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 	if in.direct == nil && len(in.scopes) > 0 {
 		var err error
 		text, sent, err = wakeText(
-			context.WithoutCancel(ctx), s.st, s.ch.ID, m.run.role, m.run.sessionID, in.scopes)
+			context.WithoutCancel(ctx), s.st, s.ch.ID, *m.run.botID, m.run.sessionID, in.scopes)
 		if err != nil {
-			return s.failTurn(ctx, m.run.role, m.run.backend, in, err)
+			return s.failTurn(ctx, m.run.role, m.run.backend, m.run.botID, in, err)
 		}
 		if text == "" {
 			return nil
@@ -325,7 +381,7 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 // joined with the error of storing it. The turn keeps the wake it was for, so retry can run
 // it again; a ctx cancelled by then makes the turn interrupted.
 func (s *Session) failTurn(
-	ctx context.Context, role, backend string, in runInput, cause error,
+	ctx context.Context, role, backend string, botID *int64, in runInput, cause error,
 ) error {
 	reason := cause.Error()
 	if ctx.Err() != nil {
@@ -333,7 +389,7 @@ func (s *Session) failTurn(
 	}
 	ctx = context.WithoutCancel(ctx)
 	t, err := s.st.CreateTurn(ctx, store.Turn{
-		SpaceID: s.ch.ID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
+		SpaceID: s.ch.ID, BotID: botID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
 		DirectMessageID: in.direct.IDRef(), WakeMessageID: in.messageID, Scopes: in.scopes,
 	})
 	if err != nil {
@@ -359,9 +415,9 @@ func (s *Session) Close() error {
 // closeMembers ends every open agent, so the next turn of each role starts one again.
 func (s *Session) closeMembers() error {
 	var errs []error
-	for role, m := range s.members {
+	for id, m := range s.members {
 		errs = append(errs, m.close(s.st))
-		delete(s.members, role)
+		delete(s.members, id)
 	}
 	return errors.Join(errs...)
 }
@@ -380,17 +436,33 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		return nil, err
 	}
 	backend := s.ch.Backend
+	var botID *int64
 	defer func() {
 		if err != nil {
-			err = s.failTurn(ctx, role, backend, in, err)
+			err = s.failTurn(ctx, role, backend, botID, in, err)
 		}
 	}()
-	r, err := s.roleSetup(team, role)
-	if err != nil {
-		return nil, err
+	var r store.Role
+	if in.botID != nil {
+		for _, member := range team.Roles {
+			if member.TeammateID == *in.botID {
+				r = member
+				break
+			}
+		}
+		if r.TeammateID == 0 {
+			return nil, fmt.Errorf("%w: Bot %d is not a Space member", store.ErrInvalid, *in.botID)
+		}
+		role = r.Name
+	} else {
+		r, err = s.roleSetup(team, role)
+		if err != nil {
+			return nil, err
+		}
 	}
 	backend = r.Backend
-	if m, ok := s.members[role]; ok && !in.fork {
+	botID = &r.TeammateID
+	if m, ok := s.members[r.TeammateID]; ok && !in.fork {
 		m.run.endWatch()
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
@@ -398,7 +470,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			// Before its first turn m has no session id and nothing sent to compare against: its
 			// first prompt is built with the role as it is when the turn runs.
 			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
-				sent, err := introSent(wctx, s.st, s.ch.ID, role, r.Backend, m.run.sessionID)
+				sent, err := introSent(wctx, s.st, s.ch.ID, r.TeammateID, r.Backend, m.run.sessionID)
 				if err != nil {
 					return nil, err
 				}
@@ -406,9 +478,10 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 					m.run.preamble = updatedRoleIntro(r)
 				}
 			}
+			m.run.role = role
 			return m, nil
 		}
-		delete(s.members, role)
+		delete(s.members, *m.run.botID)
 		if err := m.close(s.st); err != nil {
 			log.Printf("close %s of Space %d: %v", role, s.ch.ID, err)
 		}
@@ -424,14 +497,14 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 	}()
 
-	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, role, r.Backend)
+	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.TeammateID, r.Backend)
 	if err != nil {
 		return nil, err
 	}
 	if in.fork && r.Backend != "claude" {
 		last = store.Turn{} // only claude can resume a copy of a session
 	}
-	tok, err := s.st.CreateToken(wctx, s.ch.ID, role)
+	tok, err := s.st.CreateToken(wctx, s.ch.ID, r.TeammateID)
 	if err != nil {
 		return nil, err
 	}
@@ -466,7 +539,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		err = ctx.Err()
 	case last.SessionID != "":
 		if intro := roleIntro(r); intro != "" {
-			sent, serr := introSent(wctx, s.st, s.ch.ID, role, r.Backend, last.SessionID)
+			sent, serr := introSent(wctx, s.st, s.ch.ID, r.TeammateID, r.Backend, last.SessionID)
 			if serr != nil {
 				return nil, serr
 			}
@@ -483,9 +556,10 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		return nil, err
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
+	m.run.botID = &r.TeammateID
 	m.run.sessionID = last.SessionID
 	if last.SessionID != "" {
-		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, role, last.SessionID)
+		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, r.TeammateID, last.SessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -500,9 +574,15 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		if err != nil {
 			return "", err
 		}
-		r, err := s.roleSetup(team, role)
-		if err != nil {
-			return "", err
+		var r store.Role
+		for _, member := range team.Roles {
+			if member.TeammateID == *m.run.botID {
+				r = member
+				break
+			}
+		}
+		if r.TeammateID == 0 {
+			return "", fmt.Errorf("%w: Bot %d is not in Space", store.ErrNotFound, *m.run.botID)
 		}
 		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, r)
 	}
@@ -514,7 +594,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run.OnNote = s.onNote
 	if !in.fork {
-		s.members[role] = m
+		s.members[r.TeammateID] = m
 	}
 	return m, nil
 }
@@ -559,24 +639,15 @@ func WorkDir(
 	return worktree.Path(dataDir, p.ID, f.TreeKey()), f.TreeKey(), nil
 }
 
-// roleSetup is the team's role called name. The lead is the Space's role; it takes the
-// Space's own backend and permission mode.
 func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 	if len(team.Roles) == 0 {
 		return store.Role{}, fmt.Errorf("%w: Space %d has no members", store.ErrConflict, s.ch.ID)
 	}
-	if name == s.ch.Role {
-		lead := team.Roles[0]
-		if lead.Backend != s.ch.Backend {
-			lead.Provider = ""
-		}
-		lead.Name, lead.Backend, lead.PermissionMode = name, s.ch.Backend, s.ch.PermissionMode
-		return lead, nil
-	}
 	for _, r := range team.Roles {
-		if r.Name == name {
-			return r, nil
+		if r.Name != name {
+			continue
 		}
+		return r, nil
 	}
 	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, team.Name, name)
 }
@@ -683,7 +754,7 @@ func (s *Session) propose(
 	}
 	// The prompt holds every pair's direct messages, so the turn runs in a copy of the lead's
 	// session on claude, and in a fresh thread on codex: the lead's own session never sees them.
-	m, err := s.member(ctx, s.ch.Role, runInput{fork: true})
+	m, err := s.member(ctx, "", runInput{botID: &s.leadID, fork: true})
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -771,16 +842,16 @@ func failStaleTurns(ctx context.Context, st *store.Store, spaceID int64) error {
 }
 
 func newestSessionTurn(
-	ctx context.Context, st *store.Store, spaceID int64, role, backend string,
+	ctx context.Context, st *store.Store, spaceID, botID int64, backend string,
 ) (store.Turn, error) {
-	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID})
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID, BotID: &botID})
 	if err != nil {
 		return store.Turn{}, err
 	}
 	var last store.Turn
 	for _, t := range turns {
 		switch {
-		case t.Role != role || t.Backend != backend:
+		case t.Backend != backend:
 		case sessionMissing(t.Error):
 			last = store.Turn{}
 		case t.WakeText == "":
@@ -805,16 +876,16 @@ func sessionMissing(msg string) bool {
 // updatedRoleIntro. Empty when neither applies, so a prefix check against it never matches a
 // non-empty roleIntro.
 func introSent(
-	ctx context.Context, st *store.Store, spaceID int64, role, backend, sessionID string,
+	ctx context.Context, st *store.Store, spaceID, botID int64, backend, sessionID string,
 ) (string, error) {
-	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID})
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID, BotID: &botID})
 	if err != nil {
 		return "", err
 	}
 	var sent string
 	first := true
 	for _, t := range turns {
-		if t.Role != role || t.Backend != backend || t.SessionID != sessionID {
+		if t.Backend != backend || t.SessionID != sessionID {
 			continue
 		}
 		if first {

@@ -9,9 +9,10 @@ import (
 )
 
 type inboxEnv struct {
-	t   *testing.T
-	s   *Store
-	ctx context.Context
+	t    *testing.T
+	s    *Store
+	ctx  context.Context
+	bots map[string]*int64
 }
 
 func newInboxEnv(t *testing.T) *inboxEnv {
@@ -21,7 +22,7 @@ func newInboxEnv(t *testing.T) *inboxEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	e := &inboxEnv{t: t, s: s, ctx: context.Background()}
+	e := &inboxEnv{t: t, s: s, ctx: context.Background(), bots: identityTestBots(t, s)}
 	if _, err := s.CreateProject(e.ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func (e *inboxEnv) say(space int64, author, body string) Message {
 
 func (e *inboxEnv) turn(space int64, role, wake, status string) Turn {
 	e.t.Helper()
-	t, err := e.s.CreateTurn(e.ctx, Turn{SpaceID: space, Role: role, Backend: "claude", WakeText: wake})
+	t, err := e.s.CreateTurn(e.ctx, Turn{SpaceID: space, Role: role, BotID: e.bots[role], Backend: "claude", WakeText: wake})
 	if err != nil {
 		e.t.Fatal(err)
 	}

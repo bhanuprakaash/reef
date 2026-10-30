@@ -74,7 +74,7 @@ func newWakeEnv(t *testing.T) *wakeEnv {
 	ctx := context.Background()
 	t.Setenv("HOME", t.TempDir())
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 	}}); err != nil {

@@ -18,6 +18,24 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+func testCLIBot(t *testing.T, st *store.Store, name string) *int64 {
+	t.Helper()
+	bots, err := st.Teammates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range bots {
+		if b.Name == name {
+			return &b.ID
+		}
+	}
+	b, err := st.CreateTeammate(context.Background(), store.Teammate{Name: name, Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &b.ID
+}
+
 type fakeSession struct {
 	st       *store.Store
 	spaceID  int64
@@ -53,8 +71,12 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 	if !f.propose {
 		return store.Proposal{}, space.ErrNoProposal
 	}
+	id, err := f.st.SpaceMemberTeammateID(ctx, f.spaceID, "architect")
+	if err != nil {
+		return store.Proposal{}, err
+	}
 	return f.st.CreateProposal(ctx, store.Proposal{
-		SpaceID: f.spaceID, Role: "architect", Brief: "new brief",
+		SpaceID: f.spaceID, BotID: &id, Role: "architect", Brief: "new brief",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item", Replaces: f.replaces},
 			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
@@ -73,6 +95,10 @@ type chatRun struct {
 
 func startChat(t *testing.T, st *store.Store, ch store.Space, w *fakeSession) *chatRun {
 	t.Helper()
+	id := testCLIBot(t, st, "architect")
+	if _, err := st.AddSpaceMember(context.Background(), ch.ID, *id); err != nil {
+		t.Fatal(err)
+	}
 	w.st, w.spaceID = st, ch.ID
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })

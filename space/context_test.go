@@ -7,9 +7,54 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
+
+func testBotID(t *testing.T, st *store.Store, name string) *int64 {
+	t.Helper()
+	bots, err := st.Teammates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bot := range bots {
+		if bot.Name == name {
+			return &bot.ID
+		}
+	}
+	bot, err := st.CreateTeammate(context.Background(), store.Teammate{Name: name, Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &bot.ID
+}
+
+func newTestRunner(t *testing.T, st *store.Store, ag agent.Agent, spaceID int64, role, backend, preamble string) *Runner {
+	t.Helper()
+	r := NewRunner(st, ag, spaceID, role, backend, preamble)
+	r.botID = testBotID(t, st, role)
+	return r
+}
+
+func testApplyTeam(t *testing.T, st *store.Store, ctx context.Context, team store.Team) (store.Team, error) {
+	t.Helper()
+	_, teamErr := st.Team(ctx, team.Name)
+	for i, role := range team.Roles {
+		if role.TeammateID != 0 {
+			continue
+		}
+		id := testBotID(t, st, role.Name)
+		bot := store.Teammate{ID: *id, Name: role.Name, Persona: role.Persona, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+		if teamErr != nil {
+			if _, err := st.UpdateTeammate(ctx, bot); err != nil {
+				return store.Team{}, err
+			}
+		}
+		team.Roles[i].TeammateID = *id
+	}
+	return st.ApplyTeam(ctx, team)
+}
 
 func openStore(t *testing.T) (*store.Store, store.WorkItem) {
 	t.Helper()
@@ -207,7 +252,7 @@ func TestContext_OmitsDirectMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "developer", To: "tester", Body: "private fixture detail"}); err != nil {
+		SpaceID: ch.ID, From: "developer", To: "tester", FromBotID: testBotID(t, st, "developer"), ToBotID: testBotID(t, st, "tester"), Body: "private fixture detail"}); err != nil {
 		t.Fatal(err)
 	}
 	got, err := Context(ctx, st, testMemory(t, st), f.ID, "tester")

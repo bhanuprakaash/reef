@@ -119,8 +119,8 @@ func TestRemember_Status(t *testing.T) {
 		want  string
 	}{
 		{"convention by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindConvention, false, "candidate"},
-		{"convention by architect", Writer{Author: "bo", Role: "architect", Scope: project}, KindConvention, false, "accepted"},
-		{"convention by lead", Writer{Author: "di", Role: "lead", Scope: project}, KindConvention, false, "accepted"},
+		{"convention by architect", Writer{Author: "bo", Role: "architect", Scope: project}, KindConvention, false, "candidate"},
+		{"convention by lead", Writer{Author: "di", Role: "lead", Scope: project}, KindConvention, false, "candidate"},
 		{"convention by user", Writer{Author: "user", Scope: project}, KindConvention, false, "accepted"},
 		{"decision by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindDecision, false, "accepted"},
 		{"decision by tester", Writer{Author: "cy", Role: "tester", Scope: project}, KindDecision, false, "accepted"},

@@ -67,10 +67,6 @@ var (
 		ScopeTeammate: true, ScopeSpace: true, ScopeConversation: true,
 	}
 	_rels = map[string]bool{RelAbout: true, RelSource: true, RelReplaces: true, RelRelated: true}
-	// A kind with no entry is accepted from any role.
-	_acceptedRoles = map[string]map[string]bool{
-		KindConvention: {"architect": true, "lead": true},
-	}
 )
 
 // Ref points at a target by kind and id; nothing checks that it exists.
@@ -91,6 +87,8 @@ type Link struct{ Rel, ToKind, ToID string }
 // Writer is who is writing and what every item they write carries.
 type Writer struct {
 	Author, Role string
+	BotID        *int64
+	Approved     bool
 	Scope        Ref
 	Links        []Link
 }
@@ -460,13 +458,16 @@ func statusFor(w Writer, n Note) string {
 	if n.NeedsApproval {
 		return StatusCandidate
 	}
-	if w.Author == "user" {
+	if w.Author == "user" && w.BotID == nil {
 		return StatusAccepted
 	}
 	if w.Scope.Kind == ScopeTeam {
 		return StatusCandidate
 	}
-	if roles := _acceptedRoles[n.Kind]; roles != nil && !roles[w.Role] {
+	if w.Approved {
+		return StatusAccepted
+	}
+	if n.Kind == KindConvention && w.Scope.Kind != ScopeTeammate {
 		return StatusCandidate
 	}
 	return StatusAccepted

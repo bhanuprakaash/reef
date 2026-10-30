@@ -34,9 +34,16 @@ func (s *server) moveTarget(ctx context.Context, id int64, text string) (store.T
 	if err != nil {
 		return store.Teammate{}, false, err
 	}
+	team, err := s.st.SpaceTeam(ctx, id)
+	if err != nil {
+		return store.Teammate{}, false, err
+	}
+	if len(team.Roles) == 0 {
+		return store.Teammate{}, false, fmt.Errorf("%w: conversation has no lead", store.ErrInvalid)
+	}
 	for _, name := range names {
 		for _, t := range all {
-			if t.Name == name && name != ch.Role {
+			if t.Name == name && t.ID != team.Roles[0].TeammateID {
 				return t, true, nil
 			}
 		}
@@ -55,7 +62,7 @@ func (s *server) finishMove(ctx context.Context, id int64, w wake) error {
 	}
 	var summary string
 	for _, m := range msgs {
-		if m.Author == w.role {
+		if m.BotID != nil && w.botID != nil && *m.BotID == *w.botID {
 			summary = m.Body
 		}
 	}
@@ -71,12 +78,12 @@ func (s *server) finishMove(ctx context.Context, id int64, w wake) error {
 		return err
 	}
 	msg, err := s.st.CreateMessage(ctx, store.Message{
-		SpaceID: moved.ID, Author: w.role, Body: "@" + to.Name + " " + summary,
+		SpaceID: moved.ID, BotID: w.botID, Author: w.role, Body: "@" + to.Name + " " + summary,
 	})
 	if err != nil {
 		return err
 	}
-	queue, err := s.route(ctx, moved.ID, []store.Message{msg}, w.role)
+	queue, err := s.route(ctx, moved.ID, []store.Message{msg}, w.botID)
 	if err != nil {
 		return err
 	}
@@ -104,7 +111,14 @@ func (s *server) moveConversation(ctx context.Context, ch store.Space, teammateI
 	if err != nil {
 		return err
 	}
-	if to.Name == ch.Role {
+	team, err := s.st.SpaceTeam(ctx, ch.ID)
+	if err != nil {
+		return err
+	}
+	if len(team.Roles) == 0 {
+		return fmt.Errorf("%w: conversation has no lead", store.ErrInvalid)
+	}
+	if to.ID == team.Roles[0].TeammateID {
 		return fmt.Errorf("%w: %s already leads conversation %d", store.ErrInvalid, to.Name, ch.ID)
 	}
 	return s.startUserTurn(ctx, ch.ID, userTurn{kind: _move, text: "@" + to.Name, to: to})

@@ -79,6 +79,14 @@ func Scopes(
 	case !errors.Is(err, store.ErrNotFound):
 		return nil, err
 	}
+	return botScopes(ch, teammate), nil
+}
+
+func BotScopes(ch store.Space, botID int64) []memory.Ref {
+	return botScopes(ch, strconv.FormatInt(botID, 10))
+}
+
+func botScopes(ch store.Space, teammate string) []memory.Ref {
 	var scopes []memory.Ref
 	switch {
 	case ch.WorkItemID != nil:
@@ -95,7 +103,7 @@ func Scopes(
 	if ch.Team != "" && ch.Team != store.SoloTeam {
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
-	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: teammate}), nil
+	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: teammate})
 }
 
 // teammateID is the id of the Teammate that holds role in ch. With no Space (ch.ID is 0, as for
@@ -150,6 +158,14 @@ func ReadScopes(
 	if err != nil {
 		return nil, err
 	}
+	return readBotConversations(ctx, st, scopes, id)
+}
+
+func ReadBotScopes(ctx context.Context, st *store.Store, ch store.Space, id int64) ([]memory.Ref, error) {
+	return readBotConversations(ctx, st, BotScopes(ch, id), id)
+}
+
+func readBotConversations(ctx context.Context, st *store.Store, scopes []memory.Ref, id int64) ([]memory.Ref, error) {
 	convs, err := st.TeammateConversations(ctx, id)
 	if err != nil {
 		return nil, err
@@ -211,7 +227,7 @@ func firstPrompt(
 			r.Name, p.Name, p.Path, kind)
 		how += fmt.Sprintf(_quickToolsLine, scope) + "\n"
 		b.WriteString(who)
-		if know, err = itemParts(ctx, st, ms, nil, ch, r.Name); err != nil {
+		if know, err = itemParts(ctx, st, ms, nil, ch, r); err != nil {
 			return "", err
 		}
 	} else {
@@ -236,7 +252,7 @@ func firstPrompt(
 				fmt.Fprintf(&b, "%d. [%s] %s\n", l.Position, tick, l.Text)
 			}
 		}
-		if know, err = workItemKnow(ctx, st, ms, f, ch, r.Name); err != nil {
+		if know, err = workItemKnow(ctx, st, ms, f, ch, r); err != nil {
 			return "", err
 		}
 	}
@@ -257,7 +273,7 @@ func firstPrompt(
 // than ch, are only counted: the role looks them up with tools.
 func workItemKnow(
 	ctx context.Context, st *store.Store, ms *memory.Store, f store.WorkItem, ch store.Space,
-	role string,
+	role store.Role,
 ) ([]string, error) {
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -315,9 +331,15 @@ func workItemKnow(
 // with a limit, how many of how many it shows.
 func itemParts(
 	ctx context.Context, st *store.Store, ms *memory.Store, parts []string, ch store.Space,
-	role string,
+	role store.Role,
 ) ([]string, error) {
-	scopes, err := Scopes(ctx, st, ch, role)
+	var scopes []memory.Ref
+	var err error
+	if role.TeammateID != 0 {
+		scopes = BotScopes(ch, role.TeammateID)
+	} else {
+		scopes, err = Scopes(ctx, st, ch, role.Name)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -350,13 +372,10 @@ func itemLine(it memory.Item) string {
 // and a newer brief in full. An item added and retired since is named as retired only, as the
 // role may have seen it in its previous turn.
 func changedSince(
-	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, role string,
+	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, botID int64,
 	since time.Time,
 ) (string, error) {
-	scopes, err := Scopes(ctx, st, ch, role)
-	if err != nil {
-		return "", err
-	}
+	scopes := BotScopes(ch, botID)
 	added, retired, err := ms.Changed(ctx, wakeScopes(ch, scopes), since)
 	if err != nil {
 		return "", err

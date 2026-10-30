@@ -15,7 +15,7 @@ import (
 func TestDirectSourceMessage(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
-	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 		{Name: "tester", Backend: "claude"},
@@ -36,7 +36,7 @@ func TestDirectSourceMessage(t *testing.T) {
 	}
 	send := func(role, to string) {
 		t.Helper()
-		tok, err := st.CreateToken(ctx, ch.ID, role)
+		tok, err := testToken(t, st, ctx, ch.ID, role)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +54,7 @@ func TestDirectSourceMessage(t *testing.T) {
 
 	wake := fmt.Sprintf("[Space %d, message %d]\nbuild it", ch.ID, public.ID)
 	turn, err := st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: wake, WakeMessageID: &public.ID,
+		SpaceID: ch.ID, Role: "lead", BotID: testServerBot(t, st, "lead"), Backend: "claude", WakeText: wake, WakeMessageID: &public.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -70,12 +70,12 @@ func TestDirectSourceMessage(t *testing.T) {
 		t.Errorf("request sent while answering message %d has source %v", public.ID, got)
 	}
 
-	answer, err := st.CreateDirectResponse(ctx, direct[0].ID, "tester", "ok")
+	answer, err := st.CreateDirectResponse(ctx, direct[0].ID, direct[0].ToBotID, "tester", "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
 	turn, err = st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "lead", Backend: "claude",
+		SpaceID: ch.ID, Role: "lead", BotID: testServerBot(t, st, "lead"), Backend: "claude",
 		WakeText: "[Space 1, direct message 2, chain 1, source: direct response]", DirectMessageID: answer.IDRef(),
 	})
 	if err != nil {
@@ -105,7 +105,7 @@ func TestDirectFrameAfterShedWake(t *testing.T) {
 		}
 		for _, body := range []string{"first", "second"} {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: body,
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: body,
 			}); err != nil {
 				t.Error(err)
 			}

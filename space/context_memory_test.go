@@ -260,7 +260,7 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core",
 		Roles: []store.Role{{Name: "developer", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -279,9 +279,7 @@ func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "### Your items\nlesson 1: keep it small ("
-		if name == "one without" {
-			want = "### Your items\nlesson 2: kept under the role name ("
-		}
+
 		if !strings.Contains(got, want) {
 			t.Errorf("Context of %s =\n%s\nwant it to contain %q", name, got, want)
 		}
@@ -291,7 +289,7 @@ func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
 func TestScopes(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core",
 		Roles: []store.Role{{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +321,7 @@ func TestScopes(t *testing.T) {
 			},
 			want: []memory.Ref{
 				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"},
-				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
+				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "1"},
 			},
 		},
 		{
@@ -343,7 +341,7 @@ func TestScopes(t *testing.T) {
 			},
 			want: []memory.Ref{
 				{Kind: "space", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "team", ID: "core"},
-				{Kind: "teammate", ID: "2"},
+				{Kind: "teammate", ID: "1"},
 			},
 		},
 		{
@@ -352,14 +350,14 @@ func TestScopes(t *testing.T) {
 				c, err := st.CreateTeammateSpace(ctx, store.Space{
 					Kind: store.KindConversation, ProjectID: f.ProjectID, Name: "chat", Role: "lead",
 					Backend: "claude",
-				}, 2)
+				}, 1)
 				if err != nil {
 					t.Fatal(err)
 				}
 				return c, ""
 			},
 			want: []memory.Ref{
-				{Kind: "conversation", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "teammate", ID: "lead"},
+				{Kind: "conversation", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "teammate", ID: "1"},
 			},
 		},
 		{

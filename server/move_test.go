@@ -27,7 +27,7 @@ func (e *liveEnv) conversation(t *testing.T) {
 	e.fake.onRun = func(role, text string, _ *int64) {
 		if strings.HasPrefix(text, "The user is adding @kit") {
 			_, err := e.st.CreateMessage(context.Background(), store.Message{
-				SpaceID: 2, Author: role, Body: "Ada wants a login page; the design is open."})
+				SpaceID: 2, BotID: testServerBot(t, e.st, role), Author: role, Body: "Ada wants a login page; the design is open."})
 			if err != nil {
 				t.Error(err)
 			}

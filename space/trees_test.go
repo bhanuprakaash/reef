@@ -50,7 +50,7 @@ type treeRig struct {
 
 func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 	t.Helper()
-	if _, err := st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Write: true, Backend: "claude"},
 		{Name: "tester", Backend: "claude"},
@@ -315,7 +315,7 @@ func (a *lockProbeAgent) Send(ctx context.Context, prompt string) error {
 func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "committer", Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}},
 		{Name: "differ", Backend: "claude", Tools: []string{"Read", "Bash(git diff:*)"}},

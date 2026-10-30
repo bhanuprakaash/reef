@@ -68,6 +68,9 @@ func chatCmd(
 	}
 
 	if !resuming {
+		if _, err := space.NewAgent(*backend); err != nil {
+			return err
+		}
 		f, err := spaceItemArg(ctx, st, pos[0])
 		if err != nil {
 			return err

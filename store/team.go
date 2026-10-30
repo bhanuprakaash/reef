@@ -265,7 +265,7 @@ func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
 // first, with the Teammate's configuration.
 func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT teammate.id, member.name, member.lead, teammate.write, teammate.backend, "+
+		"SELECT teammate.id, teammate.name, member.lead, teammate.write, teammate.backend, "+
 			"teammate.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.colour, teammate.model, "+
 			"teammate.provider, teammate.tools, teammate.mcp_servers "+
 			"FROM "+table+" member JOIN teammate ON teammate.id = member.teammate_id "+

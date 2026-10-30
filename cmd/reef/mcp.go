@@ -84,7 +84,11 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	tok, err := st.CreateToken(ctx, ch.ID, *role)
+	botID, err := st.SpaceMemberTeammateID(ctx, ch.ID, *role)
+	if err != nil {
+		return err
+	}
+	tok, err := st.CreateToken(ctx, ch.ID, botID)
 	if err != nil {
 		return err
 	}

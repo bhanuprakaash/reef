@@ -139,7 +139,7 @@ func TestApproveRouteReturnsTheWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{
-		SpaceID: 1, Role: "lead", Brief: "v2",
+		SpaceID: 1, BotID: testServerBot(t, st, "lead"), Role: "lead", Brief: "v2",
 		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions", Scope: "work_item"}},
 	}); err != nil {
 		t.Fatal(err)

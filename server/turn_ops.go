@@ -50,7 +50,7 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A retry is the user's: from stays the user for a direct wake too, so it counts as no hop.
-	rerun := wake{from: _userAuthor, role: t.Role, text: t.WakeText, parent: t.WakeParent}
+	rerun := wake{from: _userAuthor, role: t.Role, botID: t.BotID, text: t.WakeText, parent: t.WakeParent}
 	if t.WakeMessageID != nil {
 		rerun.messageID = *t.WakeMessageID
 	}

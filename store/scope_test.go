@@ -20,6 +20,7 @@ func TestSentScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bots := identityTestBots(t, s)
 	for _, tt := range []struct {
 		role, session string
 		scopes        Scopes
@@ -33,7 +34,7 @@ func TestSentScopes(t *testing.T) {
 		{"developer", "s1", nil, true},
 	} {
 		turn, err := s.CreateTurn(ctx, Turn{
-			SpaceID: ch.ID, Role: tt.role, Backend: "claude", SessionID: tt.session,
+			SpaceID: ch.ID, Role: tt.role, BotID: bots[tt.role], Backend: "claude", SessionID: tt.session,
 			Scopes: tt.scopes,
 		})
 		if err != nil {
@@ -46,7 +47,7 @@ func TestSentScopes(t *testing.T) {
 		}
 	}
 
-	got, err := s.SentScopes(ctx, ch.ID, "developer", "s1")
+	got, err := s.SentScopes(ctx, ch.ID, *bots["developer"], "s1")
 	if err != nil {
 		t.Fatal(err)
 	}

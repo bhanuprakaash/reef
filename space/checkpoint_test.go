@@ -39,7 +39,7 @@ func TestRunner_TwoDataDirsKeepTheirOwnCheckpoints(t *testing.T) {
 		t.Helper()
 		st, f := openStore(t)
 		ch := sessionSpace(t, st, f, true)
-		r := NewRunner(st, newRecordingAgent(), ch.ID, "architect", "claude", "")
+		r := newTestRunner(t, st, newRecordingAgent(), ch.ID, "architect", "claude", "")
 		r.CheckpointDir = repo
 		r.DataDir = t.TempDir()
 		write(content)
@@ -70,7 +70,7 @@ func TestRunner_TwoDataDirsKeepTheirOwnCheckpoints(t *testing.T) {
 func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Write: true, Backend: "claude"},
 		{Name: "tester", Backend: "claude"},
@@ -143,10 +143,19 @@ func TestSession_NoCheckpointWhenProjectIsASubfolderOfARepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateSpace(ctx, store.Space{
+	id := testBotID(t, st, "architect")
+	bot, err := st.Teammate(ctx, *id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Write = true
+	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateTeammateSpace(ctx, store.Space{
 		ProjectID: p.ID, Name: "chat", Role: "architect", Backend: "claude",
 		PermissionMode: "acceptEdits",
-	})
+	}, *id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +184,7 @@ func TestRunner_FailsTurnWhenCheckpointFails(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
 	r.CheckpointDir = t.TempDir()
 
 	if err := r.Run(ctx, "go", nil, discard); err == nil {
@@ -199,7 +208,7 @@ func TestRunner_RunsWithoutCheckpointWithUnmergedIndex(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
 	r.CheckpointDir = t.TempDir()
 	gitIn := func(args ...string) {
 		t.Helper()
@@ -248,7 +257,7 @@ func TestRunner_RunsWithoutCheckpointInRepoWithNoCommit(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
-	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
 	r.CheckpointDir = t.TempDir()
 	if out, err := exec.Command("git", "-C", r.CheckpointDir, "init", "-b", "main").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)

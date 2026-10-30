@@ -25,7 +25,7 @@ func TestTeam_ApplyAndList(t *testing.T) {
 		{"name":"architect","backend":"codex"},
 		{"name":"lead","lead":true,"backend":"claude","persona":"old"}]}`)
 	if got, want := mustReef(t, dir, "team", "apply", file),
-		"applied team core: lead*(claude) architect(codex)\n"; got != want {
+		"applied team core: core-lead*(claude) core-architect(codex)\n"; got != want {
 		t.Errorf("apply = %q, want %q", got, want)
 	}
 
@@ -33,7 +33,7 @@ func TestTeam_ApplyAndList(t *testing.T) {
 		{"name":"lead","lead":true,"backend":"claude","persona":"new"}]}`)
 	mustReef(t, dir, "team", "apply", file)
 	if got, want := mustReef(t, dir, "team", "list"),
-		"core  lead*(claude)\nsolo  lead*(claude)\n"; got != want {
+		"core  core-lead*(claude)\nsolo  lead*(claude)\n"; got != want {
 		t.Errorf("list = %q, want %q", got, want)
 	}
 }
@@ -61,7 +61,7 @@ func TestTeam_ApplyKeepsFace(t *testing.T) {
 			}
 		}
 	}
-	if got, want := strings.Join(faces, " "), "lead=otter architect="; got != want {
+	if got, want := strings.Join(faces, " "), "core-lead=otter core-architect="; got != want {
 		t.Errorf("faces = %q, want %q", got, want)
 	}
 }
@@ -85,7 +85,7 @@ func TestTeam_ApplyKeepsModel(t *testing.T) {
 	for _, r := range tm.Roles {
 		models = append(models, r.Name+"="+r.Model)
 	}
-	if got, want := strings.Join(models, " "), "lead=opus developer="; got != want {
+	if got, want := strings.Join(models, " "), "core-lead=opus core-developer="; got != want {
 		t.Errorf("models = %q, want %q", got, want)
 	}
 }

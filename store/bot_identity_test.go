@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 )
@@ -24,8 +25,14 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err = s.AddSpaceMember(ctx, space.ID, sam.ID); err != nil {
+		t.Fatal(err)
+	}
 	ann, err := s.CreateTeammate(ctx, Teammate{Name: "ann", Backend: "claude"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.AddSpaceMember(ctx, space.ID, ann.ID); err != nil {
 		t.Fatal(err)
 	}
 	msg, err := s.CreateMessage(ctx, Message{SpaceID: space.ID, Author: "sam", BotID: &sam.ID, Body: "hello"})
@@ -40,7 +47,7 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := s.CreateToken(ctx, space.ID, "sam", &sam.ID)
+	token, err := s.CreateToken(ctx, space.ID, sam.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,11 +59,32 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 	if _, err = s.UpdateTeammate(ctx, sam); err != nil {
 		t.Fatal(err)
 	}
+	other, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.AddSpaceMember(ctx, space.ID, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: space.ID, From: "sam", To: "sam", FromBotID: &sam.ID, ToBotID: &other.ID, Body: "same snapshot name"}); err != nil {
+		t.Fatalf("distinct Bots with matching snapshots: %v", err)
+	}
+	roster, err := s.SpaceTeam(ctx, space.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(roster.Roles, func(r Role) bool { return r.Name == "sally" && r.TeammateID == sam.ID }) {
+		t.Fatalf("renamed roster = %+v", roster.Roles)
+	}
+	id, err := s.SpaceMemberTeammateID(ctx, space.ID, "sally")
+	if err != nil || id != sam.ID {
+		t.Fatalf("renamed member = %d, %v", id, err)
+	}
 	ann.Name = "anna"
 	if _, err = s.UpdateTeammate(ctx, ann); err != nil {
 		t.Fatal(err)
 	}
-	response, err := s.CreateDirectResponseByBot(ctx, dm.ID, ann.ID, "anna", "hi")
+	response, err := s.CreateDirectResponse(ctx, dm.ID, &ann.ID, "anna", "hi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,18 +115,21 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 	if err != nil || len(turns) != 1 || turns[0].ID != turn.ID || turns[0].Role != "sam" || turns[0].SessionID != "session" {
 		t.Fatalf("turns = %+v, %v", turns, err)
 	}
+	if _, err := s.CreateToken(ctx, space.ID, 99999); err == nil {
+		t.Fatal("token for a non-member was accepted")
+	}
 	gotToken, err := s.Token(ctx, token.Token)
 	if err != nil || gotToken.Role != "sam" || gotToken.BotID == nil || *gotToken.BotID != sam.ID {
 		t.Fatalf("token = %+v, %v", gotToken, err)
 	}
 	directs, err := s.DirectMessagesForBot(ctx, space.ID, sam.ID, 0)
-	if err != nil || len(directs) != 2 {
+	if err != nil || len(directs) != 3 {
 		t.Fatalf("directs = %+v, %v", directs, err)
 	}
-	if directs[0].From != "sam" || directs[0].To != "ann" || *directs[0].FromBotID != sam.ID || *directs[0].ToBotID != ann.ID || directs[1].ID != response.ID || directs[1].From != "anna" || directs[1].To != "sam" || *directs[1].FromBotID != ann.ID || *directs[1].ToBotID != sam.ID {
+	if directs[0].From != "sam" || directs[0].To != "ann" || *directs[0].FromBotID != sam.ID || *directs[0].ToBotID != ann.ID || directs[2].ID != response.ID || directs[2].From != "anna" || directs[2].To != "sam" || *directs[2].FromBotID != ann.ID || *directs[2].ToBotID != sam.ID {
 		t.Fatalf("directs = %+v", directs)
 	}
-	if _, err := s.CreateDirectResponseByBot(ctx, dm.ID, sam.ID, "sally", "wrong"); err == nil {
+	if _, err := s.CreateDirectResponse(ctx, dm.ID, &sam.ID, "sally", "wrong"); err == nil {
 		t.Fatal("sender answered recipient's request")
 	}
 }

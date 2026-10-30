@@ -245,7 +245,7 @@ func (s *Store) SearchMessages(
 // SearchDirectMessages is SearchMessages over direct messages. A role other than "" sees
 // only the messages it sent or received.
 func (s *Store) SearchDirectMessages(
-	ctx context.Context, workItemID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, botID *int64,
 ) ([]MessageHit, error) {
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
@@ -253,9 +253,9 @@ func (s *Store) SearchDirectMessages(
 		  substr(d.body, max(instr(lower(d.body), lower(?)) - 40, 1), 120), d.created_at
 		FROM direct_message d JOIN space c ON c.id = d.space_id
 		WHERE c.work_item_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
-		  AND (? = '' OR d.from_role = ? OR d.to_role = ?)
+		  AND (? IS NULL OR d.from_bot_id = ? OR d.to_bot_id = ?)
 		ORDER BY d.id DESC LIMIT ?`,
-		query, workItemID, like, role, role, role, limit)
+		query, workItemID, like, botID, botID, botID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search direct messages: %w", err)
 	}
@@ -275,13 +275,13 @@ func (s *Store) SearchDirectMessages(
 
 // SearchHistory merges SearchMessages and SearchDirectMessages, newest first, up to limit.
 func (s *Store) SearchHistory(
-	ctx context.Context, workItemID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, botID *int64,
 ) ([]MessageHit, error) {
 	hits, err := s.SearchMessages(ctx, workItemID, query, limit)
 	if err != nil {
 		return nil, err
 	}
-	direct, err := s.SearchDirectMessages(ctx, workItemID, query, limit, role)
+	direct, err := s.SearchDirectMessages(ctx, workItemID, query, limit, botID)
 	if err != nil {
 		return nil, err
 	}

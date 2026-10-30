@@ -19,7 +19,11 @@ func TestDeleteToken(t *testing.T) {
 	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "chat"}); err != nil {
 		t.Fatal(err)
 	}
-	tok, err := s.CreateToken(ctx, 1, "architect")
+	bots := identityTestBots(t, s)
+	if _, err := s.AddSpaceMember(ctx, 1, *bots["architect"]); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := s.CreateToken(ctx, 1, *bots["architect"])
 	if err != nil {
 		t.Fatal(err)
 	}

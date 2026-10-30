@@ -38,6 +38,63 @@ func closeSpace(t *testing.T, st *store.Store, id int64) {
 	}
 }
 
+func testServerBot(t *testing.T, st *store.Store, name string) *int64 {
+	t.Helper()
+	bots, err := st.Teammates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bot := range bots {
+		if bot.Name == name {
+			return &bot.ID
+		}
+	}
+	bot, err := st.CreateTeammate(context.Background(), store.Teammate{Name: name, Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &bot.ID
+}
+
+func testServerTeam(t *testing.T, st *store.Store, ctx context.Context, team store.Team) (store.Team, error) {
+	t.Helper()
+	for i, role := range team.Roles {
+		if role.TeammateID == 0 {
+			id := *testServerBot(t, st, role.Name)
+			bot := store.Teammate{ID: id, Name: role.Name, Backend: role.Backend, Persona: role.Persona, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			if _, err := st.UpdateTeammate(ctx, bot); err != nil {
+				return store.Team{}, err
+			}
+			team.Roles[i].TeammateID = id
+		}
+	}
+	return st.ApplyTeam(ctx, team)
+}
+
+func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, team store.Team) (store.Team, error) {
+	t.Helper()
+	for i, role := range team.Roles {
+		if role.TeammateID == 0 {
+			id := *testServerBot(t, st, role.Name)
+			bot := store.Teammate{ID: id, Name: role.Name, Backend: role.Backend, Persona: role.Persona, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			if _, err := st.UpdateTeammate(ctx, bot); err != nil {
+				return store.Team{}, err
+			}
+			team.Roles[i].TeammateID = id
+		}
+	}
+	return st.CreateTeam(ctx, team)
+}
+
+func testToken(t *testing.T, st *store.Store, ctx context.Context, spaceID int64, name string) (store.Token, error) {
+	t.Helper()
+	id, err := st.SpaceMemberTeammateID(ctx, spaceID, name)
+	if err != nil {
+		return store.Token{}, err
+	}
+	return st.CreateToken(ctx, spaceID, id)
+}
+
 func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	t.Helper()
 	ctx := context.Background()
@@ -69,7 +126,11 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 		if c.Name == "developer" {
 			closeSpace(t, st, 1)
 		}
-		_, err = st.CreateSpace(ctx, c)
+		name := c.Name
+		if name == "quick" {
+			name = "architect"
+		}
+		_, err = st.CreateTeammateSpace(ctx, c, *testServerBot(t, st, name))
 		must(err)
 		if c.Name == "developer" {
 			closeSpace(t, st, 2)
@@ -91,7 +152,7 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	must(err)
 	_, err = st.CreateDecision(ctx, store.Decision{WorkItemID: 2, Body: "use stripe", Author: "user"})
 	must(err)
-	tok, err := st.CreateToken(ctx, 1, "architect")
+	tok, err := testToken(t, st, ctx, 1, "architect")
 	must(err)
 	return st, tok
 }
@@ -236,13 +297,13 @@ func TestMCPTools(t *testing.T) {
 			tool: "post_to_space",
 			give: map[string]any{"body": "@developer take it"},
 			want: `{"author":"architect","body":"@developer take it",` +
-				`"createdAt":"T","id":5,"parentId":null,"spaceId":1}`,
+				`"botId":2,"createdAt":"T","id":5,"parentId":null,"spaceId":1}`,
 		},
 		{
 			name: "post to Space in a thread",
 			tool: "post_to_space",
 			give: map[string]any{"body": "done", "parent": 1},
-			want: `{"author":"architect","body":"done","createdAt":"T","id":6,` +
+			want: `{"author":"architect","body":"done","botId":2,"createdAt":"T","id":6,` +
 				`"parentId":1,"spaceId":1}`,
 		},
 		{
@@ -335,7 +396,7 @@ func TestMCPProposeWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, SpaceID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
+		ID: 1, SpaceID: 1, BotID: tok.BotID, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
 			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
@@ -356,7 +417,7 @@ func TestMCPProposeWrap(t *testing.T) {
 
 func TestMCPRemember(t *testing.T) {
 	st, architect := mcpFixture(t)
-	developer, err := st.CreateToken(context.Background(), 2, "developer")
+	developer, err := testToken(t, st, context.Background(), 2, "developer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +446,7 @@ func TestMCPRemember(t *testing.T) {
 			name: "scope teammate is the role",
 			call: dev,
 			give: map[string]any{"kind": "lesson", "body": "item 2", "scope": "teammate"},
-			want: item(2, "lesson", "teammate:developer", "developer", "accepted"),
+			want: item(2, "lesson", "teammate:3", "developer", "accepted"),
 		},
 		{
 			name: "a developer's convention is a candidate",
@@ -394,10 +455,10 @@ func TestMCPRemember(t *testing.T) {
 			want: item(3, "convention", "project:1", "developer", "candidate"),
 		},
 		{
-			name: "an architect's convention is accepted",
+			name: "an architect's convention is a candidate",
 			call: arch,
 			give: map[string]any{"kind": "convention", "body": "item 4"},
-			want: item(4, "convention", "work_item:1", "architect", "accepted"),
+			want: item(4, "convention", "work_item:1", "architect", "candidate"),
 		},
 		{
 			name:    "scope team is refused",
@@ -428,7 +489,7 @@ func TestMCPRememberDefaultsToTheSpacesOwnShelf(t *testing.T) {
 	st, tok := mcpFixture(t)
 	ms := openMemory(t, st)
 	callIn := func(spaceID int64, role string) func(string, map[string]any) (string, bool) {
-		tok, err := st.CreateToken(ctx, spaceID, role)
+		tok, err := testToken(t, st, ctx, spaceID, role)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -453,7 +514,7 @@ func TestMCPRememberDefaultsToTheSpacesOwnShelf(t *testing.T) {
 	if want := "this Space has no work item"; got != want || !isErr {
 		t.Errorf("work_item in a free Space = %q (error %v), want %q", got, isErr, want)
 	}
-	got, isErr = callIn(1, "lead")("remember", map[string]any{"kind": "fact", "body": "x", "scope": "space"})
+	got, isErr = callIn(1, "architect")("remember", map[string]any{"kind": "fact", "body": "x", "scope": "space"})
 	if want := `invalid: you have no "space" scope here`; got != want || !isErr {
 		t.Errorf("space on a work item Space = %q (error %v), want %q", got, isErr, want)
 	}
@@ -496,7 +557,7 @@ func TestMCPRememberReportsLookalikesAndEmbedErrors(t *testing.T) {
 
 func TestMCPMemoryScopes(t *testing.T) {
 	st, auth := mcpFixture(t)
-	billing, err := st.CreateToken(context.Background(), 3, "architect")
+	billing, err := testToken(t, st, context.Background(), 3, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +647,7 @@ func TestMCPProposeBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, SpaceID: 1, Role: "architect", Kind: store.ProposalBrief,
+		ID: 1, SpaceID: 1, BotID: tok.BotID, Role: "architect", Kind: store.ProposalBrief,
 		Brief: "plan: ship login first", Items: []store.ProposedItem{},
 		Retire: []int64{}, Status: store.ProposalPending,
 	}
@@ -603,7 +664,7 @@ func TestMCPProposeBrief(t *testing.T) {
 
 func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	st, tok := mcpFixture(t)
-	billing, err := st.CreateToken(context.Background(), 3, "architect")
+	billing, err := testToken(t, st, context.Background(), 3, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +675,7 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	call("remember", map[string]any{"kind": "fact", "body": "project item", "scope": "project"})
 
 	const (
-		notLive       = "invalid: memory %d is not a live item in work_item:1, project:1, teammate:architect"
+		notLive       = "invalid: memory %d is not a live item in work_item:1, project:1, teammate:2"
 		notOnTheShelf = "invalid: memory %d is not a live item in work_item:1"
 	)
 	tests := []struct {
@@ -668,7 +729,7 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
-	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 	}}); err != nil {
@@ -682,11 +743,11 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	lead, err := testToken(t, st, ctx, ch.ID, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}
-	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	developer, err := testToken(t, st, ctx, ch.ID, "developer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +770,7 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 func leadAndDeveloper(t *testing.T, st *store.Store) (lead, developer store.Token) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 	}}); err != nil {
@@ -723,10 +784,10 @@ func leadAndDeveloper(t *testing.T, st *store.Store) (lead, developer store.Toke
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lead, err = st.CreateToken(ctx, ch.ID, "lead"); err != nil {
+	if lead, err = testToken(t, st, ctx, ch.ID, "lead"); err != nil {
 		t.Fatal(err)
 	}
-	if developer, err = st.CreateToken(ctx, ch.ID, "developer"); err != nil {
+	if developer, err = testToken(t, st, ctx, ch.ID, "developer"); err != nil {
 		t.Fatal(err)
 	}
 	return lead, developer
@@ -839,7 +900,7 @@ func TestMCPSubItems(t *testing.T) {
 func TestMCPProposeWorkItem(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
-	if _, err := st.CreateTeam(ctx, store.Team{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{
 		Name: "infra", Responsibility: "Deploys, CI pipelines and servers.",
 		Roles: []store.Role{{Name: "lead", Lead: true, Backend: "claude"}},
 	}); err != nil {
@@ -850,7 +911,7 @@ func TestMCPProposeWorkItem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := st.CreateToken(ctx, chat.ID, "lead")
+	tok, err := testToken(t, st, ctx, chat.ID, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -917,7 +978,7 @@ func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 func TestMCPDirectMessages(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
-	_, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	_, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "codex"},
 		{Name: "tester", Backend: "claude"},
@@ -933,11 +994,11 @@ func TestMCPDirectMessages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	lead, err := testToken(t, st, ctx, ch.ID, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}
-	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	developer, err := testToken(t, st, ctx, ch.ID, "developer")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -947,13 +1008,13 @@ func TestMCPDirectMessages(t *testing.T) {
 		t.Fatalf("send_to_role without a turn = %q (error %v), want %q", got, isErr, want)
 	}
 	if _, err := st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: "go",
+		SpaceID: ch.ID, Role: "lead", BotID: testServerBot(t, st, "lead"), Backend: "claude", WakeText: "go",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	got, isErr = callLead("send_to_role", map[string]any{"to": "developer", "body": "build it"})
 	if want := `{"body":"build it","chainId":1,"createdAt":"T","from":"lead",` +
-		`"id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"state":"waiting","status":"sent","to":"developer"}`; got != want || isErr {
+		`"fromBotId":1,"id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"state":"waiting","status":"sent","to":"developer","toBotId":3}`; got != want || isErr {
 		t.Fatalf("send_to_role = %q (error %v), want %q", got, isErr, want)
 	}
 	if msgs, err := st.Messages(ctx, ch.ID, 0); err != nil || len(msgs) != 0 {
@@ -963,10 +1024,10 @@ func TestMCPDirectMessages(t *testing.T) {
 	callDeveloper := callTool(t, st, developer)
 	got, isErr = callDeveloper("read_direct_messages", nil)
 	if want := `{"messages":[{"body":"build it","chainId":1,"createdAt":"T",` +
-		`"from":"lead","id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"state":"waiting","status":"sent","to":"developer"}]}`; got != want || isErr {
+		`"from":"lead","fromBotId":1,"id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"state":"waiting","status":"sent","to":"developer","toBotId":3}]}`; got != want || isErr {
 		t.Errorf("developer read = %q (error %v), want %q", got, isErr, want)
 	}
-	tester, err := st.CreateToken(ctx, ch.ID, "tester")
+	tester, err := testToken(t, st, ctx, ch.ID, "tester")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -997,7 +1058,7 @@ func TestMCPDirectMessages(t *testing.T) {
 	}
 
 	if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "developer", To: "tester", Body: "keep it quiet",
+		SpaceID: ch.ID, From: "developer", To: "tester", FromBotID: testServerBot(t, st, "developer"), ToBotID: testServerBot(t, st, "tester"), Body: "keep it quiet",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -1014,7 +1075,7 @@ func TestMCPDirectMessages(t *testing.T) {
 
 func TestMCPQuickSession(t *testing.T) {
 	st, _ := mcpFixture(t)
-	tok, err := st.CreateToken(context.Background(), 4, "architect")
+	tok, err := testToken(t, st, context.Background(), 4, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1042,7 +1103,7 @@ func TestMCPQuickSession(t *testing.T) {
 func TestMCPPostRefusedOnClosedAndMovedSpaces(t *testing.T) {
 	st, _ := mcpFixture(t)
 	ctx := context.Background()
-	tok, err := st.CreateToken(ctx, 4, "architect")
+	tok, err := testToken(t, st, ctx, 4, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1070,7 +1131,7 @@ func TestMCPPostRefusedOnClosedAndMovedSpaces(t *testing.T) {
 func TestMCPQuickSessionReadsItsOwnThread(t *testing.T) {
 	st, _ := mcpFixture(t)
 	ctx := context.Background()
-	tok, err := st.CreateToken(ctx, 4, "architect")
+	tok, err := testToken(t, st, ctx, 4, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}

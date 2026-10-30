@@ -92,7 +92,7 @@ func (s *server) search(w http.ResponseWriter, r *http.Request) {
 	if n != nil && *n > 0 {
 		limit = *n
 	}
-	hits, err := s.st.SearchHistory(r.Context(), *workItemID, q, int(limit), "")
+	hits, err := s.st.SearchHistory(r.Context(), *workItemID, q, int(limit), nil)
 	if err != nil {
 		writeError(w, err)
 		return

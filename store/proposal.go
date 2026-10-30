@@ -23,7 +23,7 @@ const (
 )
 
 const _proposalCols = "id, space_id, role, kind, brief, items, retire, status, " +
-	"created_at, decided_at"
+	"created_at, decided_at, bot_id"
 
 // ProposedItem is a memory item that approving its proposal saves. Scope is the memory scope
 // kind: work_item, project, teammate or team. Replaces are the memory items it replaces.
@@ -40,6 +40,7 @@ type ProposedItem struct {
 type Proposal struct {
 	ID        int64          `json:"id"`
 	SpaceID   int64          `json:"spaceId"`
+	BotID     *int64         `json:"botId,omitempty"`
 	Role      string         `json:"role"`
 	Kind      string         `json:"kind"`
 	Brief     string         `json:"brief"`
@@ -118,9 +119,9 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 		return Proposal{}, fmt.Errorf("reject older proposals: %w", err)
 	}
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO proposal (space_id, role, kind, brief, items, retire, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?)",
-		p.SpaceID, p.Role, p.Kind, p.Brief, string(items), string(retire), at)
+		"INSERT INTO proposal (space_id, role, kind, brief, items, retire, created_at, bot_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		p.SpaceID, p.Role, p.Kind, p.Brief, string(items), string(retire), at, p.BotID)
 	if err != nil {
 		return Proposal{}, s.writeErr(ctx, "insert proposal", err, ErrNotFound,
 			parent{table: "space", id: &p.SpaceID})
@@ -302,7 +303,7 @@ func scanProposal(r interface{ Scan(...any) error }) (Proposal, error) {
 	var items, retire, created string
 	var decided sql.NullString
 	if err := r.Scan(&p.ID, &p.SpaceID, &p.Role, &p.Kind, &p.Brief, &items,
-		&retire, &p.Status, &created, &decided); err != nil {
+		&retire, &p.Status, &created, &decided, &p.BotID); err != nil {
 		return Proposal{}, err
 	}
 	if err := json.Unmarshal([]byte(items), &p.Items); err != nil {

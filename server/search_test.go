@@ -13,7 +13,7 @@ import (
 func TestSearchDirectVisibility(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
-	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 		{Name: "tester", Backend: "claude"},
@@ -29,7 +29,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	callAs := func(role string) func(string, map[string]any) (string, bool) {
-		tok, err := st.CreateToken(ctx, ch.ID, role)
+		tok, err := testToken(t, st, ctx, ch.ID, role)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -38,11 +38,11 @@ func TestSearchDirectVisibility(t *testing.T) {
 	callLead, callDeveloper, callTester := callAs("lead"), callAs("developer"), callAs("tester")
 
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "developer", Body: "build the handoff"})
+		SpaceID: ch.ID, From: "lead", To: "developer", FromBotID: testServerBot(t, st, "lead"), ToBotID: testServerBot(t, st, "developer"), Body: "build the handoff"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateDirectResponse(ctx, req.ID, "developer", "handoff done"); err != nil {
+	if _, err := st.CreateDirectResponse(ctx, req.ID, req.ToBotID, "developer", "handoff done"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateMessage(ctx, store.Message{

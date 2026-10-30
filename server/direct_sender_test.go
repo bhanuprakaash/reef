@@ -25,7 +25,7 @@ func TestDirectSenderTurnEndsUnrun(t *testing.T) {
 					return
 				}
 				if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-					SpaceID: int64(id), From: "lead", To: "architect", Body: "review login",
+					SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "review login",
 				}); err != nil {
 					t.Error(err)
 				}
@@ -57,14 +57,14 @@ func TestDirectSenderRestart(t *testing.T) {
 	send := func(body string) {
 		t.Helper()
 		if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-			SpaceID: int64(id), From: "lead", To: "architect", Body: body,
+			SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: body,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	send("earlier")
 	if _, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: int64(id), Role: "lead", Backend: "claude", WakeText: "go",
+		SpaceID: int64(id), Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "go",
 	}); err != nil {
 		t.Fatal(err)
 	}

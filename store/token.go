@@ -22,27 +22,18 @@ type Token struct {
 }
 
 // CreateToken adds a token. It never expires; it goes when its Space is deleted.
-func (s *Store) CreateToken(ctx context.Context, spaceID int64, role string, botID ...*int64) (Token, error) {
-	if role == "" {
-		return Token{}, fmt.Errorf("%w: token role is required", ErrInvalid)
-	}
+func (s *Store) CreateToken(ctx context.Context, spaceID, botID int64) (Token, error) {
 	raw := make([]byte, _tokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return Token{}, fmt.Errorf("generate token: %w", err)
 	}
-	t := Token{
-		Token: hex.EncodeToString(raw), SpaceID: spaceID, Role: role,
-		CreatedAt: time.Now().UTC(),
+	t := Token{Token: hex.EncodeToString(raw), SpaceID: spaceID, BotID: &botID, CreatedAt: time.Now().UTC()}
+	err := s.db.QueryRowContext(ctx, "INSERT INTO token (token, space_id, role, bot_id, created_at) SELECT ?, ?, teammate.name, teammate.id, ? FROM teammate JOIN space_member ON space_member.teammate_id = teammate.id WHERE space_member.space_id = ? AND teammate.id = ? RETURNING role", t.Token, spaceID, t.CreatedAt.Format(time.RFC3339Nano), spaceID, botID).Scan(&t.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Token{}, fmt.Errorf("%w: Bot is not a Space member", ErrInvalid)
 	}
-	if len(botID) > 0 {
-		t.BotID = botID[0]
-	}
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO token (token, space_id, role, bot_id, created_at) VALUES (?, ?, ?, ?, ?)",
-		t.Token, t.SpaceID, t.Role, t.BotID, t.CreatedAt.Format(time.RFC3339Nano))
 	if err != nil {
-		return Token{}, s.writeErr(ctx, "insert token", err, ErrNotFound,
-			parent{table: "space", id: &spaceID})
+		return Token{}, fmt.Errorf("insert token: %w", err)
 	}
 	return t, nil
 }
@@ -52,7 +43,7 @@ func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	t := Token{Token: value}
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT space_id, role, bot_id, created_at FROM token WHERE token = ?", value).
+		"SELECT token.space_id, token.role, token.bot_id, token.created_at FROM token JOIN space_member ON space_member.space_id = token.space_id AND space_member.teammate_id = token.bot_id WHERE token.token = ?", value).
 		Scan(&t.SpaceID, &t.Role, &t.BotID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Token{}, fmt.Errorf("token: %w", ErrNotFound)

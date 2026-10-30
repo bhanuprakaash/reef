@@ -22,7 +22,7 @@ const _interruptedError = "interrupted"
 // _retryable is true for a turn t that retry may run again: it failed, was not retried, kept
 // a wake, and no later turn of its role ran in the Space.
 const _retryable = `t.status = '` + _turnFailed + `' AND t.retried = 0 AND t.wake_text IS NOT NULL
-	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.space_id = t.space_id AND n.role = t.role AND n.id > t.id)`
+	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.space_id = t.space_id AND n.bot_id = t.bot_id AND n.id > t.id)`
 
 const (
 	_restartError  = "server restarted"
@@ -176,12 +176,12 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 // LastSentAt is when the newest turn of role in the session of spaceID that sent its prompt
 // started. It is false when no turn of the session sent one.
 func (s *Store) LastSentAt(
-	ctx context.Context, spaceID int64, role, sessionID string,
+	ctx context.Context, spaceID, botID int64, sessionID string,
 ) (time.Time, bool, error) {
 	var started string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT started_at FROM turn WHERE space_id = ? AND role = ? AND session_id = ? "+
-			"AND sent = 1 ORDER BY id DESC LIMIT 1", spaceID, role, sessionID).Scan(&started)
+		"SELECT started_at FROM turn WHERE space_id = ? AND bot_id = ? AND session_id = ? "+
+			"AND sent = 1 ORDER BY id DESC LIMIT 1", spaceID, botID, sessionID).Scan(&started)
 	if errors.Is(err, sql.ErrNoRows) {
 		return time.Time{}, false, nil
 	}
@@ -198,12 +198,12 @@ func (s *Store) LastSentAt(
 // SessionCompacted reports whether the backend compacted the session during or after the
 // newest turn of role in the session of spaceID that sent its prompt.
 func (s *Store) SessionCompacted(
-	ctx context.Context, spaceID int64, role, sessionID string,
+	ctx context.Context, spaceID, botID int64, sessionID string,
 ) (bool, error) {
 	var compacted bool
 	err := s.db.QueryRowContext(ctx,
-		"SELECT compacted FROM turn WHERE space_id = ? AND role = ? AND session_id = ? "+
-			"AND sent = 1 ORDER BY id DESC LIMIT 1", spaceID, role, sessionID).Scan(&compacted)
+		"SELECT compacted FROM turn WHERE space_id = ? AND bot_id = ? AND session_id = ? "+
+			"AND sent = 1 ORDER BY id DESC LIMIT 1", spaceID, botID, sessionID).Scan(&compacted)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, fmt.Errorf("session compacted: %w", err)
 	}
@@ -213,12 +213,12 @@ func (s *Store) SessionCompacted(
 // SetTurnCompacted records that the backend compacted the session after the newest turn of
 // role in the session of spaceID that sent its prompt.
 func (s *Store) SetTurnCompacted(
-	ctx context.Context, spaceID int64, role, sessionID string,
+	ctx context.Context, spaceID, botID int64, sessionID string,
 ) error {
 	_, err := s.db.ExecContext(ctx,
 		"UPDATE turn SET compacted = 1 WHERE id = (SELECT id FROM turn WHERE space_id = ? "+
-			"AND role = ? AND session_id = ? AND sent = 1 ORDER BY id DESC LIMIT 1)",
-		spaceID, role, sessionID)
+			"AND bot_id = ? AND session_id = ? AND sent = 1 ORDER BY id DESC LIMIT 1)",
+		spaceID, botID, sessionID)
 	if err != nil {
 		return fmt.Errorf("set turn compacted: %w", err)
 	}
@@ -483,7 +483,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 				return nil, fmt.Errorf("fail running turns: %w", scanErr)
 			case !replyTo.Valid:
 				if _, err := s.CreateFailedDirectResponseTx(ctx, tx, *t.DirectMessageID,
-					t.Role, ""); err != nil {
+					t.BotID, t.Role, ""); err != nil {
 					return nil, fmt.Errorf("fail running turns: %w", err)
 				}
 			case replyTo.Valid:
@@ -522,22 +522,23 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 // started a failed response with body "failed", so its sender is not left waiting.
 func (s *Store) failSentRequests(ctx context.Context, tx *sql.Tx, t Turn) error {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id, to_role, created_at FROM direct_message d
-		WHERE space_id = ? AND from_role = ? AND reply_to_id IS NULL
+		`SELECT id, to_role, to_bot_id, created_at FROM direct_message d
+		WHERE space_id = ? AND from_bot_id = ? AND reply_to_id IS NULL
 		AND NOT EXISTS (SELECT 1 FROM direct_message r WHERE r.reply_to_id = d.id) ORDER BY id`,
-		t.SpaceID, t.Role)
+		t.SpaceID, t.BotID)
 	if err != nil {
 		return fmt.Errorf("list sent requests: %w", err)
 	}
 	type sent struct {
 		id      int64
 		to      string
+		botID   *int64
 		created time.Time
 	}
 	sents, err := scanAll(rows, func(r interface{ Scan(...any) error }) (sent, error) {
 		var m sent
 		var created string
-		if err := r.Scan(&m.id, &m.to, &created); err != nil {
+		if err := r.Scan(&m.id, &m.to, &m.botID, &created); err != nil {
 			return sent{}, err
 		}
 		var perr error
@@ -551,7 +552,7 @@ func (s *Store) failSentRequests(ctx context.Context, tx *sql.Tx, t Turn) error 
 		if m.created.Before(t.StartedAt) {
 			continue
 		}
-		if _, err := s.CreateFailedDirectResponseTx(ctx, tx, m.id, m.to, "failed"); err != nil {
+		if _, err := s.CreateFailedDirectResponseTx(ctx, tx, m.id, m.botID, m.to, "failed"); err != nil {
 			return err
 		}
 	}

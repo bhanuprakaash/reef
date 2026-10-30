@@ -16,7 +16,7 @@ func TestSession_OneTeammateRunsWithProfileAccess(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	for _, name := range []string{"a", "b"} {
-		if _, err := st.ApplyTeam(ctx, store.Team{Name: name, Roles: []store.Role{
+		if _, err := testApplyTeam(t, st, ctx, store.Team{Name: name, Roles: []store.Role{
 			{Name: "lead", Lead: true, Backend: "claude"},
 		}}); err != nil {
 			t.Fatal(err)

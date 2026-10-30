@@ -193,8 +193,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"on this work item, free Space or direct conversation, whichever you are in (a " +
 			"conversation item is found only with recall), project on every work item of the project, " +
 			"teammate on you across work items. Pass replaces when it amends or replaces " +
-			"earlier items: they are retired. A convention from a role other than architect " +
-			"or lead waits for the user's approval.",
+			"earlier items: they are retired. Shared conventions wait for the user's approval.",
 	}, m.remember)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "recall",
@@ -317,6 +316,22 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	return srv
 }
 
+func (m *mcpServer) currentName(ctx context.Context) (string, error) {
+	if m.tok.BotID == nil {
+		return "", fmt.Errorf("%w: token has no Bot ID", store.ErrInvalid)
+	}
+	team, err := m.st.SpaceTeam(ctx, m.tok.SpaceID)
+	if err != nil {
+		return "", err
+	}
+	for _, role := range team.Roles {
+		if role.TeammateID == *m.tok.BotID {
+			return role.Name, nil
+		}
+	}
+	return "", fmt.Errorf("%w: token Bot is not a Space member", store.ErrInvalid)
+}
+
 func (m *mcpServer) workItem(ctx context.Context) (store.WorkItem, error) {
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
@@ -345,14 +360,15 @@ func (m *mcpServer) getBrief(
 func (m *mcpServer) remember(
 	ctx context.Context, _ *mcp.CallToolRequest, in rememberIn,
 ) (*mcp.CallToolResult, rememberOut, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
-	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
-	if err != nil {
-		return nil, rememberOut{}, err
-	}
+	scopes := space.BotScopes(c, *m.tok.BotID)
 	switch in.Scope {
 	case "":
 		in.Scope = scopes[0].Kind
@@ -385,7 +401,7 @@ func (m *mcpServer) remember(
 	}
 	res, err := m.ms.Remember(ctx,
 		memory.Writer{
-			Author: m.tok.Role, Role: m.tok.Role, Scope: scopes[i],
+			Author: name, Role: name, BotID: m.tok.BotID, Scope: scopes[i],
 			Links: []memory.Link{{
 				Rel: memory.RelSource, ToKind: "space", ToID: strconv.FormatInt(m.tok.SpaceID, 10),
 			}},
@@ -405,6 +421,10 @@ func (m *mcpServer) remember(
 func (m *mcpServer) recall(
 	ctx context.Context, _ *mcp.CallToolRequest, in recallIn,
 ) (*mcp.CallToolResult, recallOut, error) {
+	_, err := m.currentName(ctx)
+	if err != nil {
+		return nil, recallOut{}, err
+	}
 	if in.Query == "" {
 		return nil, recallOut{}, errors.New("query is required")
 	}
@@ -412,7 +432,7 @@ func (m *mcpServer) recall(
 	if err != nil {
 		return nil, recallOut{}, err
 	}
-	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := space.ReadBotScopes(ctx, m.st, c, *m.tok.BotID)
 	if err != nil {
 		return nil, recallOut{}, err
 	}
@@ -439,11 +459,15 @@ func (m *mcpServer) recall(
 func (m *mcpServer) readMemory(
 	ctx context.Context, _ *mcp.CallToolRequest, in readMemoryIn,
 ) (*mcp.CallToolResult, itemOut, error) {
+	_, err := m.currentName(ctx)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
-	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := space.ReadBotScopes(ctx, m.st, c, *m.tok.BotID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
@@ -468,6 +492,9 @@ func (m *mcpServer) readable(ctx context.Context, scopes []memory.Ref, id int64)
 func (m *mcpServer) searchSessions(
 	ctx context.Context, _ *mcp.CallToolRequest, in searchIn,
 ) (*mcp.CallToolResult, searchOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, searchOut{}, err
+	}
 	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, searchOut{}, err
@@ -478,13 +505,19 @@ func (m *mcpServer) searchSessions(
 	if in.Limit <= 0 {
 		in.Limit = _defaultSearchLimit
 	}
-	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.Role)
+	if m.tok.BotID == nil {
+		return nil, searchOut{}, fmt.Errorf("token has no Bot ID: %w", store.ErrInvalid)
+	}
+	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.BotID)
 	return nil, searchOut{Hits: hits}, err
 }
 
 func (m *mcpServer) readThread(
 	ctx context.Context, _ *mcp.CallToolRequest, in threadIn,
 ) (*mcp.CallToolResult, threadOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, threadOut{}, err
+	}
 	c, err := m.st.Space(ctx, in.SpaceID)
 	if err != nil {
 		return nil, threadOut{}, err
@@ -509,6 +542,10 @@ func (m *mcpServer) readThread(
 func (m *mcpServer) postToSpace(
 	ctx context.Context, _ *mcp.CallToolRequest, in postIn,
 ) (*mcp.CallToolResult, store.Message, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.Message{}, err
+	}
 	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, store.Message{}, err
@@ -517,7 +554,7 @@ func (m *mcpServer) postToSpace(
 		return nil, store.Message{}, err
 	}
 	msg, err := m.st.CreateMessage(ctx, store.Message{
-		SpaceID: m.tok.SpaceID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, ParentID: in.Parent, Author: name, Body: in.Body,
 	})
 	return nil, msg, err
 }
@@ -525,8 +562,9 @@ func (m *mcpServer) postToSpace(
 func (m *mcpServer) sendToRole(
 	ctx context.Context, _ *mcp.CallToolRequest, in directIn,
 ) (*mcp.CallToolResult, store.DirectMessage, error) {
-	if in.To == m.tok.Role {
-		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.DirectMessage{}, err
 	}
 	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
@@ -551,7 +589,7 @@ func (m *mcpServer) sendToRole(
 		if t.WakeText == "" {
 			return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
 		}
-		if t.Role != m.tok.Role {
+		if t.BotID == nil || *t.BotID != *m.tok.BotID {
 			continue
 		}
 		sending = true
@@ -566,28 +604,28 @@ func (m *mcpServer) sendToRole(
 		source = woken.SourceMessageID
 	}
 	if !sending {
-		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, m.tok.Role)
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, name)
 	}
 	team, err := m.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
-	found := false
+	var recipient *int64
 	for _, role := range team.Roles {
-		name := role.Name
-		if role.Lead {
-			name = ch.Role
-		}
-		if name == in.To {
-			found = true
+		if role.Name == in.To {
+			id := role.TeammateID
+			recipient = &id
 			break
 		}
 	}
-	if !found {
+	if recipient == nil {
 		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this Space's team", store.ErrInvalid, in.To)
 	}
+	if *recipient == *m.tok.BotID {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
+	}
 	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: m.tok.SpaceID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
+		SpaceID: m.tok.SpaceID, SourceMessageID: source, From: name, To: in.To, FromBotID: m.tok.BotID, ToBotID: recipient, Body: in.Body,
 	})
 	return nil, dm, err
 }
@@ -595,15 +633,25 @@ func (m *mcpServer) sendToRole(
 func (m *mcpServer) readDirectMessages(
 	ctx context.Context, _ *mcp.CallToolRequest, in directListIn,
 ) (*mcp.CallToolResult, directListOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, directListOut{}, err
+	}
 	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, directListOut{}, err
 	}
 	var msgs []store.DirectMessage
-	if ch.ActiveTurn == store.ActiveTurnWrap && m.tok.Role == ch.Role {
+	lead, err := m.isLead(ctx)
+	if err != nil {
+		return nil, directListOut{}, err
+	}
+	if ch.ActiveTurn == store.ActiveTurnWrap && lead {
 		msgs, err = m.st.DirectMessages(ctx, ch.ID, in.After)
 	} else {
-		msgs, err = m.st.DirectMessagesForRole(ctx, ch.ID, m.tok.Role, in.After)
+		if m.tok.BotID == nil {
+			return nil, directListOut{}, fmt.Errorf("token has no Bot ID: %w", store.ErrInvalid)
+		}
+		msgs, err = m.st.DirectMessagesForBot(ctx, ch.ID, *m.tok.BotID, in.After)
 	}
 	if msgs == nil {
 		msgs = []store.DirectMessage{}
@@ -614,6 +662,10 @@ func (m *mcpServer) readDirectMessages(
 func (m *mcpServer) proposeWrap(
 	ctx context.Context, _ *mcp.CallToolRequest, in wrapIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
 	if _, err := m.workItem(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
@@ -621,10 +673,7 @@ func (m *mcpServer) proposeWrap(
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
-	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
-	if err != nil {
-		return nil, wrapOut{}, err
-	}
+	scopes := space.BotScopes(c, *m.tok.BotID)
 	for i := range in.Items {
 		it := &in.Items[i]
 		if it.Scope == "" {
@@ -655,7 +704,7 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		SpaceID: m.tok.SpaceID, Role: m.tok.Role, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, Role: name, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
@@ -680,13 +729,17 @@ func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return slices.ContainsFunc(t.Roles, func(r store.Role) bool {
-		return r.Lead && r.Name == m.tok.Role
+		return r.Lead && m.tok.BotID != nil && r.TeammateID == *m.tok.BotID
 	}), nil
 }
 
 func (m *mcpServer) createSubItem(
 	ctx context.Context, _ *mcp.CallToolRequest, in createSubItemIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
 	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, store.WorkItem{}, err
@@ -698,7 +751,7 @@ func (m *mcpServer) createSubItem(
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
-	text := fmt.Sprintf("%s added sub-item %d to work item %d: %s", m.tok.Role, w.ID, f.ID, w.Title)
+	text := fmt.Sprintf("%s added sub-item %d to work item %d: %s", name, w.ID, f.ID, w.Title)
 	if err := m.st.AddFYI(ctx, store.KindSubItem, w.ID, text); err != nil {
 		return nil, store.WorkItem{}, err
 	}
@@ -708,13 +761,17 @@ func (m *mcpServer) createSubItem(
 func (m *mcpServer) proposeWorkItem(
 	ctx context.Context, _ *mcp.CallToolRequest, in proposeWorkItemIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
 	w := store.WorkItem{
 		ProjectID: c.ProjectID, Type: in.Type, Title: in.Title, Description: in.Description,
-		ProposedBy: m.tok.Role,
+		ProposedBy: name,
 	}
 	for _, text := range in.Acceptance {
 		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
@@ -731,7 +788,7 @@ func (m *mcpServer) proposeWorkItem(
 		return nil, store.WorkItem{}, err
 	}
 	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
-		m.tok.Role, w.ID, w.Title)
+		name, w.ID, w.Title)
 	if team.Name != "" {
 		text += fmt.Sprintf(" Suggested team: %s.", team.Name)
 	}
@@ -839,11 +896,15 @@ func (m *mcpServer) subItem(ctx context.Context, id int64) (store.WorkItem, erro
 func (m *mcpServer) proposeBrief(
 	ctx context.Context, _ *mcp.CallToolRequest, in briefIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
 	if _, err := m.workItem(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		SpaceID: m.tok.SpaceID, Role: m.tok.Role, Kind: store.ProposalBrief, Brief: in.Brief,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, Role: name, Kind: store.ProposalBrief, Brief: in.Brief,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err

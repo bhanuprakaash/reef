@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+func identityTestBots(t *testing.T, s *Store) map[string]*int64 {
+	t.Helper()
+	bots := map[string]*int64{}
+	existing, err := s.Teammates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bot := range existing {
+		id := bot.ID
+		bots[bot.Name] = &id
+	}
+	for _, name := range []string{"lead", "developer", "architect", "tester"} {
+		if bots[name] != nil {
+			continue
+		}
+		bot, err := s.CreateTeammate(context.Background(), Teammate{Name: name, Backend: "claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		bots[name] = &bot.ID
+	}
+	return bots
+}
+
 func TestDirectRequestState(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -20,6 +44,7 @@ func TestDirectRequestState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	bots := identityTestBots(t, s)
 	state := func(id int64) string {
 		t.Helper()
 		m, err := s.DirectMessage(ctx, id)
@@ -30,7 +55,7 @@ func TestDirectRequestState(t *testing.T) {
 	}
 	request := func(from, to string) DirectMessage {
 		t.Helper()
-		m, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: from, To: to, Body: "status?"})
+		m, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: from, To: to, FromBotID: bots[from], ToBotID: bots[to], Body: "status?"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,7 +64,7 @@ func TestDirectRequestState(t *testing.T) {
 	turn := func(role string, wake *int64) {
 		t.Helper()
 		if _, err := s.CreateTurn(ctx, Turn{
-			SpaceID: ch.ID, Role: role, Backend: "claude", DirectMessageID: wake,
+			SpaceID: ch.ID, Role: role, BotID: bots[role], Backend: "claude", DirectMessageID: wake,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +78,7 @@ func TestDirectRequestState(t *testing.T) {
 	if got := state(req.ID); got != "delivered" {
 		t.Fatalf("state after the recipient's turn started = %q, want delivered", got)
 	}
-	resp, err := s.CreateDirectResponse(ctx, req.ID, "tester", "all green")
+	resp, err := s.CreateDirectResponse(ctx, req.ID, bots["tester"], "tester", "all green")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,10 +95,10 @@ func TestDirectRequestState(t *testing.T) {
 	}
 
 	failed, stopped := request("lead", "architect"), request("lead", "tester")
-	if _, err := s.CreateFailedDirectResponse(ctx, failed.ID, "architect", "dropped"); err != nil {
+	if _, err := s.CreateFailedDirectResponse(ctx, failed.ID, bots["architect"], "architect", "dropped"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateFailedDirectResponse(ctx, stopped.ID, "tester", "stopped"); err != nil {
+	if _, err := s.CreateFailedDirectResponse(ctx, stopped.ID, bots["tester"], "tester", "stopped"); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := state(failed.ID)+" "+state(stopped.ID), "failed stopped"; got != want {
@@ -96,10 +121,11 @@ func TestClosingASpaceStopsItsWaitingDirectRequests(t *testing.T) {
 	for name, closeSpace := range closers {
 		t.Run(name, func(t *testing.T) {
 			s := proposalFixture(t)
+			bots := identityTestBots(t, s)
 			request := func(spaceID int64, to string) DirectMessage {
 				t.Helper()
 				m, err := s.CreateDirectMessage(ctx,
-					DirectMessage{SpaceID: spaceID, From: "lead", To: to, Body: "status?"})
+					DirectMessage{SpaceID: spaceID, From: "lead", To: to, FromBotID: bots["lead"], ToBotID: bots[to], Body: "status?"})
 				if err != nil {
 					t.Fatal(err)
 				}
