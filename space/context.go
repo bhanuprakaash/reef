@@ -486,7 +486,23 @@ func changedSince(
 			brief.Body = ""
 		}
 	}
+	notices, err := st.MembershipNotices(ctx, ch.ID, since)
+	if err != nil {
+		return "", err
+	}
 	var parts []string
+	if len(notices) > 0 {
+		team, err := st.SpaceTeam(ctx, ch.ID)
+		if err != nil {
+			return "", err
+		}
+		names := make([]string, len(team.Roles))
+		for i, r := range team.Roles {
+			names[i] = "@" + r.Name
+		}
+		parts = appendPart(parts, "Team changed",
+			strings.Join(notices, "\n")+"\nTeam now: "+strings.Join(names, ", "))
+	}
 	parts = appendPart(parts, "Changed since your last turn", strings.Join(lines, "\n"))
 	parts = appendPart(parts, "New brief", brief.Body)
 	return strings.Join(parts, "\n"), nil

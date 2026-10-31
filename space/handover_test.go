@@ -139,6 +139,33 @@ func TestSession_RefreshStartsNewContextWithHandoverAndFailureRetries(t *testing
 	}
 }
 
+func TestSession_NewcomerStartsFromAHandover(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	if _, err := st.CreateMessage(ctx, store.Message{
+		SpaceID: ch.ID, Author: store.ReefAuthor, Body: "architect" + store.JoinedSuffix,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	s := openRefreshSession(t, st, ch, t.TempDir(), ag.factory)
+	if err := sendAs(ctx, st, ch.ID, s.Run, "next", discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ag.prompts) != 1 {
+		t.Fatalf("prompts = %q, want one", ag.prompts)
+	}
+	for _, want := range []string{
+		"You joined this Space after it started", "Goal: Login", "architect joined the Space",
+		"read_thread and search_sessions, and saved memory with recall",
+	} {
+		if !strings.Contains(ag.prompts[0], want) {
+			t.Errorf("prompt = %q, want %q", ag.prompts[0], want)
+		}
+	}
+}
+
 func TestSession_RenewalKeepsAdoptedSettingsAndHandsOver(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

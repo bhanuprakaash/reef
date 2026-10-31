@@ -40,6 +40,7 @@ export function useLiveTurn(spaceId: number): LiveTurn {
         void refresh().then(() => dispatch('clear'));
         void queryClient.invalidateQueries({ queryKey: ['spaces'] });
         void queryClient.invalidateQueries({ queryKey: ['proposal', spaceId] });
+        void queryClient.invalidateQueries({ queryKey: ['member-proposals', spaceId] });
         void queryClient.invalidateQueries({ queryKey: skillDraftsKey });
         void queryClient.invalidateQueries({ queryKey: inspectorKey(spaceId) });
         void queryClient.invalidateQueries({ queryKey: ['work-items'] });

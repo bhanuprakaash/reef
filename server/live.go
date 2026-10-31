@@ -115,6 +115,8 @@ type live struct {
 	shed []wake
 	// drop is the revoked Bots whose agent closes before the next turn, as a turn is running.
 	drop []int64
+	// leave is the Bots that leave the Space when the turn that is running ends.
+	leave []leaving
 	// turnBot and turnCancel are the Bot of the turn that is running and the cancel of that turn
 	// alone; revoked is set when that turn was cancelled because its Bot was revoked, and the
 	// chain goes on.
@@ -350,7 +352,7 @@ func (s *server) dropIdle(id int64, l *live, deleted bool) {
 	if s.lives[id] != l || l.state != _idle || l.sess != nil {
 		return
 	}
-	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil && len(l.drop) == 0) {
+	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil && len(l.drop) == 0 && len(l.leave) == 0) {
 		delete(s.lives, id)
 	}
 }
@@ -1488,6 +1490,17 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 					log.Printf("close revoked Bot %d of Space %d: %v", botID, c.id, err)
 				}
 			}
+		}
+		leave := l.leave
+		l.leave = nil
+		l.mu.Unlock()
+		if len(leave) > 0 {
+			s.applyLeaving(c.ctx, c.id, sess, leave)
+		}
+		team, teamErr := s.st.SpaceTeam(context.WithoutCancel(c.ctx), c.id)
+		l.mu.Lock()
+		if teamErr == nil {
+			queue, l.queued = keepMembers(queue, team), keepMembers(l.queued, team)
 		}
 		if !ok {
 			l.sess = nil

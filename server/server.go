@@ -129,6 +129,7 @@ func newHandler(
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)
 	s.exchangeRoutes(mux)
+	s.memberRoutes(mux)
 	s.turnOpRoutes(mux)
 	s.proposalRoutes(mux)
 	s.decisionRoutes(mux)

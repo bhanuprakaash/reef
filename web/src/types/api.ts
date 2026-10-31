@@ -135,6 +135,17 @@ export type Proposal = {
   createdAt: string;
 };
 
+export type MemberProposal = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  botName: string;
+  proposedBy: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+};
+
 export type Message = {
   id: number;
   spaceId: number;

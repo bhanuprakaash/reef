@@ -60,8 +60,11 @@ const (
 // FailedDirectState is the state a request takes when its failed response has body: stopped
 // for the body "stopped" a wake gets when the user stops its Space, failed for any other.
 func FailedDirectState(body string) string {
-	if body == "stopped" {
+	switch {
+	case body == "stopped":
 		return DirectStopped
+	case strings.HasPrefix(body, CancelledPrefix):
+		return DirectCancelled
 	}
 	return DirectFailed
 }

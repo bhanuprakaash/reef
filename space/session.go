@@ -526,10 +526,15 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	if renew {
 		last = store.Turn{}
 	}
-	var history, refreshed bool
+	var history, refreshed, joined bool
 	if last.SessionID == "" && !in.fork {
 		if history, refreshed, err = replacement(wctx, s.st, s.ch.ID, r.BotID, bs.ID); err != nil {
 			return nil, err
+		}
+		if !history {
+			if joined, err = newcomer(wctx, s.st, s.ch.ID, r); err != nil {
+				return nil, err
+			}
 		}
 	}
 	tok, err := s.st.CreateToken(wctx, s.ch.ID, r.BotID)
@@ -610,13 +615,13 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, bs.Apply(r))
 	}
-	if history {
+	if history || joined {
 		m.run.Handover = func(ctx context.Context) (string, error) {
 			ch, err := s.st.Space(ctx, s.ch.ID)
 			if err != nil {
 				return "", err
 			}
-			return handover(ctx, s.st, s.ms, ch, r.BotID, cwd)
+			return handover(ctx, s.st, s.ms, ch, r.BotID, cwd, joined)
 		}
 	}
 	if refreshed {

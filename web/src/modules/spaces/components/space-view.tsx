@@ -25,6 +25,7 @@ import { LiveTurn } from '@/modules/spaces/components/live-turn';
 import { MessageList } from '@/modules/spaces/components/message-list';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
+import { MemberProposalPanel } from '@/modules/spaces/components/member-proposal-panel';
 import { ProposalPanel } from '@/modules/spaces/components/proposal-panel';
 import { TeamPanel } from '@/modules/spaces/components/team-panel';
 import { ThreadPane } from '@/modules/spaces/components/thread-pane';
@@ -253,6 +254,7 @@ export function SpaceView({
               <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
               <DeniedToolRows space={space} roles={roles} running={running} />
               <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
+              <MemberProposalPanel spaceId={space.id} />
               {drafts}
             </div>
           </div>

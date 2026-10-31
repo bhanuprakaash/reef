@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
@@ -55,10 +57,16 @@ func replacement(
 // left, the workspace and the last messages in short.
 func handover(
 	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, botID int64, dir string,
+	newcomer bool,
 ) (string, error) {
 	var b strings.Builder
-	b.WriteString("## Handover\nThis session replaces your earlier one. The Space keeps its history; " +
-		"this is a short summary, not the transcript.\n")
+	if newcomer {
+		b.WriteString("## Handover\nYou joined this Space after it started. The Space keeps its " +
+			"history; this is a short summary of where it stands, not the transcript.\n")
+	} else {
+		b.WriteString("## Handover\nThis session replaces your earlier one. The Space keeps its history; " +
+			"this is a short summary, not the transcript.\n")
+	}
 	if ch.WorkItemID == nil {
 		fmt.Fprintf(&b, "Goal: %s\nWorkspace: %s\n", firstLine(ch.Name), dir)
 	} else {
@@ -123,8 +131,22 @@ func handover(
 		lines[i] = fmt.Sprintf("%s: %s", m.Author, firstLine(m.Body))
 	}
 	b.WriteString(handoverList("Last messages", lines))
-	b.WriteString("Read earlier messages with read_thread and search_sessions.\n")
+	b.WriteString("Read earlier messages with read_thread and search_sessions, and saved memory with recall.\n")
 	return b.String(), nil
+}
+
+// newcomer reports whether the Bot joined the Space after it started and has not run in it yet:
+// it has no turn here and a join notice names it.
+func newcomer(ctx context.Context, st *store.Store, spaceID int64, bot store.Role) (bool, error) {
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID, BotID: &bot.BotID})
+	if err != nil || len(turns) > 0 {
+		return false, err
+	}
+	notices, err := st.MembershipNotices(ctx, spaceID, time.Time{})
+	if err != nil {
+		return false, err
+	}
+	return slices.Contains(notices, bot.Name+store.JoinedSuffix), nil
 }
 
 func handoverList(label string, lines []string) string {
