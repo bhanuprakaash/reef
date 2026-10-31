@@ -61,6 +61,12 @@ func block(
 	if err != nil {
 		return "", 0, err
 	}
+	var posted int64
+	for _, m := range msgs {
+		if m.BotID != nil && *m.BotID == botID {
+			posted = max(posted, m.ID)
+		}
+	}
 	unread := slices.DeleteFunc(msgs, func(m store.Message) bool {
 		switch {
 		case (m.BotID != nil && *m.BotID == botID) || m.Author == store.ReefAuthor:
@@ -73,6 +79,10 @@ func block(
 	})
 	if len(unread) == 0 {
 		return "", 0, nil
+	}
+	if sc.Thread == 0 && read[0] == 0 {
+		last := unread[len(unread)-1]
+		unread = slices.DeleteFunc(unread, func(m store.Message) bool { return m.ID <= posted && m.ID != last.ID })
 	}
 	omitted := 0
 	if read[sc.Thread] == 0 && len(unread) > _firstWake {

@@ -326,6 +326,33 @@ func TestWakeAs_NewSessionShowsOnlyTheLastTwentyMessages(t *testing.T) {
 	}
 }
 
+func TestWakeAs_NewSessionSkipsWhatTheBotAlreadyAnswered(t *testing.T) {
+	e := newWakeEnv(t)
+	team, err := e.st.SpaceTeam(context.Background(), e.ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var devID int64
+	for _, r := range team.Roles {
+		if r.Name == "developer" {
+			devID = r.BotID
+		}
+	}
+	e.say("user", "Say ok in one word.", nil)
+	if _, err := e.st.CreateMessage(context.Background(), store.Message{
+		SpaceID: e.ch.ID, Author: "developer", BotID: &devID, Body: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	e.say("user", "next", nil)
+	e.say("user", "last", nil)
+
+	want := "[Space 1, message 4]\nNew in the Space:\nuser: next\n\nlast"
+	if got := e.wake("developer", "[Space 1, message 4]\nlast", nil, store.Scope{}); got != want {
+		t.Errorf("wake =\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestWakeAs_ReplyGoesWhereTheFirstSentBlockSays(t *testing.T) {
 	e := newWakeEnv(t)
 	root := e.say("user", "root", nil)

@@ -21,7 +21,6 @@ export function DeniedToolRows({ space, roles, running }: Props) {
     <div className="space-y-2">
       <ul className="space-y-2">
         {rows.map((d) => {
-          const lead = d.role.lead;
           const added = isAllowed(d.role.tools, d.pattern);
           return (
             <li
@@ -46,11 +45,7 @@ export function DeniedToolRows({ space, roles, running }: Props) {
                   type="button"
                   disabled={running || add.isPending}
                   onClick={() =>
-                    add.mutate({
-                      role: d.role,
-                      pattern: d.pattern,
-                      stopSpace: lead ? space.id : undefined,
-                    })
+                    add.mutate({ role: d.role, pattern: d.pattern, spaceId: space.id })
                   }
                 >
                   Add to role

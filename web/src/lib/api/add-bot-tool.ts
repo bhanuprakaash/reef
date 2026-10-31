@@ -3,19 +3,20 @@ import { api } from '@/lib/api-client';
 import { botRequestBody } from '@/lib/api/bot-request-body';
 import type { Role } from '@/types/api';
 
-type Add = { role: Role; pattern: string; stopSpace?: number };
+type Add = { role: Role; pattern: string; spaceId: number };
 
 export function useAddBotTool() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ role, pattern, stopSpace }: Add) => {
+    mutationFn: async ({ role, pattern, spaceId }: Add) => {
       await api<void>(`/bots/${role.botId}`, {
         method: 'PUT',
         body: JSON.stringify(botRequestBody({ ...role, tools: [...role.tools, pattern] })),
       });
-      if (stopSpace !== undefined) {
-        await api<void>(`/spaces/${stopSpace}/stop`, { method: 'POST', body: '{}' });
-      }
+      await api<unknown>(`/spaces/${spaceId}/bots/${role.botId}/refresh`, {
+        method: 'POST',
+        body: '{}',
+      });
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: ['bots'] });

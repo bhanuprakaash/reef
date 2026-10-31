@@ -108,9 +108,10 @@ logged in and on `PATH`.
   disabled for this session"), read from `GET /spaces/{id}/inspector`, gets a card
   "<Role> was denied <tool>" under the messages. A `Bash` call shows as `Bash(<first word>:*)`, and a
   compound command shows no card. Add to role reads `GET /bots/{id}`, appends the pattern to that bot's
-  `tools` and saves with `PUT /bots/{id}`; the card then says Added. The next wake of a specialist
-  starts with it in `--allowedTools`; the lead keeps its agent between turns, so Add for the lead also
-  does `POST /spaces/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
+  `tools` and saves with `PUT /bots/{id}`, then `POST /spaces/{id}/bots/{botId}/refresh` so that
+  Bot's session in this Space adopts it (Add is an explicit grant; sessions otherwise keep their
+  adopted settings); the card then says Added. The Bot's next wake starts a new context with it in
+  `--allowedTools`. Add is disabled while a turn runs. A read-only role refused an
   edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
   A checkpoint taken in another tree, such as a free Space's turn after an attach, is not
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
