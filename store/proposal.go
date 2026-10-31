@@ -190,7 +190,7 @@ func (s *Store) PendingProposals(
 		args = append(args, *workItemID)
 	}
 	if projectID != nil {
-		query += " AND space_id IN (SELECT id FROM space WHERE project_id = ?)"
+		query += " AND space_id IN (SELECT space_id FROM space_project WHERE project_id = ?)"
 		args = append(args, *projectID)
 	}
 	rows, err := s.db.QueryContext(ctx, query+" ORDER BY id", args...)

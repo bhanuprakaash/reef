@@ -154,7 +154,7 @@ func (s *Store) MoveConversation(ctx context.Context, id, botID int64) (Space, e
 		return Space{}, fmt.Errorf("%w: conversation has no lead", ErrInvalid)
 	}
 	leadID := team.Roles[0].BotID
-	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: team.Roles[0].Name, Kind: KindFree}
+	moved := Space{Name: conv.Name, Role: team.Roles[0].Name, Kind: KindFree}
 	return s.insertSpace(ctx, moved, nil, func(tx *sql.Tx, newID int64) error {
 		res, err := tx.ExecContext(ctx,
 			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, id = ? "+
@@ -164,6 +164,11 @@ func (s *Store) MoveConversation(ctx context.Context, id, botID int64) (Space, e
 		}
 		if n, err := res.RowsAffected(); err == nil && n < 2 {
 			return fmt.Errorf("%w: bot %d is unknown or leads the conversation", ErrInvalid, botID)
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO space_project (space_id, project_id) "+
+				"SELECT ?, project_id FROM space_project WHERE space_id = ?", newID, id); err != nil {
+			return err
 		}
 		res, err = tx.ExecContext(ctx,
 			"UPDATE space SET moved_to = ? WHERE id = ? AND moved_to IS NULL", newID, id)

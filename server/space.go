@@ -27,6 +27,11 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /spaces/{id}/members", s.listSpaceMembers)
 	mux.HandleFunc("POST /spaces/{id}/members", s.addSpaceMember)
 	mux.HandleFunc("/spaces/{id}/members", methodNotAllowed)
+	mux.HandleFunc("GET /spaces/{id}/projects", s.listSpaceProjects)
+	mux.HandleFunc("/spaces/{id}/projects", methodNotAllowed)
+	mux.HandleFunc("PUT /spaces/{id}/projects/{projectId}", s.addSpaceProject)
+	mux.HandleFunc("DELETE /spaces/{id}/projects/{projectId}", s.removeSpaceProject)
+	mux.HandleFunc("/spaces/{id}/projects/{projectId}", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/reopen", s.reopenSpace)
 	mux.HandleFunc("/spaces/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/inspector", s.getInspector)
@@ -390,6 +395,55 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 	}
 	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: ch.ID, Author: store.ReefAuthor, Body: body})
 	return attached, err
+}
+
+func (s *server) listSpaceProjects(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	s.writeSpaceProjects(w, r, id)
+}
+
+func (s *server) addSpaceProject(w http.ResponseWriter, r *http.Request) {
+	s.editSpaceProject(w, r, s.st.AddSpaceProject)
+}
+
+func (s *server) removeSpaceProject(w http.ResponseWriter, r *http.Request) {
+	s.editSpaceProject(w, r, s.st.RemoveSpaceProject)
+}
+
+func (s *server) editSpaceProject(
+	w http.ResponseWriter, r *http.Request, edit func(ctx context.Context, id, projectID int64) error,
+) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	projectID, err := strconv.ParseInt(r.PathValue("projectId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: project id %q is not a number", store.ErrInvalid, r.PathValue("projectId")))
+		return
+	}
+	if err := edit(r.Context(), id, projectID); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.writeSpaceProjects(w, r, id)
+}
+
+func (s *server) writeSpaceProjects(w http.ResponseWriter, r *http.Request, id int64) {
+	ps, err := s.st.SpaceProjects(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if ps == nil {
+		ps = []store.Project{}
+	}
+	writeJSON(w, http.StatusOK, ps)
 }
 
 func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
