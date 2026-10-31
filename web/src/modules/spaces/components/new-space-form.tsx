@@ -27,8 +27,8 @@ export function NewSpaceForm({
   onCreated,
   onClose,
 }: Props) {
-  const [picked, setPicked] = useState(proposal ? [] : [itemTeam ?? 'solo']);
-  const [dropped, setDropped] = useState<number[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [included, setIncluded] = useState<number[]>(proposal?.botIds ?? []);
   const [chosen, setChosen] = useState<number | null>(proposal?.coordinatorBotId ?? null);
   const [name, setName] = useState(proposal?.name ?? '');
   const create = useCreateSpace();
@@ -38,26 +38,32 @@ export function NewSpaceForm({
   const nameId = useId();
   const teamList = (teams.data ?? []).filter((t) => itemTeam === undefined || t.name === itemTeam);
 
-  const proposed: Role[] = (bots.data ?? [])
-    .filter((b) => proposal?.botIds.includes(b.id))
+  const crewBots = (crew: string) =>
+    teams.data?.find((t) => t.name === crew)?.roles.map((r) => r.botId) ?? [];
+  const roster: Role[] = (bots.data ?? [])
+    .filter((b) => included.includes(b.id))
     .map((b) => ({ ...b, botId: b.id, lead: false }));
-  const pickedRoles = proposed.concat(
-    picked.flatMap((n) => teams.data?.find((t) => t.name === n)?.roles ?? []),
+  const suggested = picked.flatMap(
+    (n) => teams.data?.find((t) => t.name === n)?.roles.filter((r) => r.lead) ?? [],
   );
-  const listed = pickedRoles.filter(
-    (r, i) => pickedRoles.findIndex((o) => o.botId === r.botId) === i,
-  );
-  const roster = listed.filter((r) => !dropped.includes(r.botId));
   const coordinator =
-    roster.find((r) => r.botId === chosen) ?? roster.find((r) => r.lead) ?? roster[0];
+    roster.find((r) => r.botId === chosen) ??
+    roster.find((r) => suggested.some((s) => s.botId === r.botId)) ??
+    roster[0];
 
   function toggleCrew(crew: string) {
-    setPicked(picked.includes(crew) ? picked.filter((n) => n !== crew) : [...picked, crew]);
-  }
-  function toggleBot(r: Role) {
-    setDropped(
-      dropped.includes(r.botId) ? dropped.filter((b) => b !== r.botId) : [...dropped, r.botId],
+    const next = picked.includes(crew) ? picked.filter((n) => n !== crew) : [...picked, crew];
+    setPicked(next);
+    setIncluded(
+      next.includes(crew)
+        ? [...new Set([...included, ...crewBots(crew)])]
+        : included.filter(
+            (id) => !crewBots(crew).includes(id) || next.some((n) => crewBots(n).includes(id)),
+          ),
     );
+  }
+  function toggleBot(id: number) {
+    setIncluded(included.includes(id) ? included.filter((b) => b !== id) : [...included, id]);
   }
 
   return (
@@ -124,28 +130,28 @@ export function NewSpaceForm({
       <div>
         <div className={labelClass}>Bots in this Space</div>
         <ul className="space-y-1">
-          {listed.map((r) => {
-            const out = dropped.includes(r.botId);
+          {(bots.data ?? []).map((b) => {
+            const out = !included.includes(b.id);
             return (
-              <li key={r.botId} className="flex items-center gap-2 text-sm">
+              <li key={b.id} className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  aria-label={`Include ${r.name}`}
+                  aria-label={`Include ${b.name}`}
                   checked={!out}
-                  onChange={() => toggleBot(r)}
+                  onChange={() => toggleBot(b.id)}
                 />
-                <Creature look={r} size={22} />
+                <Creature look={b} size={22} />
                 <span className={`min-w-0 flex-1 truncate ${out ? 'text-faint' : ''}`}>
-                  {r.name}
+                  {b.name}
                 </span>
                 {!out && (
                   <label className="flex items-center gap-1.5 text-xs text-muted">
                     <input
                       type="radio"
                       name="coordinator"
-                      aria-label={`${r.name} coordinates`}
-                      checked={coordinator?.botId === r.botId}
-                      onChange={() => setChosen(r.botId)}
+                      aria-label={`${b.name} coordinates`}
+                      checked={coordinator?.botId === b.id}
+                      onChange={() => setChosen(b.id)}
                     />
                     coordinator
                   </label>

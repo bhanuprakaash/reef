@@ -40,15 +40,18 @@ it('asks for a name and Crews, not a backend or permission mode', () => {
   expect(markup).not.toContain('Permission');
 });
 
-it('previews the roster with a coordinator to adjust', () => {
+it('preselects no Crew and no Bot', () => {
   const markup = renderToStaticMarkup(
     <MemoryRouter>
       <NewSpaceForm projectId={1} workItemId={null} onClose={() => {}} />
     </MemoryRouter>,
   );
 
+  expect(markup).toContain('aria-pressed="false"');
+  expect(markup).not.toContain('aria-pressed="true"');
   expect(markup).toContain('aria-label="Include lead"');
-  expect(markup).toContain('aria-label="lead coordinates"');
+  expect(markup).not.toMatch(/aria-label="Include lead"[^>]*checked/);
+  expect(markup).not.toContain('coordinates');
 });
 
 it('opens a Bot proposal with its Bots and coordinator, and no Crew chosen', () => {
@@ -61,6 +64,7 @@ it('opens a Bot proposal with its Bots and coordinator, and no Crew chosen', () 
 
   expect(markup).toContain('value="review"');
   expect(markup).toContain('aria-label="Include xena"');
-  expect(markup).not.toContain('aria-label="Include lead"');
+  expect(markup).toMatch(/aria-label="Include xena"[^>]*checked/);
+  expect(markup).not.toMatch(/aria-label="Include lead"[^>]*checked/);
   expect(markup).toMatch(/aria-label="xena coordinates"[^>]*checked/);
 });
