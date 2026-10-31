@@ -420,7 +420,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
-			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"sketch"},
+			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"claude:sketch"},
 			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
 		},
 	}}); err != nil {
