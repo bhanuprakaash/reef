@@ -364,12 +364,13 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
-// About returns the accepted items with an about link to ref, oldest first, with their links.
+// About returns the accepted items on a project shelf with an about link to ref, oldest first,
+// with their links.
 func (s *Store) About(ctx context.Context, ref Ref) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
-		_selectItem+` WHERE status = ? AND id IN (SELECT from_id FROM memory_link
+		_selectItem+` WHERE status = ? AND scope_kind = ? AND id IN (SELECT from_id FROM memory_link
 		 WHERE rel = ? AND to_kind = ? AND to_id = ?) ORDER BY id`,
-		StatusAccepted, RelAbout, ref.Kind, ref.ID)
+		StatusAccepted, ScopeProject, RelAbout, ref.Kind, ref.ID)
 	if err != nil {
 		return nil, fmt.Errorf("query items about %s:%s: %w", ref.Kind, ref.ID, err)
 	}

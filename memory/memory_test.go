@@ -746,3 +746,20 @@ func TestRemember_KeepsBotID(t *testing.T) {
 		t.Fatalf("item = %+v", got)
 	}
 }
+
+func TestAbout_OnlyProjectShelves(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	about := []Ref{{Kind: ScopeProject, ID: "2"}}
+	for _, scope := range []Ref{{Kind: ScopeProject, ID: "1"}, {Kind: ScopeBot, ID: "3"}, {Kind: ScopeConversation, ID: "4"}} {
+		w := writer()
+		w.Scope = scope
+		if _, err := s.Remember(ctx, w, Note{Kind: KindFact, Body: "on " + scope.Kind, About: about}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.About(ctx, about[0])
+	if err != nil || len(got) != 1 || got[0].Body != "on project" {
+		t.Errorf("About = %+v, %v, want only the project-shelf item", got, err)
+	}
+}

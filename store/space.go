@@ -427,9 +427,13 @@ func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, e
 	if err != nil {
 		return Space{}, s.spaceWriteErr(ctx, "attach Space", err, &workItemID)
 	}
-	if _, err := tx.ExecContext(ctx,
-		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, f.ProjectID); err != nil {
+	res, err := tx.ExecContext(ctx,
+		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, f.ProjectID)
+	if err != nil {
 		return Space{}, fmt.Errorf("associate Space with project: %w", err)
+	}
+	if err := noteSpaceProject(ctx, tx, res, id, f.ProjectID, nil, _noteAssociated); err != nil {
+		return Space{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return Space{}, fmt.Errorf("commit attach Space: %w", err)
@@ -459,13 +463,21 @@ func (s *Store) AddSpaceProject(ctx context.Context, id, projectID int64, by *in
 	if err := s.requireProjectEdit(ctx, id); err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin add Space project: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, projectID)
 	if err != nil {
 		return s.writeErr(ctx, "add Space project", err, ErrNotFound,
 			parent{table: "project", id: &projectID})
 	}
-	return s.noteSpaceProject(ctx, res, id, projectID, by, "%s associated Project %s with this conversation.")
+	if err := noteSpaceProject(ctx, tx, res, id, projectID, by, _noteAssociated); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // RemoveSpaceProject drops the association of Space id with the project, which the Space
@@ -475,38 +487,52 @@ func (s *Store) RemoveSpaceProject(ctx context.Context, id, projectID int64, by 
 	if err := s.requireProjectEdit(ctx, id); err != nil {
 		return err
 	}
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remove Space project: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		"DELETE FROM space_project WHERE space_id = ? AND project_id = ?", id, projectID)
 	if err != nil {
 		return fmt.Errorf("remove Space project: %w", err)
 	}
-	return s.noteSpaceProject(ctx, res, id, projectID, by, "%s removed Project %s from this conversation.")
+	if err := noteSpaceProject(ctx, tx, res, id, projectID, by,
+		"%s removed Project %s from this conversation."); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
+const _noteAssociated = "%s associated Project %s with this conversation."
+
 // noteSpaceProject writes the note format, filled with who and the project's name, as a Reef
-// message when res changed a row.
-func (s *Store) noteSpaceProject(
-	ctx context.Context, res sql.Result, id, projectID int64, by *int64, format string,
+// message in tx when res changed a row.
+func noteSpaceProject(
+	ctx context.Context, tx *sql.Tx, res sql.Result, id, projectID int64, by *int64, format string,
 ) error {
 	if n, err := res.RowsAffected(); err != nil || n == 0 {
 		return err
 	}
 	var project string
-	if err := s.db.QueryRowContext(ctx, "SELECT name FROM project WHERE id = ?", projectID).
+	if err := tx.QueryRowContext(ctx, "SELECT name FROM project WHERE id = ?", projectID).
 		Scan(&project); err != nil {
 		return fmt.Errorf("read project %d: %w", projectID, err)
 	}
 	who := "You"
 	if by != nil {
-		if err := s.db.QueryRowContext(ctx, "SELECT name FROM bot WHERE id = ?", *by).
+		if err := tx.QueryRowContext(ctx, "SELECT name FROM bot WHERE id = ?", *by).
 			Scan(&who); err != nil {
 			return fmt.Errorf("read bot %d: %w", *by, err)
 		}
 	}
-	_, err := s.CreateMessage(ctx, Message{
-		SpaceID: id, Author: ReefAuthor, BotID: by, Body: fmt.Sprintf(format, who, project),
-	})
-	return err
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO message (space_id, author, bot_id, body, created_at) VALUES (?, ?, ?, ?, ?)",
+		id, ReefAuthor, by, fmt.Sprintf(format, who, project),
+		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("note Space project: %w", err)
+	}
+	return nil
 }
 
 // requireProjectEdit is ErrInvalid when Space id belongs to a work item, whose Space stays in

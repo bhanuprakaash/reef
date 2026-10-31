@@ -29,7 +29,12 @@ type (
 		ID int64 `json:"id" jsonschema:"Project id, from list_projects"`
 	}
 	projectOut struct {
-		projectCard
+		ID            int64     `json:"id"`
+		Name          string    `json:"name"`
+		Purpose       string    `json:"purpose"`
+		Path          string    `json:"path"`
+		BaseBranch    string    `json:"baseBranch"`
+		Associated    bool      `json:"associated"`
 		Relationships []itemOut `json:"relationships"`
 	}
 	projectEditIn struct {
@@ -114,7 +119,11 @@ func (m *mcpServer) readProject(
 	if err != nil {
 		return nil, projectOut{}, err
 	}
-	out := projectOut{projectCard: card(p, mine), Relationships: make([]itemOut, 0, len(items))}
+	c := card(p, mine)
+	out := projectOut{
+		ID: c.ID, Name: c.Name, Purpose: c.Purpose, Path: c.Path, BaseBranch: c.BaseBranch,
+		Associated: c.Associated, Relationships: make([]itemOut, 0, len(items)),
+	}
 	for _, it := range items {
 		out.Relationships = append(out.Relationships, toItemOut(it))
 	}
@@ -155,6 +164,15 @@ func (m *mcpServer) relateProjects(
 	}
 	if in.From == in.To {
 		return nil, rememberOut{}, fmt.Errorf("%w: a relationship needs two different Projects", store.ErrInvalid)
+	}
+	mine, err := m.st.SpaceProjects(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
+	if !slices.ContainsFunc(mine, func(p store.Project) bool { return p.ID == in.From }) {
+		return nil, rememberOut{}, fmt.Errorf(
+			"%w: this conversation is not associated with Project %d; call associate_project first",
+			store.ErrInvalid, in.From)
 	}
 	for _, id := range []int64{in.From, in.To} {
 		if _, err := m.st.Project(ctx, id); err != nil {

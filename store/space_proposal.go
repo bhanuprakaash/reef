@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -42,8 +43,12 @@ func (s *Store) CreateSpaceProposal(ctx context.Context, p SpaceProposal) (Space
 		return SpaceProposal{}, fmt.Errorf("%w: coordinator %d is not among the Bots", ErrInvalid, p.CoordinatorBotID)
 	}
 	for _, id := range p.BotIDs {
-		if _, err := s.Bot(ctx, id); err != nil {
+		_, err := s.Bot(ctx, id)
+		if errors.Is(err, ErrNotFound) {
 			return SpaceProposal{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, id)
+		}
+		if err != nil {
+			return SpaceProposal{}, fmt.Errorf("check bot %d: %w", id, err)
 		}
 	}
 	encoded, err := json.Marshal(p.BotIDs)

@@ -245,6 +245,11 @@ func TestAttachSpace_NoProjectOrAnotherProject(t *testing.T) {
 	if err != nil || len(projects) != 2 || projects[0].ID != 1 || projects[1].ID != other.ID {
 		t.Errorf("SpaceProjects = %+v, %v, want projects 1 and %d", projects, err, other.ID)
 	}
+	msgs, err := s.Messages(ctx, free.ID, 0)
+	if err != nil || len(msgs) != 1 || msgs[0].Author != ReefAuthor || msgs[0].BotID != nil ||
+		msgs[0].Body != "You associated Project blog with this conversation." {
+		t.Errorf("history after attach = %+v, %v, want one user-attributed note", msgs, err)
+	}
 }
 
 func TestMoveConversation_FreeSpaceWithBothBotsAndTheConversationMarked(t *testing.T) {
