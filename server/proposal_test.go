@@ -125,6 +125,7 @@ func TestAttach_MixedProjectMemoryStaysInTheSpace(t *testing.T) {
 func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"c"}`); status != 201 {
 		t.Fatalf("create = %d %s, want 201", status, body)
@@ -288,6 +289,7 @@ func TestCreateSpace_FromABotAddsMembersOneByOne(t *testing.T) {
 func TestProposalRoutes(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", ""); status != 404 ||
 		body != `{"error":"pending proposal of Space 2: not found"}` {

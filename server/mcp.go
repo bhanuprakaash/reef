@@ -1139,6 +1139,18 @@ func (m *mcpServer) submitForReview(
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
+	for i, c := range in.Commands {
+		in.Commands[i].ProjectID = 0
+		if c.Project == "" {
+			continue
+		}
+		j := slices.IndexFunc(f.Targets, func(t store.Target) bool { return strings.EqualFold(t.ProjectName, c.Project) })
+		if j < 0 {
+			return nil, store.WorkItem{}, fmt.Errorf("%w: command %q checks project %q, which is not a repository of this Work item",
+				store.ErrInvalid, c.Command, c.Project)
+		}
+		in.Commands[i].Project, in.Commands[i].ProjectID = f.Targets[j].ProjectName, f.Targets[j].ProjectID
+	}
 	for _, p := range in.Screenshots {
 		if err := m.checkScreenshot(p); err != nil {
 			return nil, store.WorkItem{}, err
@@ -1166,7 +1178,9 @@ func (m *mcpServer) proofRepositories(ctx context.Context, id int64) ([]store.Pr
 		}
 		if wk.State == store.WorkspaceReady {
 			r.Head = worktree.Head(ctx, wk.Dir)
-			r.Dirty, _ = worktree.Dirty(ctx, wk.Dir)
+			if r.Dirty, err = worktree.Dirty(ctx, wk.Dir); err != nil {
+				return nil, fmt.Errorf("check %s for uncommitted changes: %w", wk.Dir, err)
+			}
 		}
 		repos = append(repos, r)
 	}

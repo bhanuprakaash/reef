@@ -919,10 +919,17 @@ func TestMCPSubmitForReview(t *testing.T) {
 	}
 	args["screenshots"] = []string{shot}
 	args["commands"] = []map[string]any{
-		{"command": "go test ./...", "output": "ok  reef/server 1.2s", "project": "reef"},
+		{"command": "go test ./...", "output": "ok  reef/server 1.2s", "project": "REEF"},
 		{"command": "make lint", "output": "clean", "project": "docs"},
 	}
 	if _, err := st.CreateProject(ctx, store.Project{Name: "docs", Path: "/tmp/docs"}); err != nil {
+		t.Fatal(err)
+	}
+	got, isErr = leadCall("submit_for_review", args)
+	if want := `invalid: command "make lint" checks project "docs", which is not a repository of this Work item`; got != want || !isErr {
+		t.Errorf("submit with a check for a non-target = %q (error %v), want %q", got, isErr, want)
+	}
+	if _, err := st.AddWorkItemTarget(ctx, 1, 2, store.ByUser); err != nil {
 		t.Fatal(err)
 	}
 	one := int64(1)
@@ -946,6 +953,16 @@ func TestMCPSubmitForReview(t *testing.T) {
 		}
 	}
 	writeIn(t, trees[1], "b.txt", "uncommitted")
+	if err := os.Rename(filepath.Join(trees[1], ".git"), filepath.Join(trees[1], ".git-off")); err != nil {
+		t.Fatal(err)
+	}
+	got, isErr = leadCall("submit_for_review", args)
+	if !strings.Contains(got, "uncommitted changes") || !isErr {
+		t.Errorf("submit with an unreadable repository = %q (error %v), want a refusal", got, isErr)
+	}
+	if err := os.Rename(filepath.Join(trees[1], ".git-off"), filepath.Join(trees[1], ".git")); err != nil {
+		t.Fatal(err)
+	}
 	got, isErr = leadCall("submit_for_review", args)
 	if !strings.Contains(got, `"status":"review"`) || isErr {
 		t.Fatalf("lead submit = %q (error %v), want review", got, isErr)
@@ -963,10 +980,10 @@ func TestMCPSubmitForReview(t *testing.T) {
 		`"commands":[],"repositories":[` +
 		`{"workspaceId":1,"projectId":1,"projectName":"reef","branch":"work-item/1","head":"` + heads[0] + `",` +
 		`"baseRef":"refs/remotes/origin/main","dir":"` + trees[0] + `","dirty":false,` +
-		`"checks":[{"command":"go test ./...","output":"ok  reef/server 1.2s","project":"reef"}]},` +
+		`"checks":[{"command":"go test ./...","output":"ok  reef/server 1.2s","project":"reef","projectId":1}]},` +
 		`{"workspaceId":2,"projectId":2,"projectName":"docs","branch":"work-item/1","head":"` + heads[1] + `",` +
 		`"baseRef":"refs/remotes/origin/main","dir":"` + trees[1] + `","dirty":true,` +
-		`"checks":[{"command":"make lint","output":"clean","project":"docs"}]}],` +
+		`"checks":[{"command":"make lint","output":"clean","project":"docs","projectId":2}]}],` +
 		`"screenshots":["` + shot + `"],"submittedAt":"0001-01-01T00:00:00Z"}`
 	if string(b) != want {
 		t.Errorf("proof = %s, want %s", b, want)

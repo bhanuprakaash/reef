@@ -65,6 +65,24 @@ func newTestServer(t *testing.T) *httptest.Server {
 	return ts
 }
 
+// approveForSpace marks the backlog items ids approved, owned by bot 1 where they have no owner, so
+// POST /spaces takes them without the queue starting them.
+func approveForSpace(t *testing.T, st *store.Store, ids ...int64) {
+	t.Helper()
+	for _, id := range ids {
+		for _, q := range []string{
+			"UPDATE work_item SET owner_bot_id = COALESCE(owner_bot_id, 1), approved_at = '2026-01-01T00:00:00Z', " +
+				"approval_key = 'by-hand-' || id WHERE id = ?",
+			"INSERT OR IGNORE INTO work_item_participant (work_item_id, bot_id) " +
+				"SELECT id, owner_bot_id FROM work_item WHERE id = ?",
+		} {
+			if _, err := st.DB().Exec(q, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
 // newEmbedServer is newTestServer with the embedder e, and the store it serves.
 func newEmbedServer(t *testing.T, e memory.Embedder) (*httptest.Server, *store.Store) {
 	t.Helper()

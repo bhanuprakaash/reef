@@ -13,9 +13,10 @@ import (
 
 // ProofCommand is a command the owner ran as proof, with the output it showed.
 type ProofCommand struct {
-	Command string `json:"command"`
-	Output  string `json:"output"`
-	Project string `json:"project,omitempty" jsonschema:"name of the Project (repository) the command checked; leave out when it checks the whole Work item"`
+	Command   string `json:"command"`
+	Output    string `json:"output"`
+	Project   string `json:"project,omitempty" jsonschema:"name of the Project (repository) the command checked; leave out when it checks the whole Work item"`
+	ProjectID int64  `json:"projectId,omitempty" jsonschema:"set by Reef from project; leave out"`
 }
 
 // ProofRepository is one repository of a submitted assignment as it stood at submit: the
@@ -148,8 +149,8 @@ func (s *Store) Proof(ctx context.Context, id int64) (Proof, error) {
 	}
 	rest := []ProofCommand{}
 	for _, c := range p.Commands {
-		i := slices.IndexFunc(p.Repositories, func(r ProofRepository) bool { return r.ProjectName == c.Project })
-		if c.Project == "" || i < 0 {
+		i := slices.IndexFunc(p.Repositories, func(r ProofRepository) bool { return r.ProjectID == c.ProjectID })
+		if c.ProjectID == 0 || i < 0 {
 			rest = append(rest, c)
 			continue
 		}
@@ -256,11 +257,12 @@ func (s *Store) UnwrappedSpaces(ctx context.Context) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-// ClaimWrap reports whether Space id submitted its Work item for review and no one has started
-// its wrap-up yet, and marks the wrap-up started: only the first caller gets true.
+// ClaimWrap reports whether Space id submitted its Work item, which is still in review, and no
+// one has started its wrap-up yet, and marks the wrap-up started: only the first caller gets true.
 func (s *Store) ClaimWrap(ctx context.Context, spaceID int64) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE proof SET wrap_started = 1 WHERE space_id = ? AND wrap_started = 0", spaceID)
+		"UPDATE proof SET wrap_started = 1 WHERE space_id = ? AND wrap_started = 0 "+
+			"AND work_item_id IN (SELECT id FROM work_item WHERE status = ?)", spaceID, _review)
 	if err != nil {
 		return false, fmt.Errorf("claim wrap-up: %w", err)
 	}

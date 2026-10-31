@@ -11,6 +11,7 @@ export function ApproveCard({ item }: { item: WorkItem }) {
   const [key] = useState(() => crypto.randomUUID());
   const [ownerBotId, setOwnerBotId] = useState(item.ownerBotId);
   const [participantBotIds, setParticipantBotIds] = useState(item.participantBotIds);
+  const [dropped, setDropped] = useState<number[]>([]);
   const bots = useBots();
   const approve = useApproveWorkItem(item.id);
 
@@ -20,7 +21,15 @@ export function ApproveCard({ item }: { item: WorkItem }) {
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (ownerBotId !== null) approve.mutate({ ownerBotId, participantBotIds, key });
+          if (ownerBotId === null) return;
+          approve.mutate({
+            ownerBotId,
+            participantBotIds,
+            targetProjectIds: item.targets
+              .map((t) => t.projectId)
+              .filter((id) => !dropped.includes(id)),
+            key,
+          });
         }}
       >
         <p className="text-[13px] text-muted">
@@ -60,6 +69,32 @@ export function ApproveCard({ item }: { item: WorkItem }) {
                   }
                 />
                 {b.name}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="space-y-1">
+          <span className="text-sm text-muted">Repositories</span>
+          <ul className="space-y-1">
+            {item.targets.map((t) => (
+              <li key={t.projectId} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  aria-label={`Repository ${t.projectName}`}
+                  checked={t.projectId === item.projectId || !dropped.includes(t.projectId)}
+                  disabled={t.projectId === item.projectId}
+                  onChange={(e) =>
+                    setDropped(
+                      e.target.checked
+                        ? dropped.filter((id) => id !== t.projectId)
+                        : [...dropped, t.projectId],
+                    )
+                  }
+                />
+                {t.projectName}
+                {t.authorizedBy === '' && t.proposedBy !== '' && (
+                  <span className="text-xs text-muted">proposed by {t.proposedBy}</span>
+                )}
               </li>
             ))}
           </ul>

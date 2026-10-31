@@ -36,6 +36,7 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}/owner", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/targets", s.listTargets)
 	mux.HandleFunc("POST /work-items/{id}/targets", s.addTarget)
+	mux.HandleFunc("DELETE /work-items/{id}/targets/{projectId}", s.deleteTarget)
 	mux.HandleFunc("/work-items/{id}/targets", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/brief", s.getBrief)
 	mux.HandleFunc("PUT /work-items/{id}/brief", s.putBrief)
@@ -236,13 +237,14 @@ func (s *server) approveWorkItem(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		OwnerBotID        *int64  `json:"ownerBotId"`
 		ParticipantBotIDs []int64 `json:"participantBotIds"`
+		TargetProjectIDs  []int64 `json:"targetProjectIds"`
 		Key               string  `json:"key"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.ApproveWorkItem(r.Context(), id, in.OwnerBotID, in.ParticipantBotIDs, in.Key)
+	f, err := s.st.ApproveWorkItem(r.Context(), id, in.OwnerBotID, in.ParticipantBotIDs, in.TargetProjectIDs, in.Key)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -303,7 +305,7 @@ func (s *server) addTarget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	t, err := s.st.AddWorkItemTarget(r.Context(), id, in.ProjectID, store.ByUser, nil)
+	t, err := s.st.AddWorkItemTarget(r.Context(), id, in.ProjectID, store.ByUser)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -315,6 +317,26 @@ func (s *server) addTarget(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 	writeJSON(w, http.StatusCreated, t)
+}
+
+// deleteTarget takes a Project's repository off a backlog work item. A started item or a Project
+// with a workspace is 409; the home Project and a Project that is not a target are 400.
+func (s *server) deleteTarget(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	projectID, err := strconv.ParseInt(r.PathValue("projectId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: project id", store.ErrInvalid))
+		return
+	}
+	if err := s.st.RemoveWorkItemTarget(r.Context(), id, projectID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // moveInQueue puts the queued work item at a position in the queue; a position outside

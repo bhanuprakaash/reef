@@ -35,12 +35,12 @@ CREATE INDEX workspace_space ON workspace(space_id);
 CREATE TABLE work_item_target_new (
   work_item_id INTEGER NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
   project_id INTEGER NOT NULL,
-  authorized_by TEXT NOT NULL,
-  origin_message_id INTEGER REFERENCES message(id) ON DELETE SET NULL,
+  proposed_by TEXT NOT NULL DEFAULT '',
+  authorized_by TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   PRIMARY KEY (work_item_id, project_id)
 );
-INSERT INTO work_item_target_new SELECT work_item_id, project_id, authorized_by, origin_message_id, created_at
+INSERT INTO work_item_target_new SELECT work_item_id, project_id, proposed_by, authorized_by, created_at
   FROM work_item_target;
 DROP TABLE work_item_target;
 ALTER TABLE work_item_target_new RENAME TO work_item_target;

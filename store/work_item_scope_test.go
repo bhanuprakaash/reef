@@ -29,7 +29,7 @@ func TestWorkItemKeepsTargetsAndParticipantsOnOneRow(t *testing.T) {
 	if item, err = s.SetWorkItemParticipants(ctx, item.ID, &bots[0], []int64{bots[1], bots[2], bots[1]}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddWorkItemTarget(ctx, item.ID, api.ID, "user", nil); err != nil {
+	if _, err := s.AddWorkItemTarget(ctx, item.ID, api.ID, "user"); err != nil {
 		t.Fatal(err)
 	}
 	sub, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, ParentID: &item.ID, Title: "api side"})
@@ -56,10 +56,10 @@ func TestWorkItemKeepsTargetsAndParticipantsOnOneRow(t *testing.T) {
 		t.Errorf("sub-item targets = %v, want %v", targets, want)
 	}
 
-	if _, err := s.AddWorkItemTarget(ctx, item.ID, api.ID, "user", nil); !errors.Is(err, ErrConflict) {
+	if _, err := s.AddWorkItemTarget(ctx, item.ID, api.ID, "user"); !errors.Is(err, ErrConflict) {
 		t.Errorf("duplicate target = %v, want ErrConflict", err)
 	}
-	if _, err := s.AddWorkItemTarget(ctx, sub.ID, api.ID, "user", nil); !errors.Is(err, ErrInvalid) {
+	if _, err := s.AddWorkItemTarget(ctx, sub.ID, api.ID, "user"); !errors.Is(err, ErrInvalid) {
 		t.Errorf("target on a sub-item = %v, want ErrInvalid", err)
 	}
 	if _, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, ParentID: &item.ID, Title: "x", OwnerBotID: &bots[1]}); !errors.Is(err, ErrInvalid) {
@@ -96,7 +96,7 @@ func TestOwnerAndParticipantsChangeOnlyInBacklog(t *testing.T) {
 	if _, err := s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "renamed", OwnerBotID: &bot}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveWorkItem(ctx, 1, nil, nil, "k"); err != nil {
+	if _, err := s.ApproveWorkItem(ctx, 1, nil, nil, nil, "k"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SetWorkItemParticipants(ctx, 1, nil, nil); !errors.Is(err, ErrInvalid) {

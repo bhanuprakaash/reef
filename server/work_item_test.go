@@ -189,7 +189,7 @@ func TestWorkItemBugWithLinesAndSubItems(t *testing.T) {
 			`{"position":1,"text":"no 500","checked":false,"note":""},`+
 			`{"position":2,"text":"error shown","checked":false,"note":""},`+
 			`{"position":3,"text":"test added","checked":false,"note":""}],`+
-			`"ownerBotId":null,"pendingOwnerBotId":null,"participantBotIds":[],"targets":[{"projectId":1,"projectName":"reef","authorizedBy":"user",`) {
+			`"ownerBotId":null,"pendingOwnerBotId":null,"participantBotIds":[],"targets":[{"projectId":1,"projectName":"reef","proposedBy":"","authorizedBy":"user",`) {
 		t.Fatalf("create bug = %d %s", status, body)
 	}
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"type":"task","title":"Reproduce"}`)

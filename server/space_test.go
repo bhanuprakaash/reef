@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,7 +17,10 @@ func TestGetSpaceTokensUsed(t *testing.T) {
 	ts, st := newEmbedServer(t, nil)
 	ctx := context.Background()
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1}`)
+	if _, err := st.ApproveWorkItem(ctx, 1, nil, nil, nil, "k"); err != nil {
+		t.Fatal(err)
+	}
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth"}`)
 	for _, u := range []agent.Usage{
 		{InputTokens: 100, OutputTokens: 20, CacheReadTokens: 9999},
@@ -37,23 +42,48 @@ func TestGetSpaceTokensUsed(t *testing.T) {
 	}
 }
 
-func TestCreateSpaceOfWorkItemRefusesABotAndASubItem(t *testing.T) {
-	ts := newTestServer(t)
+func TestCreateSpaceOfWorkItemIsTheOwnersAndParticipants(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	cy, err := st.CreateBot(ctx, store.Bot{Name: "cy", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1,"participantBotIds":[`+
+		strconv.FormatInt(cy.ID, 10)+`]}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Form"}`)
 
 	for _, c := range []struct{ name, body string }{
 		{"a Bot", `{"projectId":1,"workItemId":1,"name":"a","botId":1}`},
+		{"a backlog item", `{"projectId":1,"workItemId":1,"name":"a"}`},
 		{"a sub-item", `{"projectId":1,"workItemId":2,"name":"a"}`},
 	} {
 		if status, body := do(t, http.MethodPost, ts.URL+"/spaces", c.body); status != 400 {
 			t.Errorf("Space for %s = %d %s, want 400", c.name, status, body)
 		}
 	}
-	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"a"}`)
-	if status != 201 || !strings.Contains(body, `"workItemId":1`) {
-		t.Errorf("Space of the item = %d %s, want 201", status, body)
+	if _, err := st.ApproveWorkItem(ctx, 1, nil, nil, nil, "k"); err != nil {
+		t.Fatal(err)
+	}
+	status, out := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"a"}`)
+	if status != 201 || !strings.Contains(out, `"workItemId":1`) {
+		t.Fatalf("Space of the approved item = %d %s, want 201", status, out)
+	}
+	var sp store.Space
+	if err := json.Unmarshal([]byte(out), &sp); err != nil {
+		t.Fatal(err)
+	}
+	team, err := st.SpaceTeam(ctx, sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range team.Roles {
+		got = append(got, fmt.Sprintf("%d:%t", r.BotID, r.Lead))
+	}
+	if want := fmt.Sprintf("[1:true %d:false]", cy.ID); fmt.Sprint(got) != want {
+		t.Errorf("members of the Space = %v, want %s", got, want)
 	}
 }
 
@@ -230,9 +260,12 @@ func TestListSpacesLastMessage(t *testing.T) {
 }
 
 func TestSpaceRoundTrip(t *testing.T) {
-	ts := newTestServer(t)
+	ts, st := newEmbedServer(t, nil)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1}`)
+	if _, err := st.ApproveWorkItem(context.Background(), 1, nil, nil, nil, "k"); err != nil {
+		t.Fatal(err)
+	}
 
 	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"scratch","role":"lead"}`)
 	if status != 201 || !strings.HasPrefix(body,

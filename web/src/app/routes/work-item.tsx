@@ -157,7 +157,7 @@ export function WorkItemPage() {
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
           {f.parentId === null && f.status === 'backlog' && <ApproveCard item={f} />}
           {f.parentId === null &&
-            f.ownerBotId !== null &&
+            f.approvedAt !== null &&
             f.status !== 'done' &&
             f.status !== 'dropped' && <TransferOwnerCard item={f} />}
           {f.parentId === null && <TargetsCard item={f} projects={projects.data ?? []} />}

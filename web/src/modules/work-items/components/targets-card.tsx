@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAddTarget } from '@/modules/work-items/api/add-target';
+import { useRemoveTarget } from '@/modules/work-items/api/remove-target';
 import type { Project, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -8,6 +9,7 @@ import { Select } from '@/components/select';
 
 export function TargetsCard({ item, projects }: { item: WorkItem; projects: Project[] }) {
   const add = useAddTarget(item.id);
+  const remove = useRemoveTarget(item.id);
   const [projectId, setProjectId] = useState('');
   const open = projects.filter((p) => !item.targets.some((t) => t.projectId === p.id));
 
@@ -16,7 +18,25 @@ export function TargetsCard({ item, projects }: { item: WorkItem; projects: Proj
       <ul className="flex flex-wrap gap-2">
         {item.targets.map((t) => (
           <li key={t.projectId}>
-            <Chip title={`Authorized by ${t.authorizedBy}`}>{t.projectName}</Chip>
+            <Chip
+              title={
+                t.authorizedBy === ''
+                  ? `Proposed by ${t.proposedBy}, not approved yet`
+                  : `Authorized by ${t.authorizedBy}`
+              }
+            >
+              {t.projectName}
+              {t.authorizedBy === '' && t.proposedBy !== '' && ' (proposed)'}
+              {item.status === 'backlog' && t.projectId !== item.projectId && (
+                <button
+                  type="button"
+                  aria-label={`Remove ${t.projectName}`}
+                  onClick={() => remove.mutate(t.projectId)}
+                >
+                  ×
+                </button>
+              )}
+            </Chip>
           </li>
         ))}
       </ul>
@@ -42,6 +62,7 @@ export function TargetsCard({ item, projects }: { item: WorkItem; projects: Proj
           </Button>
         </div>
       )}
+      {remove.isError && <p className="mt-2 text-sm text-danger">{remove.error.message}</p>}
       {add.isError && <p className="mt-2 text-sm text-danger">{add.error.message}</p>}
     </Card>
   );

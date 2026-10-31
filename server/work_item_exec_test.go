@@ -27,6 +27,7 @@ func twoTargetEnv(t *testing.T) (env *liveEnv, app, infra string) {
 	}
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Rename"}`)
 	do(t, http.MethodPost, env.url+"/work-items/1/targets", `{"projectId":3}`)
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"c"}`)
 	do(t, http.MethodPost, env.url+"/work-items/1/workspaces", "")
 	ws, err := env.st.WorkItemWorkspaces(context.Background(), 1)

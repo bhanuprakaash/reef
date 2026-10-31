@@ -46,6 +46,7 @@ func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"c"}`)
 	do(t, http.MethodPost, env.url+"/work-items/1/workspaces", "")
 	ws, err := env.st.WorkItemWorkspaces(ctx, 1)
@@ -119,6 +120,7 @@ func TestRollback_RestoresTheWorktree(t *testing.T) {
 func TestRollback_NotesEverySpaceOnTheTree(t *testing.T) {
 	env, _ := rollbackEnv(t)
 	env.exec(t, "UPDATE space SET closed_at = '2026-01-01T00:00:00Z' WHERE id = 2")
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"d"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", ""); status != 204 || body != "" {

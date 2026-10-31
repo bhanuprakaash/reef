@@ -237,7 +237,7 @@ start_server caps
 api_call POST /projects '{"name":"hop","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"workpong"}'
 api_call POST /work-items '{"projectId":1,"title":"talkpong"}'
-"$H" sql --write "update work_item set status = 'in_progress' where id in (1, 2)" >/dev/null
+"$H" sql --write "update work_item set status = 'in_progress', owner_bot_id = coalesce(owner_bot_id, 1), approved_at = '2026-01-01T00:00:00Z', approval_key = 'by-hand-' || id where id in (1, 2); insert or ignore into work_item_participant (work_item_id, bot_id) select id, owner_bot_id from work_item where id in (1, 2)" >/dev/null
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"s1","team":"pong"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"s2","team":"pong"}'
 

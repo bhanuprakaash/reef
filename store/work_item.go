@@ -117,20 +117,21 @@ func (s *Store) CreateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 		if err := putParticipants(ctx, tx, w.ID, owner, others); err != nil {
 			return WorkItem{}, err
 		}
+		by := ByUser
+		if w.ProposedBy != "" {
+			by = ""
+		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO work_item_target (work_item_id, project_id, authorized_by, created_at) "+
-				"VALUES (?, ?, ?, ?)", w.ID, w.ProjectID, ByUser,
+			"INSERT INTO work_item_target (work_item_id, project_id, proposed_by, authorized_by, created_at) "+
+				"VALUES (?, ?, ?, ?, ?)", w.ID, w.ProjectID, w.ProposedBy, by,
 			w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
 			return WorkItem{}, fmt.Errorf("add home target: %w", err)
 		}
-		by := ByUser
-		if w.ProposedBy != "" {
-			by = "proposed by " + w.ProposedBy
-		}
 		for _, t := range extra {
 			if _, err := tx.ExecContext(ctx,
-				"INSERT OR IGNORE INTO work_item_target (work_item_id, project_id, authorized_by, created_at) "+
-					"VALUES (?, ?, ?, ?)", w.ID, t.ProjectID, by, w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+				"INSERT OR IGNORE INTO work_item_target (work_item_id, project_id, proposed_by, authorized_by, "+
+					"created_at) VALUES (?, ?, ?, ?, ?)",
+				w.ID, t.ProjectID, w.ProposedBy, by, w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
 				if isForeignKey(err) {
 					return WorkItem{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
 				}

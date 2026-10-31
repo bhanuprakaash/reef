@@ -106,7 +106,7 @@ func TestWorkspaces_OneBranchPerRepositoryFromTheProjectBase(t *testing.T) {
 }
 
 func TestWorkspaces_LocalFallbackAndPausedRepository(t *testing.T) {
-	ts := newTestServer(t)
+	ts, st := newEmbedServer(t, nil)
 	repoA, _ := originRepo(t, "develop")
 	repoB, _ := originRepo(t, "develop")
 	repoC, _ := originRepo(t, "develop")
@@ -117,6 +117,7 @@ func TestWorkspaces_LocalFallbackAndPausedRepository(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/targets", `{"projectId":2}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/targets", `{"projectId":3}`)
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	ws := workspaces(t, http.MethodPost, ts.URL+"/work-items/1/workspaces")

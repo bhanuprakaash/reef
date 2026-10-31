@@ -25,6 +25,7 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 	repo = gitIn(t, login, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	main := filepath.Dir(repo)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Signup"}`)
+	approveForSpace(t, env.st, 2)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":2,"name":"s"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick"}`)
 	do(t, http.MethodPost, env.url+"/work-items/2/workspaces", "")

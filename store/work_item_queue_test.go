@@ -63,11 +63,11 @@ func waiting(t *testing.T, s *Store, ids ...int64) {
 func TestOwnedItemStartsWhenQueued(t *testing.T) {
 	ctx := context.Background()
 	s, bot := queueFixture(t, 3)
-	if _, err := s.ApproveWorkItem(ctx, 1, nil, nil, "k0"); !errors.Is(err, ErrInvalid) {
+	if _, err := s.ApproveWorkItem(ctx, 1, nil, nil, nil, "k0"); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("approve without an owner = %v, want ErrInvalid", err)
 	}
 	for _, id := range []int64{1, 2} {
-		if _, err := s.ApproveWorkItem(ctx, id, &bot, nil, fmt.Sprint("k", id)); err != nil {
+		if _, err := s.ApproveWorkItem(ctx, id, &bot, nil, nil, fmt.Sprint("k", id)); err != nil {
 			t.Fatal(err)
 		}
 	}

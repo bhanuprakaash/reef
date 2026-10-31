@@ -12,11 +12,11 @@ import (
 // Target is a repository, by its Project, a Work item may change. The item's own Project is
 // always the first one.
 type Target struct {
-	ProjectID       int64     `json:"projectId"`
-	ProjectName     string    `json:"projectName"`
-	AuthorizedBy    string    `json:"authorizedBy"`
-	OriginMessageID *int64    `json:"originMessageId"`
-	CreatedAt       time.Time `json:"createdAt"`
+	ProjectID    int64     `json:"projectId"`
+	ProjectName  string    `json:"projectName"`
+	ProposedBy   string    `json:"proposedBy"`
+	AuthorizedBy string    `json:"authorizedBy"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 type reader interface {
@@ -63,8 +63,8 @@ func withScope(ctx context.Context, q reader, w WorkItem) (WorkItem, error) {
 
 func readTargets(ctx context.Context, q reader, id int64) ([]Target, error) {
 	rows, err := q.QueryContext(ctx,
-		"SELECT t.project_id, COALESCE(p.name, 'deleted project ' || t.project_id), t.authorized_by, "+
-			"t.origin_message_id, t.created_at "+
+		"SELECT t.project_id, COALESCE(p.name, 'deleted project ' || t.project_id), t.proposed_by, "+
+			"t.authorized_by, t.created_at "+
 			"FROM work_item_target t LEFT JOIN project p ON p.id = t.project_id "+
 			"WHERE t.work_item_id = ? ORDER BY t.rowid", id)
 	if err != nil {
@@ -73,7 +73,7 @@ func readTargets(ctx context.Context, q reader, id int64) ([]Target, error) {
 	ts, err := scanAll(rows, func(r interface{ Scan(...any) error }) (Target, error) {
 		var t Target
 		var created string
-		if err := r.Scan(&t.ProjectID, &t.ProjectName, &t.AuthorizedBy, &t.OriginMessageID, &created); err != nil {
+		if err := r.Scan(&t.ProjectID, &t.ProjectName, &t.ProposedBy, &t.AuthorizedBy, &created); err != nil {
 			return t, err
 		}
 		t.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
@@ -110,6 +110,9 @@ func putParticipants(ctx context.Context, tx *sql.Tx, id int64, owner *int64, ot
 		return fmt.Errorf("%w: participants need an owner", ErrInvalid)
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE work_item SET owner_bot_id = ? WHERE id = ?", owner, id); err != nil {
+		if isForeignKey(err) {
+			return fmt.Errorf("%w: unknown bot", ErrInvalid)
+		}
 		return fmt.Errorf("set owner: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM work_item_participant WHERE work_item_id = ?", id); err != nil {
@@ -168,11 +171,11 @@ func (s *Store) WorkItemTargets(ctx context.Context, id int64) ([]Target, error)
 }
 
 // AddWorkItemTarget lets the top-level item id change the repository of the Project, authorized
-// by authorizedBy, for the request in message originMessageID if any. A sub-item (ErrInvalid),
+// by authorizedBy. A sub-item (ErrInvalid),
 // an unknown Project (ErrInvalid) and a Project already a target (ErrConflict) are refused. The
 // item's active Space, if it has one, gets a message naming the Project and who authorized it.
 func (s *Store) AddWorkItemTarget(
-	ctx context.Context, id, projectID int64, authorizedBy string, originMessageID *int64,
+	ctx context.Context, id, projectID int64, authorizedBy string,
 ) (Target, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -198,9 +201,8 @@ func (s *Store) AddWorkItemTarget(
 	}
 	now := time.Now().UTC()
 	res, err := tx.ExecContext(ctx,
-		"INSERT OR IGNORE INTO work_item_target (work_item_id, project_id, authorized_by, origin_message_id, "+
-			"created_at) VALUES (?, ?, ?, ?, ?)",
-		id, projectID, authorizedBy, originMessageID, now.Format(time.RFC3339Nano))
+		"INSERT OR IGNORE INTO work_item_target (work_item_id, project_id, authorized_by, created_at) "+
+			"VALUES (?, ?, ?, ?)", id, projectID, authorizedBy, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Target{}, fmt.Errorf("add target: %w", err)
 	}
@@ -219,7 +221,50 @@ func (s *Store) AddWorkItemTarget(
 		return Target{}, fmt.Errorf("commit add target: %w", err)
 	}
 	return Target{
-		ProjectID: projectID, ProjectName: name, AuthorizedBy: authorizedBy,
-		OriginMessageID: originMessageID, CreatedAt: now,
+		ProjectID: projectID, ProjectName: name, AuthorizedBy: authorizedBy, CreatedAt: now,
 	}, nil
+}
+
+// RemoveWorkItemTarget takes the repository of the Project off the top-level item id. Only a
+// backlog item loses a target (ErrConflict otherwise, and for a Project with a workspace); its
+// home Project and a Project that is not a target are ErrInvalid.
+func (s *Store) RemoveWorkItemTarget(ctx context.Context, id, projectID int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remove target: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	w, err := txWorkItem(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	switch {
+	case w.ParentID != nil:
+		return fmt.Errorf("%w: work item %d is a sub-item, it shares its parent's targets", ErrInvalid, id)
+	case w.ProjectID == projectID:
+		return fmt.Errorf("%w: project %d is the home of work item %d", ErrInvalid, projectID, id)
+	case w.Status != _backlog:
+		return fmt.Errorf("%w: work item %d is %s, only a backlog item loses a repository", ErrConflict, id, w.Status)
+	}
+	var workspaces int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM workspace WHERE work_item_id = ? AND project_id = ?", id, projectID).
+		Scan(&workspaces); err != nil {
+		return fmt.Errorf("read workspaces of work item %d: %w", id, err)
+	}
+	if workspaces > 0 {
+		return fmt.Errorf("%w: work item %d has a workspace in project %d", ErrConflict, id, projectID)
+	}
+	res, err := tx.ExecContext(ctx,
+		"DELETE FROM work_item_target WHERE work_item_id = ? AND project_id = ?", id, projectID)
+	if err != nil {
+		return fmt.Errorf("remove target: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return fmt.Errorf("%w: work item %d does not target project %d", ErrInvalid, id, projectID)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit remove target: %w", err)
+	}
+	return nil
 }

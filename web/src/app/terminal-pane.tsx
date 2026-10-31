@@ -5,7 +5,7 @@ import { Button } from '@/components/button';
 import { useTerminalApp } from '@/lib/terminal-app';
 import '@xterm/xterm/css/xterm.css';
 
-// TerminalPane runs the shell for cwd (a Work item's workspaces folder, or a project checkout for a
+// TerminalPane runs the shell for cwd (a Work item's first ready workspace folder, or a project checkout for a
 // free Space) in an xterm.js terminal backed by node-pty in the desktop app, or opens cwd
 // in the terminal app chosen in settings. A plain browser pointed at reef serve has no
 // window.reef, so it renders nothing there.

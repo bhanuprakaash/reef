@@ -152,7 +152,10 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.WorkItemID != nil {
 		if in.BotID != 0 {
-			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Bot", store.ErrInvalid))
+			writeError(w, fmt.Errorf("%w: the Space of a work item is made of its owner and participants, not a Bot", store.ErrInvalid))
+			return
+		}
+		if s.createWorkItemSpace(w, r, in.Space) {
 			return
 		}
 	}
@@ -208,6 +211,41 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusCreated, c)
+}
+
+// createWorkItemSpace answers a Space request for a Work item whose top-level item is known: its
+// Space is the owner's, with the participants as members, and an item not approved yet has none.
+// It reports whether it answered; an unknown item is left to createSpace's own errors.
+func (s *server) createWorkItemSpace(w http.ResponseWriter, r *http.Request, in store.Space) bool {
+	item, err := s.st.WorkItem(r.Context(), *in.WorkItemID)
+	if errors.Is(err, store.ErrNotFound) || err == nil && item.ProjectID != in.ProjectID {
+		return false
+	}
+	if err == nil && item.ParentID != nil {
+		item, err = s.st.WorkItem(r.Context(), *item.ParentID)
+	}
+	if err != nil {
+		writeError(w, err)
+		return true
+	}
+	if item.ApprovedAt == nil || item.OwnerBotID == nil {
+		writeError(w, fmt.Errorf("%w: approve work item %d first, a Space of it runs once it has an owner",
+			store.ErrInvalid, item.ID))
+		return true
+	}
+	owner, err := s.st.Bot(r.Context(), *item.OwnerBotID)
+	if err != nil {
+		writeError(w, err)
+		return true
+	}
+	in.Role, in.Team = owner.Name, ""
+	c, err := s.st.CreateSpaceOf(r.Context(), in, item.ParticipantBotIDs, owner.ID)
+	if err != nil {
+		writeError(w, err)
+		return true
+	}
+	writeJSON(w, http.StatusCreated, c)
+	return true
 }
 
 // createBotSpace creates a Space with no Team and one member, the Bot, which leads it

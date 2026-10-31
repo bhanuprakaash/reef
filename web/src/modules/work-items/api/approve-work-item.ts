@@ -2,7 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { WorkItem } from '@/types/api';
 
-type Approval = { ownerBotId: number; participantBotIds: number[]; key: string };
+type Approval = {
+  ownerBotId: number;
+  participantBotIds: number[];
+  targetProjectIds: number[];
+  key: string;
+};
 
 export function useApproveWorkItem(id: number) {
   const queryClient = useQueryClient();

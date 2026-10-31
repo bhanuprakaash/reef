@@ -6,6 +6,26 @@ import (
 	"testing"
 )
 
+func TestDeleteTargetOfABacklogItem(t *testing.T) {
+	ts := newTestServer(t)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+t.TempDir()+`"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"api","path":"`+t.TempDir()+`"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Rename the field"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/targets", `{"projectId":2}`)
+
+	for _, c := range []struct {
+		path string
+		want int
+	}{{"/work-items/1/targets/2", 204}, {"/work-items/1/targets/2", 400}, {"/work-items/1/targets/1", 400}} {
+		if status, body := do(t, http.MethodDelete, ts.URL+c.path, ""); status != c.want {
+			t.Errorf("DELETE %s = %d %s, want %d", c.path, status, body, c.want)
+		}
+	}
+	if _, body := do(t, http.MethodGet, ts.URL+"/work-items/1/targets", ""); strings.Count(body, `"projectId"`) != 1 {
+		t.Errorf("targets = %s, want only the home project", body)
+	}
+}
+
 func TestAddTargetIsNotedInTheItemsSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	api := t.TempDir()
@@ -20,7 +40,7 @@ func TestAddTargetIsNotedInTheItemsSpace(t *testing.T) {
 	env.waitIdle(t, 2)
 
 	status, body := do(t, http.MethodPost, env.url+"/work-items/1/targets", `{"projectId":2}`)
-	if status != 201 || !strings.Contains(body, `"projectName":"api","authorizedBy":"user","originMessageId":null`) {
+	if status != 201 || !strings.Contains(body, `"projectName":"api","proposedBy":"","authorizedBy":"user"`) {
 		t.Fatalf("add target = %d %s, want 201 authorized by user", status, body)
 	}
 	_, body = do(t, http.MethodGet, env.url+"/messages?space=2", "")

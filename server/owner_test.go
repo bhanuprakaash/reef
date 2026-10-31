@@ -21,6 +21,7 @@ func ownedItemSpace(t *testing.T) *liveEnv {
 	if status, got := do(t, http.MethodPost, env.url+"/work-items", body); status != http.StatusCreated {
 		t.Fatalf("create item = %d %s", status, got)
 	}
+	approveForSpace(t, env.st, 1)
 	if status, got := do(t, http.MethodPost, env.url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"Login","team":"core"}`); status != http.StatusCreated {
 		t.Fatalf("create Space = %d %s", status, got)

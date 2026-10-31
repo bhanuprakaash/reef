@@ -145,8 +145,9 @@ func TestRestartStartsAnApprovedItemStillQueued(t *testing.T) {
 func TestRestartAfterTheSpaceStartsTheFirstTurnOnce(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	env.exec(t, "UPDATE work_item SET approved_at = '2026-01-01T00:00:00Z', approval_key = 'k' WHERE id = 1")
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"by hand"}`)
-	env.exec(t, "UPDATE work_item SET status = 'in_progress', approved_at = '2026-01-01T00:00:00Z', approval_key = 'k' WHERE id = 1")
+	env.exec(t, "UPDATE work_item SET status = 'in_progress' WHERE id = 1")
 	env.restart(t)
 	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
@@ -161,8 +162,9 @@ func TestRestartAfterTheSpaceStartsTheFirstTurnOnce(t *testing.T) {
 func TestRestartKeepsAPausedSpaceAndItsPendingFirstTurnPaused(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	env.exec(t, "UPDATE work_item SET approved_at = '2026-01-01T00:00:00Z', approval_key = 'k' WHERE id = 1")
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"by hand"}`)
-	env.exec(t, "UPDATE work_item SET status = 'in_progress', approved_at = '2026-01-01T00:00:00Z', approval_key = 'k' WHERE id = 1")
+	env.exec(t, "UPDATE work_item SET status = 'in_progress' WHERE id = 1")
 	env.exec(t, "UPDATE space SET paused = 'paused by the user' WHERE id = 2")
 	env.restart(t)
 	env.h.s.openStarted(context.Background())

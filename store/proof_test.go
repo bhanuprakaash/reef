@@ -37,7 +37,7 @@ func TestSubmitForReview(t *testing.T) {
 	proof := Proof{
 		SpaceID: 1,
 		Commands: []ProofCommand{
-			{Command: "go test ./...", Output: "ok  reef/server 1.2s", Project: "reef"},
+			{Command: "go test ./...", Output: "ok  reef/server 1.2s", Project: "reef", ProjectID: 1},
 			{Command: "make lint", Output: "clean"},
 		},
 		Repositories: []ProofRepository{{
@@ -90,7 +90,7 @@ func TestSubmitForReview(t *testing.T) {
 		`"commands":[{"command":"make lint","output":"clean"}],` +
 		`"repositories":[{"workspaceId":1,"projectId":1,"projectName":"reef","branch":"work-item/1","head":"abc123",` +
 		`"baseRef":"refs/remotes/origin/main","dir":"/data/worktrees/item-1/1-reef","dirty":true,` +
-		`"checks":[{"command":"go test ./...","output":"ok  reef/server 1.2s","project":"reef"}]}],` +
+		`"checks":[{"command":"go test ./...","output":"ok  reef/server 1.2s","project":"reef","projectId":1}]}],` +
 		`"screenshots":[],"submittedAt":"0001-01-01T00:00:00Z"}`
 	if string(b) != want {
 		t.Errorf("proof = %s, want %s", b, want)

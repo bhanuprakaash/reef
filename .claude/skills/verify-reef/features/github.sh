@@ -51,13 +51,19 @@ export GH_FAKE_RESPONSE="$GH/resp.json" GH_FAKE_ERR="$GH/err.txt" GH_FAKE_LOG="$
 REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github || exit 1
 A=$(cat "$S/serve.addr")
 "$H" team-apply "$PWD/teams/full.json" >/dev/null
+# A Space of a Work item is its owner's with the participants as members; give the item the lead as owner and every Bot as participant, as an approval would.
+approve_by_hand() {
+	ids=$(echo "$@" | tr ' ' ',')
+	"$H" sql --write "update work_item set owner_bot_id = coalesce(owner_bot_id, 1), approved_at = '2026-01-01T00:00:00Z', approval_key = 'by-hand-' || id where id in ($ids); insert or ignore into work_item_participant (work_item_id, bot_id) select w.id, b.id from work_item w, bot b where w.id in ($ids)" >/dev/null
+}
 
 api_call POST /projects '{"name":"app","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"Demo"}'
 api_call POST /work-items/1/workspaces ""
-api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"main","team":"full"}'
 api_call POST /work-items '{"projectId":1,"title":"Solo Demo"}'
 api_call POST /work-items/2/workspaces ""
+approve_by_hand 1 2
+api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"main","team":"full"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"only"}'
 
 ### PR note, and a repeat poll with the same answer
@@ -147,6 +153,7 @@ check solo-note-wakes-lead "$([ "$solo_wait" = 0 ] && [ "$turns_solo" -ge 1 ] &&
 
 api_call POST /work-items '{"projectId":1,"title":"Two Runs Demo"}'
 api_call POST /work-items/3/workspaces ""
+approve_by_hand 3
 api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"both","team":"full"}'
 
 echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
@@ -165,6 +172,7 @@ check two-runs-same-name-both-noted "$([ "$two_runs_wait" = 0 ] && [ "$test_note
 
 api_call POST /work-items '{"projectId":1,"title":"Busy Demo"}'
 api_call POST /work-items/4/workspaces ""
+approve_by_hand 4
 api_call POST /spaces '{"projectId":1,"workItemId":4,"name":"busy","team":"full"}'
 "$H" sql --write "update Space set paused = 'verify busy' where id = 4" >/dev/null
 
@@ -208,6 +216,7 @@ check wake-retries-after-busy "$busy_ok" \
 
 api_call POST /work-items '{"projectId":1,"title":"Hopcap Demo"}'
 api_call POST /work-items/5/workspaces ""
+approve_by_hand 5
 api_call POST /spaces '{"projectId":1,"workItemId":5,"name":"hops","team":"full"}'
 
 hop_ok=1
@@ -256,6 +265,7 @@ echo '{"number":77,"url":"https://github.com/x/y/pull/77","state":"OPEN","status
 sleep 3
 stored_before=$("$H" sql "select count(*) from work_item_github where work_item_id = 6" | tail -1)
 
+approve_by_hand 6
 api_call POST /spaces '{"projectId":1,"workItemId":6,"name":"main"}'
 wait_for '/messages?space=6' 'PR #77 open' && lost_wait=0 || lost_wait=1
 sleep 3
@@ -271,6 +281,7 @@ check lost-note-no-space "$lost_ok" \
 
 api_call POST /work-items '{"projectId":1,"title":"Two Fail Demo"}'
 api_call POST /work-items/7/workspaces ""
+approve_by_hand 7
 api_call POST /spaces '{"projectId":1,"workItemId":7,"name":"main","team":"full"}'
 
 printf 'line one\n' >"$GH/log.txt"

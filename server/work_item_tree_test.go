@@ -86,7 +86,7 @@ func TestPollGitHub_SubItemNotPolledOnItsOwn(t *testing.T) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
-	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
+	repo := ghWorkItemSetup(t, st, ts.URL, store.SoloTeam)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Child"}`)
 
 	binDir := t.TempDir()

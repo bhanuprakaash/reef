@@ -48,7 +48,7 @@ func TestMCPProposeWorkItemNamesAnotherOwner(t *testing.T) {
 	w, err := st.WorkItem(ctx, 3)
 	if err != nil || w.Status != "backlog" || w.ApprovedAt != nil || *w.OwnerBotID != bob.ID ||
 		fmt.Sprint(w.ParticipantBotIDs) != fmt.Sprint([]int64{bob.ID, cy.ID}) || len(w.Targets) != 2 ||
-		w.Targets[1].AuthorizedBy != "proposed by proposer" {
+		w.Targets[1].ProposedBy != "proposer" || w.Targets[1].AuthorizedBy != "" {
 		t.Errorf("proposed item = %+v, %v, want backlog, owner bob, participants [bob cy], a proposed second target", w, err)
 	}
 	items, err := st.Inbox(ctx)

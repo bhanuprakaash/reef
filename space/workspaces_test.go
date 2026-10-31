@@ -34,7 +34,7 @@ func TestEnsureWorkspaces_ProposedTargetGetsNoWorkspaceAndIsNotListed(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddWorkItemTarget(ctx, f.ID, infra.ID, "proposed by Bob", nil); err != nil {
+	if _, err := st.AddWorkItemTarget(ctx, f.ID, infra.ID, "proposed by Bob"); err != nil {
 		t.Fatal(err)
 	}
 	f, err = st.WorkItem(ctx, f.ID)
@@ -69,7 +69,7 @@ func TestEnsureWorkspaces_OneFailingTargetNamesItselfAndDoesNotStopTheOther(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddWorkItemTarget(ctx, f.ID, infra.ID, "user", nil); err != nil {
+	if _, err := st.AddWorkItemTarget(ctx, f.ID, infra.ID, "user"); err != nil {
 		t.Fatal(err)
 	}
 	f, err = st.WorkItem(ctx, f.ID)

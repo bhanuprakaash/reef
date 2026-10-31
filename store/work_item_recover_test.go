@@ -11,7 +11,7 @@ func TestPauseInterruptedPausesCutWorkAndKeepsOtherPauses(t *testing.T) {
 	s, bot := queueFixture(t, 4)
 	var spaces []int64
 	for id := int64(1); id <= 4; id++ {
-		if _, err := s.ApproveWorkItem(ctx, id, &bot, nil, fmt.Sprint("k", id)); err != nil {
+		if _, err := s.ApproveWorkItem(ctx, id, &bot, nil, nil, fmt.Sprint("k", id)); err != nil {
 			t.Fatal(err)
 		}
 		sp, err := s.CreateSpaceOf(ctx, Space{ProjectID: 1, WorkItemID: &id, Name: "s", Role: "ann"}, []int64{bot}, bot)

@@ -17,10 +17,10 @@ func TestSendBackKeepsTheAssignmentAndItsProof(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "docs", Path: "/tmp/docs"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApproveWorkItem(ctx, 1, &ann, []int64{bob.ID}, "k1"); err != nil {
+	if _, err := s.ApproveWorkItem(ctx, 1, &ann, []int64{bob.ID}, nil, "k1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AddWorkItemTarget(ctx, 1, 2, "user", nil); err != nil {
+	if _, err := s.AddWorkItemTarget(ctx, 1, 2, "user"); err != nil {
 		t.Fatal(err)
 	}
 	one := int64(1)
@@ -58,5 +58,8 @@ func TestSendBackKeepsTheAssignmentAndItsProof(t *testing.T) {
 	p, err := s.Proof(ctx, 1)
 	if err != nil || len(p.Repositories) != 2 || p.Repositories[1].Head != "abc" {
 		t.Errorf("proof after send back = %+v, %v, want the two repositories kept", p, err)
+	}
+	if claimed, err := s.ClaimWrap(ctx, 1); err != nil || claimed {
+		t.Errorf("ClaimWrap after send back = %v, %v, want false", claimed, err)
 	}
 }

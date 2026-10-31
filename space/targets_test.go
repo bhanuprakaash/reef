@@ -45,7 +45,7 @@ func TestSession_OneAssignmentChangesAndCheckpointsEveryTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.AddWorkItemTarget(ctx, f.ID, p2.ID, "user", nil); err != nil {
+	if _, err := st.AddWorkItemTarget(ctx, f.ID, p2.ID, "user"); err != nil {
 		t.Fatal(err)
 	}
 	r := newTreeRig(t, st)

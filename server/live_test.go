@@ -412,7 +412,8 @@ func (e *liveEnv) sendTo(t *testing.T, id int, text string) (int, string) {
 // workItemSpace adds a work item and a Space on it, and returns the Space's id.
 func (e *liveEnv) workItemSpace(t *testing.T) int {
 	t.Helper()
-	do(t, http.MethodPost, e.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPost, e.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	approveForSpace(t, e.st, 1)
 	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	return 2
 }
@@ -1230,6 +1231,7 @@ func TestSend_WrapWakesNobody(t *testing.T) {
 	env := newLiveEnv(t)
 	env.teamSpace(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"w","team":"core"}`)
 	env.fake.onRun = func(string, string, *int64) {
 		_, err := env.st.CreateMessage(context.Background(),

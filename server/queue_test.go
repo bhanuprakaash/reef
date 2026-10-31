@@ -50,6 +50,9 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	if _, err := env.st.ApproveWorkItem(context.Background(), 1, nil, nil, nil, "k1"); err != nil {
+		t.Fatal(err)
+	}
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"by hand"}`); status != 201 {
 		t.Fatalf("create Space = %d %s, want 201", status, body)

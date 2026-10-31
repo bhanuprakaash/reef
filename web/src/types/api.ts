@@ -48,8 +48,8 @@ export type AcceptanceLine = {
 export type Target = {
   projectId: number;
   projectName: string;
+  proposedBy: string;
   authorizedBy: string;
-  originMessageId: number | null;
   createdAt: string;
 };
 
