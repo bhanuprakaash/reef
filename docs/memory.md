@@ -471,6 +471,9 @@ its first turn: a first message that goes to a specialist starts no lead.
   refresh (`POST /spaces/{id}/bots/{botId}/refresh`) ends the Bot's active adopted settings
   and adopts the Bot's current ones; the next turn then has no session to resume, as only
   turns of the active settings count, so the old backend session is never resumed. A
+  revoke (`POST /bots/{id}/revoke`) does the same for every Space of the Bot at once, live or
+  not, and also deletes the Bot's tokens, so a running `reef mcp` of the Bot fails its next
+  call; it posts its own notice and the refreshed notice does not follow. A
   session the backend no longer has starts a new context under the same adopted settings. So
   does a session whose last turn reports `renewAt` input tokens or more (800,000). A context
   whose start fails leaves a failed turn and no notice; the next turn starts it again with

@@ -871,7 +871,9 @@ func (m *member) close(st *store.Store) error {
 	}
 	errs := []error{m.ag.Interrupt()}
 	if m.token != "" {
-		errs = append(errs, st.DeleteToken(context.Background(), m.token))
+		if err := st.DeleteToken(context.Background(), m.token); !errors.Is(err, store.ErrNotFound) {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }

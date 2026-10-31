@@ -37,6 +37,8 @@ func (s *server) botRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /bots/{id}", s.putBot)
 	mux.HandleFunc("DELETE /bots/{id}", s.deleteBot)
 	mux.HandleFunc("/bots/{id}", methodNotAllowed)
+	mux.HandleFunc("POST /bots/{id}/revoke", s.revokeBot)
+	mux.HandleFunc("/bots/{id}/revoke", methodNotAllowed)
 	mux.HandleFunc("GET /bots/{id}/conversations", s.listConversations)
 	mux.HandleFunc("/bots/{id}/conversations", methodNotAllowed)
 }
@@ -158,6 +160,44 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// revokeBot ends every session of the Bot and deletes its tokens. A Space with a live session
+// stops its turn and closes its agents, and every Space the Bot had a session in gets a notice. The
+// Bot's next turn in a Space adopts the Bot's current settings and starts a new backend context.
+func (s *server) revokeBot(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bot, err := s.st.Bot(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	spaces, tokens, tools, err := s.st.RevokeBot(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	body := bot.Name + " was revoked: its sessions stopped. Tool activity that was running may have " +
+		"finished or not; revoking does not undo its effects."
+	for _, spaceID := range spaces {
+		if l := s.lookup(spaceID); l != nil {
+			s.stopLive(l)
+		}
+		if _, err := s.st.CreateMessage(r.Context(), store.Message{
+			SpaceID: spaceID, Author: store.ReefAuthor, Body: body,
+		}); err != nil {
+			writeError(w, err)
+			return
+		}
+		s.notify(spaceID, "note")
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{
+		"sessions": int64(len(spaces)), "tokens": tokens, "toolCalls": tools,
+	})
 }
 
 // addMember puts a Bot in the team.

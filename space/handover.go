@@ -28,7 +28,8 @@ func renewed(last store.Turn) bool {
 // replacement reports about the backend context that starts for the Bot's BotSession botSessionID
 // when no session is left to resume: whether the Bot has finished turns in the Space, whose
 // history the new context needs a handover for, and whether the BotSession replaces an earlier one
-// and has not yet had a backend session of its own.
+// and has not yet had a backend session of its own. A revoked BotSession counts as no earlier one:
+// revoking posts its own notice.
 func replacement(
 	ctx context.Context, st *store.Store, spaceID, botID, botSessionID int64,
 ) (history, refreshed bool, err error) {
@@ -42,7 +43,13 @@ func replacement(
 		started = started || own && t.SessionID != ""
 		if t.Status == "done" && t.WakeText != "" {
 			history = true
-			earlier = earlier || !own
+			revoked := false
+			if !own && t.BotSessionID != nil {
+				if revoked, err = st.BotSessionRevoked(ctx, *t.BotSessionID); err != nil {
+					return false, false, err
+				}
+			}
+			earlier = earlier || !own && !revoked
 		}
 	}
 	return history, earlier && !started, nil
