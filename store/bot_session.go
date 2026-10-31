@@ -168,13 +168,29 @@ func (s *Store) AdoptBotSessionWith(
 		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))
 }
 
-// SetRefreshPending marks the Bot's active BotSession in the Space as waiting for a refresh. A
-// Bot with no active BotSession has nothing to refresh: its next turn adopts the current settings.
-func (s *Store) SetRefreshPending(ctx context.Context, spaceID, botID int64) error {
-	if _, err := s.db.ExecContext(ctx,
+// SetRefreshPending marks the Bot's active BotSession in the Space as waiting for a refresh and
+// reports whether there was one. A Bot with no active BotSession has nothing to refresh: its next
+// turn adopts the current settings.
+func (s *Store) SetRefreshPending(ctx context.Context, spaceID, botID int64) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
 		"UPDATE bot_session SET refresh_pending = 1 WHERE space_id = ? AND bot_id = ? AND status = ?",
+		spaceID, botID, BotSessionActive)
+	if err != nil {
+		return false, fmt.Errorf("set refresh pending: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("set refresh pending: %w", err)
+	}
+	return n > 0, nil
+}
+
+// ClearRefreshPending ends the wait of the Bot's active BotSession in the Space for a refresh.
+func (s *Store) ClearRefreshPending(ctx context.Context, spaceID, botID int64) error {
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE bot_session SET refresh_pending = 0 WHERE space_id = ? AND bot_id = ? AND status = ?",
 		spaceID, botID, BotSessionActive); err != nil {
-		return fmt.Errorf("set refresh pending: %w", err)
+		return fmt.Errorf("clear refresh pending: %w", err)
 	}
 	return nil
 }

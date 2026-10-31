@@ -30,10 +30,21 @@ func (s *server) reviewMemory(spaceID, botID int64) {
 	if !ok || !s.begin() {
 		return
 	}
+	ctx, cancel := context.WithTimeout(s.ctx, _reviewTimeout)
+	s.mu.Lock()
+	if s.reviews == nil {
+		s.reviews = map[int64]context.CancelFunc{}
+	}
+	s.reviews[botID] = cancel
+	s.mu.Unlock()
 	go func() {
 		defer s.wg.Done()
-		ctx, cancel := context.WithTimeout(s.ctx, _reviewTimeout)
-		defer cancel()
+		defer func() {
+			s.mu.Lock()
+			delete(s.reviews, botID)
+			s.mu.Unlock()
+			cancel()
+		}()
 		err := s.maintain(ctx, spaceID, botID, func(agent.Event) {})
 		if err != nil {
 			log.Printf("memory review of Bot %d: %v", botID, err)
@@ -42,4 +53,14 @@ func (s *server) reviewMemory(spaceID, botID int64) {
 			log.Print(err)
 		}
 	}()
+}
+
+// stopReview ends the running review of Bot botID, whose reef MCP server loaded its token once.
+func (s *server) stopReview(botID int64) {
+	s.mu.Lock()
+	cancel := s.reviews[botID]
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }

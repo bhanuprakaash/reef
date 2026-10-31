@@ -182,6 +182,7 @@ func (s *server) revokeBot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.stopReview(id)
 	body := bot.Name + " was revoked: its sessions stopped. Tool activity that was running may have " +
 		"finished or not; revoking does not undo its effects."
 	for _, spaceID := range spaces {

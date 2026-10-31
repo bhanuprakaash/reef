@@ -51,7 +51,7 @@ function SessionSummary({ session }: { session: RoleSession }) {
         </p>
       ))}
       {session.refreshPending ? (
-        <p>Refresh waits for the current turn to end.</p>
+        <p>Refresh applies before this Bot's next turn.</p>
       ) : (
         session.stale && <p>Bot settings changed. Refresh to adopt edits.</p>
       )}
@@ -170,7 +170,7 @@ export function TeamPanel({
         {refresh.isSuccess && (
           <p className="mt-1.5 text-sm text-muted">
             {refresh.data.pending
-              ? 'Refresh waits for the current turn to end.'
+              ? "Refresh applies before this Bot's next turn."
               : 'Refresh requested: the next message starts a new session.'}
           </p>
         )}

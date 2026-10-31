@@ -52,7 +52,22 @@ func TestRefreshBot_WaitsForTheRunningTurn(t *testing.T) {
 	}
 }
 
-func TestRefreshBot_FailureStaysPendingAndSparesOtherBots(t *testing.T) {
+func TestRefreshBot_NoSessionHasNothingToWaitFor(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamSpace(t)
+	architect := *testServerBot(t, env.st, "architect")
+
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	status, body := do(t, http.MethodPost, env.url+"/spaces/2/bots/"+strconv.FormatInt(architect, 10)+"/refresh", "")
+	if status != 202 || body != `{"pending":false}` {
+		t.Errorf("refresh of a Bot with no session during a turn = %d %q, want 202 not pending", status, body)
+	}
+	env.fake.release <- struct{}{}
+	env.waitIdle(t, id)
+}
+
+func TestRefreshBot_FailureNoticedOnceAndSparesOtherBots(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	id, _ := env.teamSpace(t)
@@ -76,10 +91,13 @@ func TestRefreshBot_FailureStaysPendingAndSparesOtherBots(t *testing.T) {
 	env.waitIdle(t, id)
 	env.sendTo(t, id, "next")
 	env.waitIdle(t, id)
+	env.sendTo(t, id, "again")
+	env.waitIdle(t, id)
 
-	if got, err := env.st.RefreshPendingBots(ctx, int64(id)); err != nil || !slices.Equal(got, []int64{lead}) {
-		t.Errorf("pending = %v, %v, want only the lead's failed refresh", got, err)
+	if got, err := env.st.RefreshPendingBots(ctx, int64(id)); err != nil || len(got) != 0 {
+		t.Errorf("pending = %v, %v, want none after the failed refresh", got, err)
 	}
 	env.wantMessages(t, id, "user: block", "user: next",
-		"reef: lead could not refresh and keeps its earlier settings for now: model unavailable")
+		"reef: lead could not refresh and keeps its earlier settings until refreshed again: model unavailable",
+		"user: again")
 }

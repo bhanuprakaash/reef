@@ -481,10 +481,11 @@ func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, 
 	return true, nil
 }
 
-// runOne runs the turn of w and returns the frame that ends it and whether it went well.
+// runOne runs the turn of w and returns the frame that ends it, whether it went well and whether
+// a failure closed the session. A turn cancelled by its Bot's revoke leaves the session open.
 func (s *server) runOne(
 	ctx context.Context, id int64, l *live, sess session, kind turnKind, w wake,
-) (end turnState, ok bool) {
+) (end turnState, ok, closed bool) {
 	onEvent := func(ev agent.Event) {
 		l.mu.Lock()
 		if ev.Kind == agent.KindToolCall && !talkTool(ev.ToolName) {
@@ -551,12 +552,13 @@ func (s *server) runOne(
 		revoked := l.revoked
 		l.mu.Unlock()
 		if !revoked {
+			closed = true
 			if err := sess.Close(); err != nil {
 				log.Printf("close session: %v", err)
 			}
 		}
 	}
-	return end, err == nil
+	return end, err == nil, closed
 }
 
 // checkSpace refuses a turn the Space may not run: any turn on a closed or moved Space or one
@@ -872,11 +874,12 @@ func (s *server) refreshBot(w http.ResponseWriter, r *http.Request) {
 	}
 	c, _, err := s.claim(r.Context(), id, _noTurn)
 	if errors.Is(err, store.ErrConflict) {
-		if err := s.st.SetRefreshPending(r.Context(), id, botID); err != nil {
+		pending, err := s.st.SetRefreshPending(r.Context(), id, botID)
+		if err != nil {
 			writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusAccepted, map[string]bool{"pending": true})
+		writeJSON(w, http.StatusAccepted, map[string]bool{"pending": pending})
 		return
 	}
 	if err != nil {
@@ -899,8 +902,8 @@ func (s *server) refreshBot(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyPending closes the agents of the Bots revoked during the turn that ended, and refreshes the
-// Bots whose refresh waited for it, also after a restart. A refresh that fails stays pending and
-// gets a notice in the Space; it fails no turn.
+// Bots whose refresh waited for it, also after a restart. A refresh that fails stops waiting and
+// gets one notice in the Space, and refreshing again retries it; it fails no turn.
 func (s *server) applyPending(ctx context.Context, id int64, l *live, sess session) error {
 	l.mu.Lock()
 	drop := l.drop
@@ -921,12 +924,15 @@ func (s *server) applyPending(ctx context.Context, id int64, l *live, sess sessi
 			continue
 		}
 		log.Printf("refresh Bot %d of Space %d: %v", botID, id, err)
+		if cerr := s.st.ClearRefreshPending(context.WithoutCancel(ctx), id, botID); cerr != nil {
+			return cerr
+		}
 		name := fmt.Sprintf("Bot %d", botID)
 		if bot, berr := s.st.Bot(ctx, botID); berr == nil {
 			name = bot.Name
 		}
 		if _, err := s.st.CreateMessage(context.WithoutCancel(ctx), store.Message{
-			SpaceID: id, Author: store.ReefAuthor, Body: name + " could not refresh and keeps its earlier settings for now: " + err.Error(),
+			SpaceID: id, Author: store.ReefAuthor, Body: name + " could not refresh and keeps its earlier settings until refreshed again: " + err.Error(),
 		}); err != nil {
 			log.Printf("note refresh failure in Space %d: %v", id, err)
 			continue
@@ -1419,7 +1425,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.mu.Lock()
 		l.turnBot, l.turnCancel = w.botID, cancelTurn
 		l.mu.Unlock()
-		end, ok := s.runOne(turnCtx, c.id, l, sess, kind, w)
+		end, ok, closed := s.runOne(turnCtx, c.id, l, sess, kind, w)
 		cancelTurn()
 		l.mu.Lock()
 		revoked := l.revoked
@@ -1430,7 +1436,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		} else if w.botID != nil {
 			s.reviewMemory(c.id, *w.botID)
 		}
-		if revoked && c.ctx.Err() == nil {
+		if revoked && !closed && c.ctx.Err() == nil {
 			ok = true
 			if err := sess.Drop(*w.botID); err != nil {
 				log.Printf("close revoked Bot %d of Space %d: %v", *w.botID, c.id, err)
@@ -1455,7 +1461,20 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 				after = last
 			}
 		}
-		l.mu.Lock()
+		for {
+			l.mu.Lock()
+			drop := l.drop
+			l.drop = nil
+			if len(drop) == 0 {
+				break
+			}
+			l.mu.Unlock()
+			for _, botID := range drop {
+				if err := sess.Drop(botID); err != nil {
+					log.Printf("close revoked Bot %d of Space %d: %v", botID, c.id, err)
+				}
+			}
+		}
 		if !ok {
 			l.sess = nil
 		}

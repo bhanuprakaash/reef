@@ -8,13 +8,15 @@ import (
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/skill"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 // Maintain runs a turn in which Bot botID reviews its own memory, recorded in Space spaceID. It
 // shares nothing with the Space's Session: the Bot gets a new backend context with its current
-// backend and model, cannot write files or run commands, has no connections, only the reef MCP
-// server with a review token, and a folder of its own to work in. The turn keeps no wake and
+// backend and model, cannot write files, has no connections or skills, only the reef MCP server
+// with a review token, and a folder of its own to work in. On claude it also runs no commands; on
+// codex a read-only sandbox still runs them. The turn keeps no wake and
 // posts no message.
 func Maintain(
 	ctx context.Context, st *store.Store, dataDir, exe string, spaceID, botID int64,
@@ -55,6 +57,15 @@ func Maintain(
 	m.token = tok.Token
 	cfg := roleConfig(r, cwd, nil)
 	cfg.DisallowedTools = append(cfg.DisallowedTools, "Bash")
+	if r.Backend == "claude" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("find home folder to list skills: %w", err)
+		}
+		for _, s := range skill.Claude(home, cwd) {
+			cfg.DisallowedTools = append(cfg.DisallowedTools, "Skill("+s.Name+")")
+		}
+	}
 	cfg.MCPServers = map[string]agent.MCPServer{"reef": {
 		Command: exe,
 		Args:    []string{"mcp", "--data", dataDir},

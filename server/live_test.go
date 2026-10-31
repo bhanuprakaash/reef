@@ -238,6 +238,12 @@ func (f *fakeSession) Drop(botID int64) error {
 	return nil
 }
 
+func (f *fakeSession) droppedBots() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.dropped)
+}
+
 func (f *fakeSession) SetOnNote(fn func()) {
 	f.mu.Lock()
 	f.onNote = fn

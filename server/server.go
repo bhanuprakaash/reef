@@ -45,6 +45,8 @@ type server struct {
 	closed   bool
 	lives    map[int64]*live
 	deleting map[int64]int
+	// reviews holds the cancel of each Bot's running memory review.
+	reviews map[int64]context.CancelFunc
 
 	approveMu sync.Mutex
 

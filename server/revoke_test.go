@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -63,8 +64,8 @@ func TestRevokeBot_StopsLiveTurnAndKeepsHistory(t *testing.T) {
 	}
 	env.waitIdle(t, 1)
 
-	if n := env.fake.closed.Load(); n != 0 || !slices.Equal(env.fake.dropped, []int64{botID}) {
-		t.Errorf("sessions closed = %d, dropped = %v, want the Bot's agent dropped and the session kept", n, env.fake.dropped)
+	if n := env.fake.closed.Load(); n != 0 || !slices.Equal(env.fake.droppedBots(), []int64{botID}) {
+		t.Errorf("sessions closed = %d, dropped = %v, want the Bot's agent dropped and the session kept", n, env.fake.droppedBots())
 	}
 	if _, err := env.st.Token(ctx, tok.Token); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("token after revoke = %v, want ErrNotFound", err)
@@ -122,10 +123,29 @@ func TestRevokeBot_LeavesAnotherBotsTurnRunning(t *testing.T) {
 	if got := turnFrames(t, sub, 2); !slices.Equal(got, []string{"lead running ", "lead done "}) {
 		t.Errorf("turns = %q, want the lead's turn to finish", got)
 	}
-	env.sendTo(t, id, "next")
 	env.waitIdle(t, id)
-	if n := env.fake.closed.Load(); n != 0 || !slices.Equal(env.fake.dropped, []int64{architect}) {
-		t.Errorf("sessions closed = %d, dropped = %v, want only the architect's agent dropped", n, env.fake.dropped)
+	if n := env.fake.closed.Load(); n != 0 || !slices.Equal(env.fake.droppedBots(), []int64{architect}) {
+		t.Errorf("sessions closed = %d, dropped = %v, want only the architect's agent dropped once the chain ended", n, env.fake.droppedBots())
+	}
+}
+
+func TestRevokeBot_StopsRunningMemoryReview(t *testing.T) {
+	env := newLiveEnv(t)
+	botID := *testServerBot(t, env.st, "lead")
+	env.setClock(_reviewStart)
+	env.sendAndWait(t, "hello")
+	env.setClock(_reviewStart.Add(8 * 24 * time.Hour))
+	env.fake.mu.Lock()
+	env.fake.reviewHold = make(chan struct{})
+	env.fake.mu.Unlock()
+	env.sendAndWait(t, "hello")
+	<-env.fake.reviewed
+
+	if status, body := do(t, http.MethodPost, env.url+"/bots/"+strconv.FormatInt(botID, 10)+"/revoke", ""); status != 200 {
+		t.Fatalf("revoke = %d %q, want 200", status, body)
+	}
+	if got := waitReview(t, env, botID); got != _reviewStart.Unix() {
+		t.Errorf("marker after the cancelled review = %d, want %d", got, _reviewStart.Unix())
 	}
 }
 
@@ -151,7 +171,7 @@ func TestRevokeBot_InterruptsOnlyItsOwnTurn(t *testing.T) {
 	if got := turnFrames(t, sub, len(want)); !slices.Equal(got, want) {
 		t.Errorf("turns = %q, want %q", got, want)
 	}
-	if n := env.fake.closed.Load(); n != 0 || !slices.Equal(env.fake.dropped, []int64{lead}) {
-		t.Errorf("sessions closed = %d, dropped = %v, want only the lead's agent dropped", n, env.fake.dropped)
+	if n := env.fake.closed.Load(); n != 0 || !slices.Equal(env.fake.droppedBots(), []int64{lead}) {
+		t.Errorf("sessions closed = %d, dropped = %v, want only the lead's agent dropped", n, env.fake.droppedBots())
 	}
 }

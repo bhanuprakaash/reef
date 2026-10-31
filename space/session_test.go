@@ -1098,6 +1098,14 @@ func TestSession_Wrap(t *testing.T) {
 
 func TestMaintain_SharesNothingWithTheSession(t *testing.T) {
 	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".claude", "skills", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".claude", "skills", "demo", "SKILL.md"), []byte("---\nname: demo\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	dir := t.TempDir()
@@ -1144,7 +1152,7 @@ func TestMaintain_SharesNothingWithTheSession(t *testing.T) {
 	}
 	cfg := review.cfg
 	if review.resumed != "" || cfg.Fork || cfg.PermissionMode != "default" || !review.closed ||
-		!slices.Equal(cfg.DisallowedTools, []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}) ||
+		!slices.Equal(cfg.DisallowedTools, []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash", "Skill(demo)"}) ||
 		len(cfg.MCPServers) != 1 || cfg.Cwd != filepath.Join(dir, "reviews", strconv.FormatInt(lead, 10)) {
 		t.Errorf("config = %+v, resumed = %q, closed = %v, want a fresh read-only context in the review folder with only reef",
 			cfg, review.resumed, review.closed)
