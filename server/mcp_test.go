@@ -107,7 +107,7 @@ func testToken(t *testing.T, st *store.Store, ctx context.Context, spaceID int64
 func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	t.Helper()
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

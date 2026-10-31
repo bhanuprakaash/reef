@@ -7,13 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func TestGetWorkItemDiff_UncommittedFile(t *testing.T) {
 	dataDir := t.TempDir()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +47,7 @@ func TestGetWorkItemDiff_UncommittedFile(t *testing.T) {
 
 func TestGetWorkItemDiff_ScopeCurrent(t *testing.T) {
 	dataDir := t.TempDir()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -14,7 +14,7 @@ import (
 
 func TestGetInspector(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestGetInspector(t *testing.T) {
 
 func TestGetInspectorNestsSubagentToolCalls(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestGetInspectorNestsSubagentToolCalls(t *testing.T) {
 
 func TestGetInspectorKeysRolesByBotID(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +159,7 @@ func TestGetInspectorKeysRolesByBotID(t *testing.T) {
 
 func TestGetInspectorNullCostForCodex(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

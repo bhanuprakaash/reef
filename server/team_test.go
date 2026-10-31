@@ -15,7 +15,7 @@ import (
 )
 
 func TestTeamsOmitMCPServers(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 }
 
 func TestSpaceMembersOmitMCPServers(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestSpaceMembersOmitMCPServers(t *testing.T) {
 }
 
 func TestTeamsReturnFace(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestTeamsReturnFace(t *testing.T) {
 }
 
 func TestCreateUpdateAndDeleteTeam(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 
 func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
 }
 
 func TestSpaceTeam(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestSpaceTeam(t *testing.T) {
 }
 
 func TestPutTeam(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,7 +318,7 @@ func TestPutTeam(t *testing.T) {
 }
 
 func TestPutTeamRejectsMembershipMCPRemoval(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,7 +334,7 @@ func TestPutTeamRejectsMembershipMCPRemoval(t *testing.T) {
 }
 
 func TestPutTeamCopyFrom(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 
 // Two concurrent copies to the same new name must not both succeed: the loser gets 409.
 func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 }
 
 func TestPutBotSkills(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

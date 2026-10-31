@@ -30,7 +30,7 @@ func TestGetSkills(t *testing.T) {
 	writeSkill(t, filepath.Join(repo, ".claude/skills/repo-skill/SKILL.md"), "repo-skill", "In the repo.")
 	writeSkill(t, filepath.Join(home, ".agents/skills/probe/SKILL.md"), "probe", "For codex.")
 
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

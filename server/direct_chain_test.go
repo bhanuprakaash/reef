@@ -638,7 +638,7 @@ func TestDirectRejectSendDuringWrap(t *testing.T) {
 func TestDirectCloseRejectsSend(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

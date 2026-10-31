@@ -11,7 +11,7 @@ import (
 
 func TestRenamedBotKeepsThreadAndDirectRouting(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestRenamedBotKeepsThreadAndDirectRouting(t *testing.T) {
 
 func TestRenamedBotMCPMemoryUsesItsIdentity(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestRenamedBotMCPMemoryUsesItsIdentity(t *testing.T) {
 
 func TestProposalKeepsBotMemoryAfterRenameAndNameReuse(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestProposalKeepsBotMemoryAfterRenameAndNameReuse(t *testing.T) {
 
 func TestBotNameDoesNotGrantConventionAuthority(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +240,7 @@ func TestBotNameDoesNotGrantConventionAuthority(t *testing.T) {
 
 func TestCanceledBotLookupClosesSessionAndStopsDirect(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

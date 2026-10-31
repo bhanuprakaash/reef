@@ -1,18 +1,54 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
+
+// _migratedDB is the database file of a fresh store. Seeding a test store with it skips
+// the migrations, which are most of this package's test time.
+var _migratedDB = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "reef-store")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	st, err := store.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := st.Close(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(dir, "reef.db"))
+})
+
+// openStore is store.Open on dir, seeded with a migrated database when dir has none.
+func openStore(dir string) (*store.Store, error) {
+	path := filepath.Join(dir, "reef.db")
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		db, err := _migratedDB()
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, db, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	return store.Open(dir)
+}
 
 func testMemory(t *testing.T, st *store.Store) *memory.Store {
 	t.Helper()
@@ -32,7 +68,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 // newEmbedServer is newTestServer with the embedder e, and the store it serves.
 func newEmbedServer(t *testing.T, e memory.Embedder) (*httptest.Server, *store.Store) {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

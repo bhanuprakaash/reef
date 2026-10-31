@@ -225,7 +225,7 @@ type liveEnv struct {
 func newLiveEnv(t *testing.T) *liveEnv {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func (e *liveEnv) restart(t *testing.T) {
 	if err := e.st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.Open(e.dir)
+	st, err := openStore(e.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1274,7 +1274,7 @@ func TestSend_OpenErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			st, err := store.Open(t.TempDir())
+			st, err := openStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
