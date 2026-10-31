@@ -126,6 +126,49 @@ func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
 	}
 }
 
+func TestDeleteTeam_QueuedItemsReturnToBacklog(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := testCreateTeam(t, s, ctx, Team{Name: "release", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.CreateProject(ctx, Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var teamID int64
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM team WHERE name = 'release'").Scan(&teamID); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: project.ID, Title: "a", Status: "queued", TeamID: &teamID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	running, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: project.ID, Title: "b", Status: "in_progress", TeamID: &teamID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteTeam(ctx, "release"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.WorkItem(ctx, queued.ID)
+	if err != nil || got.Status != "backlog" || got.QueuePosition != nil || got.TeamID != nil {
+		t.Errorf("queued item = %+v, %v, want backlog, no queue position, no team", got, err)
+	}
+	got, err = s.WorkItem(ctx, running.ID)
+	if err != nil || got.Status != "in_progress" {
+		t.Errorf("running item = %+v, %v, want in_progress", got, err)
+	}
+}
+
 func TestApplyTeam_Solo(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

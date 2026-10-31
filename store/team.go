@@ -266,7 +266,8 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
-// DeleteTeam removes the named Team. Its Bots, its Spaces and their members stay.
+// DeleteTeam removes the named Team. Its Bots, its Spaces and their members stay. Its queued
+// Work items return to backlog; in-progress ones keep running.
 func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	if name == SoloTeam {
 		return fmt.Errorf("%w: team %s is the default team and cannot be deleted", ErrInvalid, SoloTeam)
@@ -286,6 +287,11 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE space SET team_id = NULL WHERE team_id = ?", id); err != nil {
 		return fmt.Errorf("detach Spaces from team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE work_item SET status = ?, queue_position = NULL WHERE team_id = ? AND status = ?",
+		_backlog, id, _queued); err != nil {
+		return fmt.Errorf("return queued items of team %s to backlog: %w", name, err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM team WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete team %s: %w", name, err)
