@@ -81,12 +81,12 @@ logged in and on `PATH`.
   in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
   eight newest conversations with the Bot's creature; its header opens `/conversations`. A Pinned
   section (`GET /pins`) above Spaces lists pinned Bots, chats and Spaces with a kind label, under every
-  filter; a pin button on a Space or chat row, the Bot page and its chat rows pins and unpins. Typing in
+  filter; a Bots section below it lists the Bots of the five newest chats under the filter, each opening `/bots/ID/chat`; a pin button on a Space or chat row, the Bot page and its chat rows pins and unpins. Typing in
   search replaces the list with `GET /find` results (Bots, chats, Spaces, Work items); a result opens
   `/bots/ID/chat`, `/spaces/ID` or `/work-items/ID`. `/bots/ID/chat` opens the Bot's latest chat under
-  the selected project (`?project=N&limit=1`) or overall, and with none opens the Bot page, whose New
+  the selected project (`?resumable=1&project=N&limit=1`) or overall, and with none opens the Bot page, whose New
   chat starts one; the Bot page lists the chats 20 at a time with Load more. A Space loads its newest
-  50 messages and a Load earlier messages button fetches the page before the oldest shown. Each row
+  50 messages and a Load earlier messages button fetches the page before the oldest shown; a live refetch asks `after` the id 50 from the newest, so nothing loaded drops out, and a reply whose root is not loaded gets it with `?before=ROOT+1&limit=1`. Each row
   shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
   fixed and shows your name beside the Bots, Teams and Settings links. Below 768 px the sidebar is
   a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,
@@ -356,7 +356,7 @@ neither a working directory nor permission to change a repository, and filters n
 
 ### pin
 
-Migration 80 [`080_pin.sql`](../store/migrations/080_pin.sql). `kind` (`bot`, `chat`, `space`),
+Migration 82 [`082_pin.sql`](../store/migrations/082_pin.sql). `kind` (`bot`, `chat`, `space`),
 `target_id` (no foreign key, since it points at a Bot or a Space; triggers delete the pin with its
 target) and `createdAt`; the key is `(kind, target_id)`.
 
@@ -624,7 +624,7 @@ tool calls.
 | `GET /bots/{id}` | | 200 | 404 |
 | `PUT /bots/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
 | `DELETE /bots/{id}` | | 204 | 400 the bot is in a team or a Space (names it), 404 |
-| `GET /bots/{id}/conversations` | `?project=ID` (only those associated with the Project), `?limit=N` (at most 200; without it all), `?before=ID` (only those after that conversation in the list, so the last id of a page is the next `before`) | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Pages follow the list order by (newest activity, id), so they never repeat or skip one unless a listed conversation gets a message while the pages are read. `?project=N&limit=1` is the Bot's latest chat under Project N and `limit=1` alone its latest overall; `[]` means none, and the server never creates one: the client offers New chat (`POST /spaces`). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 400 bad id, 404 |
+| `GET /bots/{id}/conversations` | `?project=ID` (only those associated with the Project), `?limit=N` (at most 200; without it all), `?before=ID` (only those after that conversation in the list, so the last id of a page is the next `before`), `?resumable=1` (leave out the conversations that moved to a Space) | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Pages follow the list order by (newest activity, id), so they never repeat or skip one unless a listed conversation gets a message while the pages are read. `?resumable=1&project=N&limit=1` is the Bot's latest chat to resume under Project N and `?resumable=1&limit=1` its latest overall; `[]` means none, and the server never creates one: the client offers New chat (`POST /spaces`). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 400 bad id, 404 |
 | `POST /teams/{name}/members` | `botId`, `lead` | 201 the role as `GET /teams/{name}` shows it | 400 unknown bot, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |

@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { NewMenu } from '@/app/new-menu';
 import { ProjectSwitcher } from '@/app/project-switcher';
+import { SidebarBots } from '@/app/sidebar-bots';
 import { SidebarPins } from '@/app/sidebar-pins';
 import { SidebarSearch } from '@/app/sidebar-search';
 import { SidebarSpaces } from '@/app/sidebar-spaces';
@@ -169,6 +170,7 @@ export function Sidebar() {
 
             {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
             <SidebarPins />
+            <SidebarBots project={current} />
             <SidebarSpaces project={current} />
           </>
         )}
