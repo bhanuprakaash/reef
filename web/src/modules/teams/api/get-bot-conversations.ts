@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { SpacePreview } from '@/types/api';
+import type { BotChat, SpacePreview } from '@/types/api';
 
 export const CHAT_PAGE = 20;
 
@@ -16,14 +16,15 @@ export function useBotLatestChat(id: number, projectId: number | undefined, enab
   });
 }
 
-export function useBotConversations(id: number, projectId: number | undefined) {
+export function useBotChats(id: number, projectId: number | undefined) {
   return useInfiniteQuery({
     queryKey: ['spaces', 'bot', id, 'list', projectId ?? 'all'],
     initialPageParam: undefined as number | undefined,
     queryFn: ({ pageParam }) =>
-      api<SpacePreview[]>(
-        path(id, projectId, `limit=${CHAT_PAGE}${pageParam ? `&before=${pageParam}` : ''}`),
+      api<BotChat[]>(
+        `/bots/${id}/chats?${projectId === undefined ? '' : `project=${projectId}&`}limit=${CHAT_PAGE}${pageParam ? `&before=${pageParam}` : ''}`,
       ),
-    getNextPageParam: (last) => (last.length < CHAT_PAGE ? undefined : last[last.length - 1].id),
+    getNextPageParam: (last) =>
+      last.length < CHAT_PAGE ? undefined : last[last.length - 1].spaceId,
   });
 }

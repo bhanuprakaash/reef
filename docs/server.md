@@ -128,8 +128,11 @@ logged in and on `PATH`.
 - Starting a Space (the New Space form) picks one or more Crews and previews their Bots without duplicates, each with an include box, and one coordinator. Picking another Crew adds its Bots and keeps the coordinator. Start sends `POST /spaces` with `botIds` and `coordinatorBotId`.
 - Bots (`/bots`): has the Skills library (import a folder or a Git link, New skill and Edit in an editor with SKILL.md and supporting files, list with source, revision and version, Update, the files of a package, and the Bots' skill Drafts with Save and Reject; the same draft card shows in the Space that proposed it), lists bots and edits one's description, skills, backend, model, face and access
   rules (`PUT /bots/{id}`), the one place they are set. A Bot's page (`/bots/{id}`) shows its Teams, its
-  direct conversations (`GET /bots/{id}/conversations`, cut to the ones `GET /spaces?project=ID` lists
-  under a project) and its memory items. Resume chat opens the newest open chat in that list;
+  Chats (`GET /bots/{id}/chats`: personal chats, the Spaces it is in and its consultations, each
+  with a kind badge, a working dot while a turn runs, its origin chat for a consultation, and a
+  link to `/spaces/{id}/bots/{botId}`, the read-only Bot activity view) and its memory items.
+  Consultation Spaces are not in the Spaces lists; they belong to the Chats lists of both Bots.
+  Resume chat opens the newest open chat (`GET /bots/{id}/conversations?resumable=1&limit=1`);
   New chat does `POST /spaces` with `botId`, `kind` `conversation` and the current project's id, if
   any, and opens the new chat. Opening the page starts nothing.
 - Settings (`/settings`): your name, occupation and working preferences (chips), the skills grouped Reef, Claude Code and Codex (the last two read from disk for the current project), each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
@@ -322,7 +325,7 @@ scope `bot`. Their routes still read and write them.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item) or `conversation` (a direct conversation with one Bot). Set by the server |
+| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item), `conversation` (a direct conversation with one Bot) or `consultation` (one Bot asked by another Bot's conversation, see [Consultations](#consultations)). Set by the server |
 | `projectId` | number | the work item's project for a Space of a work item, and then it never changes. For a free Space or a conversation it is the Space's lowest-id associated project, `0` when it has none: it is optional on create and the association is kept in `space_project` (see [Space projects](#space-projects)) |
 | `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the project given with it, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
 | `name` | string | required |
@@ -386,6 +389,7 @@ adds `skill_draft`: a skill a Bot proposed with `propose_skill`, with its `space
 | `author` | string | required; free text, for example `user` or a role |
 | `body` | string | required |
 | `createdAt` | string | |
+| `exchangeId` | number? | the exchange (direct request) this message stands for, in the origin conversation: the note that says it was asked, and the reply posted when it was answered. The window links both sides |
 
 A top-level message is the root of a thread. The author of the root owns the thread.
 
@@ -675,6 +679,8 @@ tool calls.
 | `PUT /bots/{id}` | every field | 200 | 400, 404, 409 name taken |
 | `DELETE /bots/{id}` | | 204 | 400 the bot is in a team or a Space (names it), 404 |
 | `GET /bots/{id}/conversations` | `?project=ID` (only those associated with the Project), `?limit=N` (at most 200; without it all), `?before=ID` (only those after that conversation in the list, so the last id of a page is the next `before`), `?resumable=1` (leave out the conversations that moved to a Space) | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Pages follow the list order by (newest activity, id), so they never repeat or skip one unless a listed conversation gets a message while the pages are read. `?resumable=1&project=N&limit=1` is the Bot's latest chat to resume under Project N and `?resumable=1&limit=1` its latest overall; `[]` means none, and the server never creates one: the client offers New chat (`POST /spaces`). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 400 bad id, 404 |
+| `GET /bots/{id}/chats` | `?project=ID`, `?limit=N` (at most 200), `?before=SPACE_ID`, paged like `/bots/{id}/conversations` | 200 the Bot's chats, newest activity first, as `{kind, spaceId, botId, label, origin?, active, closed, lastActivity}`. `kind` is `chat` (a personal chat; label is its title), `space` (a Space the Bot is a member of, or a work item or free Space it left after taking part, not one it only sent exchanges into; label `<Bot> · <Space>`, such as `Alex · Login Space`, with ` (left)` after it once the Bot left) or `consultation` (label `Consultation from <asker> · <first words of the first question> #<Space id>` for the consulted Bot, `Consultation with <Bot> · <first words> #<Space id>` for the asker, whose entry opens the consulted Bot's activity). A consultation's `origin` is the requesting chat `{spaceId, label}`, derived from its first request's `origin_space_id` and `from_bot_id`. `active` is true while a turn of the Bot (any turn in a consultation) runs; `botId` is the Bot whose activity the entry opens. Reads stored rows only | 400, 404 |
+| `GET /spaces/{id}/bots/{botId}/activity` | | 200 `{space, botId, label, origin?, messages, exchanges, turns}`: what the records hold of that Bot in that Space, a Bot that left included (label ends ` (left)`). `messages` are those it wrote, those that woke it and those linked to its exchanges (every message in a chat or consultation); `exchanges` are its direct messages with their state; `turns` are its turns each with `toolCalls` (`{id, name, input, result, parentId?}`, as the backend exposed them). Nothing about model reasoning. A pure read: no turn, session or workspace is created, so it works on a closed Space whose workspace and backend are gone | 400, 404 the Space, or the Bot never took part in it |
 | `POST /teams/{name}/members` | `botId`, `lead` | 201 the role as `GET /teams/{name}` shows it | 400 unknown bot, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
@@ -686,7 +692,10 @@ tool calls.
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
-| `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed` or `stopped`), `createdAt` | 400 bad id, 404 |
+| `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed`, `stopped` or `cancelled`), `kind`, `originSpaceId?`, `originMessageId?`, `createdAt` | 400 bad id, 404 |
+| `GET /exchanges/{id}` | | 200 `{request, response}`: the exchange request (a direct request with `originSpaceId`; `spaceId` is its destination) and its newest response, `null` until there is one | 404 |
+| `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` or `stopped` exchange back to `waiting` and delivers it again | 404, 409 not `failed` or `stopped` (two retries at once: one wins), or has a `done` response |
+| `POST /exchanges/{id}/cancel` | no body needed | 200 as `GET`; a `waiting` exchange becomes `cancelled` | 404, 409 not `waiting` |
 | `GET /search` | `?workItem=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the work item's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `work item`, missing `q` |
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
@@ -699,7 +708,11 @@ tool calls.
 | `PUT /spaces/{id}/projects/{projectId}` | no body needed | 200 the Space's projects after it; doing it twice changes nothing | 400 a Space of a work item, which stays in its work item's project; 404 Space or project |
 | `DELETE /spaces/{id}/projects/{projectId}` | | 200 the Space's projects after it; the Space, its history and its sessions stay, and so does a project it was not associated with | 400 a Space of a work item; 404 Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role, plus `session` for a Bot with an active session: `{backend, model, permissionMode, write, tools, skills: [{ref, compatible, reason}], connections (names only), refreshPending, stale}`, what the session runs with. `stale` is true when the Bot's own settings differ from it, a selected connection has changed content, or a picked `reef:` skill has a newer library version (a skill read from disk is not compared) | 404 |
-| `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
+| `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member, and a `<Bot> joined the Space` notice from Reef. A user addition needs no approval; only a Bot's `propose_member` waits for the user. The newcomer's first prompt carries a handover of where the Space stands (goal, brief, sub-items, decisions, last messages) that points to `read_thread`, `search_sessions` and `recall`; the members read the notice and the new roster with their next wake. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
+| `DELETE /spaces/{id}/members/{botId}` | optional `coordinator` (the remaining member that leads in its place; required when the Bot leads) and `replacement` (a Bot added first, for the last Bot to leave or as the successor) | 200 `{"pending":false}` once the Bot is out, or 202 `{"pending":true}` while a turn runs: the Bot leaves at the end of that turn, which finishes. Leaving deletes the member row, ends the Bot's session, drops the wakes held or queued for it, gives each request waiting for it the `cancelled` state and a failed response, and posts `<Bot> left the Space`. Nothing wakes the Bot afterwards. A pending removal is stored on the member row (`leaving`, shown as `leaving: true` in the members and the Space's roster): the Bot gets no new wake, and the removal is applied when any chain ends, including a claim that runs no turn, and at server start. Holds and queued wakes of a removed Bot are dropped, so Continue never starts a non-member | 400 a conversation; 404 not a member; 409 the Bot leads and `coordinator` is not a remaining member, or it is the last Bot and no `replacement` is given |
+| `GET /spaces/{id}/member-proposals` | | 200 the pending proposals of a Bot to add a Bot: `id`, `spaceId`, `botId`, `botName`, `proposedBy`, `reason`, `status`, `createdAt` | 404 |
+| `POST /member-proposals/{id}/approve` | no body | 200 the proposal; adds the Bot as `POST /spaces/{id}/members` does | 404; 409 not pending, or already a member |
+| `POST /member-proposals/{id}/reject` | no body | 200 the proposal | 404; 409 not pending |
 | `PUT /spaces/{id}/coordinator` | `botId` | 200 the Space's members, that Bot the only coordinator. Changes where messages that mention nobody go, and nothing else: no Work item, owner or other member changes. Closes the Space's idle agent so the next turn starts with the new coordinator | 400 not a member; 404; 409 a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
@@ -1006,6 +1019,158 @@ restart cut it. A response has no response of its own, so a failed or dropped wa
 the request, and a request whose answer never reached its sender never reads `answered`.
 Retrying that wake puts `answered` back.
 
+### Exchanges
+
+An exchange is a direct request that lives in its destination Space (`spaceId`) and records the
+conversation it came from (`originSpaceId`, and `originMessageId`, the note there). `kind` is
+`request`, `question` or `guidance`; `requestKey` makes creating one idempotent, so a second create
+with the same key returns the first row and starts nothing. Its response is the usual response row;
+when the origin is another Space it is also posted there as a message from the recipient (a failed
+one reads `No reply: <state>, <reason>`), and both messages carry the exchange id. A request has
+one more state, `cancelled`, for an exchange withdrawn while `waiting`, or whose recipient was
+removed from the Space: a request that waited for a removed Bot, an exchange or an ordinary
+same-Space one, gets a failed response `cancelled: <Bot> was removed from the Space`, so it stays
+readable with its original body.
+
+Delivery is `deliverExchange`: it queues the wake behind the running chain's current turn, or starts
+a chain when the Space is idle. A paused Space leaves it `waiting`, and `continue` delivers it with
+the held wakes. A closed Space, or a recipient that is not a member, fails it with a response that
+says why. A turn is created for an exchange only from `waiting`, moving it to `delivered` in the same
+transaction, so delivering the same exchange twice runs it once. A wake whose exchange is no longer
+`waiting` is skipped: it runs no turn, and nothing is routed or woken for it. When the destination
+has a turn running that cannot take the wake (a wrap-up, a continue or refresh in progress), the
+exchange stays `waiting` and the Space is paused, so `continue` delivers it; delivery and retry
+still answer success. A response, its request's state and the reply in the origin conversation are
+stored together.
+
+The reply to a Bot asker is also stored with its wake: a hold on the origin conversation, in the same
+transaction as the response. It is released like any hold: at once when the origin is idle or running,
+when the origin is paused by `continue`, when a refresh, member removal or continue holding the origin for a moment ends (the origin is not paused for it), and after a restart (every open Space holding a pending hold
+is paused at start). It is claimed once, so a reply wakes its asker once. An exchange an asking turn
+created is delivered only when that turn ends well; when the turn fails or is stopped, the exchange
+is `cancelled` and the origin reads `No reply: the asking turn failed` (or `stopped`).
+
+After a restart `answered` and `failed` exchanges are unchanged. A `waiting` one stays `waiting`;
+at start, every open Space holding one is paused (`app restarted: wakes were waiting to run`) and
+`continue` delivers it. A `delivered` one whose turn the restart cut becomes `failed` with the
+response `interrupted while running; check its activity before retrying`: what the turn did is
+unknown, so it is never replayed, and the user retries it on purpose. An exchange that already has a
+`done` response cannot be retried.
+
+### Consultations
+
+A Bot in a direct conversation asks another Bot with the `consult` MCP tool. The question runs in a
+Space of kind `consultation`, titled `Consultation from <asker> · <first words of the first question> #<Space id>`: one member, the consulted Bot,
+leading it, no work item and no Team. It takes the Bot's own profile and permissions as a
+direct conversation does, runs in its own chat folder, and refuses `POST /spaces/{id}/members`
+(`400`). The consulted Bot has no `consult` tool, so consultations do not nest; its prompt tells it
+to name another specialist it needs in its reply. The asker's conversation stays a conversation: it
+is not moved and gains no member, and nothing is written into the consulted Bot's own
+conversations.
+
+Each question is an exchange of kind `request` in the consultation, with the asker's conversation
+as `originSpaceId`. The tool stores it, with the note `Asked <Bot>: <question>` in the origin, and
+the server delivers it when the asker's turn ends. The reply is the response row, posted in the
+origin as a message from the consulted Bot, and it wakes the asker there with `[Space N,
+consultation N, exchange N]` and the reply. A related follow-up passes the same `consultation` id
+and adds another exchange to it; a question without one makes a new consultation. The key of a
+tool call is its turn, Bot, consultation and question, so repeating a call in a turn returns the
+same exchange. Messages that stand for an exchange carry its id, so the window links the origin
+chat to the consultation and each question and reply has its own link.
+
+The consultation is an ordinary Space for the rest: its history stays readable, its Bot's session
+is refreshed and revoked with the Bot's others, and a restart fails a cut consultation turn with
+the interruption note and does not replay it.
+
+### Sending to a Space
+
+A Bot in a direct conversation sends a question or an instruction to a Bot that already works in a
+Space the conversation refers to ([Space references](#space-references)) with the `send_to_space`
+MCP tool. Nothing is added to either Space and no session is made: the exchange runs as a direct
+wake of the recipient in the destination Space, in the Bot's existing session there (the Space's
+live chain queues it behind a running turn, or starts one when idle). The exchange lives in the
+destination Space with kind `question` or `guidance`, links the conversation, and posts `Sent to
+<Bot> in <Space>: <text>` there as a message linked to it. Its key is the turn, Space, Bot, kind
+and text, so a repeated call returns the same exchange.
+
+A question's reply is posted in the conversation as a message from the recipient linked to the
+exchange, and wakes the asker with `[Space N, question to Space N, exchange N]` and the reply, as
+a consultation reply does. An instruction is what the user told the Bot to pass on: it reaches the
+recipient as `User instruction relayed by <Bot> from Space N (...): <text>` (see [Guiding a
+Bot](#guiding-a-bot)), and its reply is posted as a receipt but wakes nobody. Both are decided by the exchange state, shown by the window
+on the linked message with links to the Space and the Bot's activity:
+
+| Destination | Outcome |
+| --- | --- |
+| Open and idle or busy | `waiting` until its turn starts, then `delivered`, then `answered` |
+| Paused | stays `waiting` ("Waiting for Space to resume"); sending never resumes the Space, `POST /spaces/{id}/continue` delivers it once |
+| Closed, or the Bot is not a member | `failed` at once with the reason, posted as `No reply: ...` in the conversation; no turn starts |
+| Cut by a restart while running | `failed` with the interruption note, never replayed; `POST /exchanges/{id}/retry` runs it again |
+| Withdrawn while waiting (`POST /exchanges/{id}/cancel`) | `cancelled` |
+
+Every outcome keeps the origin and destination links of the exchange.
+
+### Guiding a Bot
+
+The user guides a member Bot from its activity view (`/spaces/{id}/bots/{botId}`) or from a
+consultation Space, with `POST /spaces/{id}/bots/{botId}/guidance {"body", "key"}`. It makes an
+exchange of kind `guidance` from the user, with the Space as its origin and destination, and
+stores `To <Bot>: <text>` there as a user message linked to it; the response is 201 with the
+exchange (`{request, response}`). `key` is the client's own id: sending it twice makes one
+exchange. A closed Space is 409, a Bot that is not a member 404, an empty `body` or `key` 400.
+
+The Bot receives `Guidance from the user (sent at <time>, message <id>): <text>` as a direct wake
+in its existing session. The Space's live chain runs guidance at the next turn boundary, after the
+whole running turn, ahead of any Bot handoff waiting behind it (guidance among themselves in the
+order sent). The end of a tool call is not a boundary, so guidance stays `waiting` until its own
+turn starts. Ordinary user messages keep their order, and run in stored order with guidance, all
+of them ahead of Bot handoffs. A Space held for a moment by a refresh, a member removal or a
+continue, or by a turn that cannot take the wake, delivers its waiting exchanges, guidance first,
+when that ends, with no continue; only a Space that cannot run then (shutdown) is paused. A paused Space keeps guidance `waiting`
+("Waiting for Space to resume"), sending never resumes it, and `POST /spaces/{id}/continue` runs
+it first. `POST /spaces/{id}/stop` is separate: it stops the running turn and keeps waiting guidance
+`waiting`; the next turn the Space starts runs it first.
+
+The `To <Bot>: <text>` message is the Space's record that user guidance happened: it links the
+exchange, whose own turn holds the detail, and nothing else is copied into the conversation. Every
+other member of the Space also gets the guidance, once: the next turn it starts after the guidance
+turn started, whatever woke it, begins with `User guidance (to <Bot>, message <id>): <text>`.
+The `To <Bot>: <text>` line is then left out of that wake's "New in the Space" list, and out of the
+guided Bot's wakes before its guidance turn runs and after, which get it as its own guidance. A Bot's
+"New in the Space" list likewise leaves out the replies to what it asked from that Space, which it
+gets as reply wakes. A Bot that joined after the guidance
+was given does not get it.
+Wakes already queued behind the guidance therefore start after it and carry it. A turn already
+running when the guidance arrives is not changed and is never described as corrected. Only Bot
+handoffs and Bot messages queue behind guidance; messages the user sent earlier keep their place
+ahead of it.
+
+An instruction a Bot sends with `send_to_space` relays the user's words, so it is treated the same
+way: it runs ahead of Bot handoffs, and the other members get it once, as `User instruction
+relayed by <Bot> from Space N (to <Bot>, message <id>): <text>`.
+
+Guidance given in a consultation also reaches the Bot that asked: its next turn in the asking
+conversation, after the consulted Bot answered the guided turn, begins with `User guidance in
+Consultation N (to <Bot>): <text>` and the consulted Bot's reply, once. It starts no turn by itself.
+
+The REST API has no authentication and listens on localhost only (as for every route), so a Bot
+with a shell can call this route too and forge guidance. That is accepted for a personal local app.
+
+### Space references
+
+A user message can refer to a Space with the token `#[Name](space:ID)`. The composer writes it
+when the user picks a Space after `#` (work item, free and consultation Spaces, never personal
+chats); the id is the identity, so two Spaces with the same name are two different references. On
+`POST /spaces/{id}/send` the server stores each referenced id in `message_ref(message_id,
+space_id)`. The row has no foreign key on the Space: when the Space is later deleted the reference
+stays and resolves as unavailable. The window renders the token as a chip linking `/spaces/{id}`.
+
+A reference supplies context only. It adds no Bot or Project to either Space, does not move a
+personal chat (only a line that starts with `@name` does), gives no execution authority and starts
+no turn, session or workspace in the referenced Space. The wake text of the message lists each
+reference (`Referenced Space N 'Name' (kind, closed)`, or `unavailable: it was deleted`) and points
+at `read_space` ([docs/memory.md](memory.md#reef-mcp)).
+
 ### Space names
 
 A Space created with the new-space form's default name has `space.name_auto` set to 1.
@@ -1254,6 +1419,7 @@ this far on a folder in use, so it cannot fail the turns of the server that owns
   `Turn 2 by developer, turn 3 by tester failed: server restarted. The worktree may be dirty; retry or roll back.`
 
 - With one turn: `Turn 2 by developer failed: server restarted. The worktree may be dirty; retry or roll back.`
+- Only a Work item's Space has a worktree: the note of a free Space, a direct conversation or a consultation ends after `server restarted.`
 - The server logs `marked N running turns failed: server restarted`.
 - A `running` turn in a Space whose `chat-<space id>.lock` a live `reef chat` holds is
   left `running`, and that Space gets no message from `reef`. `reef chat` is a separate

@@ -147,6 +147,10 @@ type (
 		BotIDs        []int64 `json:"botIds" jsonschema:"ids of the Bots to put in the Space, from find_bots"`
 		CoordinatorID int64   `json:"coordinatorBotId,omitempty" jsonschema:"the Bot that gets messages that mention nobody; default the first Bot"`
 	}
+	proposeMemberIn struct {
+		BotID  int64  `json:"botId" jsonschema:"id of the Bot to add to this Space, from find_bots"`
+		Reason string `json:"reason" jsonschema:"why the Space needs this Bot"`
+	}
 	proposeSkillIn struct {
 		Name  string          `json:"name" jsonschema:"the skill's name: letters, digits, :, _ or -; it must match the name in SKILL.md"`
 		Files []skillFileView `json:"files" jsonschema:"every file of the skill folder as {path, body}; SKILL.md with name and description in its frontmatter is required"`
@@ -259,6 +263,16 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"Give root, a top-level message id, to read just that message and its replies.",
 	}, m.readThread)
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "read_space",
+		Description: "Read a Space the user referenced with #[name](space:id), including a closed " +
+			"one, without waking it: it starts no turn, session or workspace there and adds nobody. " +
+			"Returns messages and, with query, memory items, each with its id: cite the message or " +
+			"memory id your answer rests on. At most the newest 50 messages come back; more is true " +
+			"when older ones were left out, so narrow with query. snapshot is the Space as of snapshot.asOf; " +
+			"say it is a snapshot when you report what is happening there. A deleted Space comes back unavailable: " +
+			"say so, do not guess what it held.",
+	}, m.readSpace)
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "find_bots",
 		Description: "Find other Bots by expertise, or check that Bot ids you hold still exist. " +
 			"Each result has the Bot's stable id, name, description and configured capabilities. " +
@@ -315,6 +329,14 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"user's inbox; the user accepts or changes the selection before the Space is created. " +
 			"A proposal creates nothing and grants no access.",
 	}, m.proposeSpace)
+	if c, err := st.Space(context.Background(), tok.SpaceID); err != nil || (c.Kind != store.KindConsultation && c.Kind != store.KindConversation) {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name: "propose_member",
+			Description: "Propose adding another Bot to this Space. The user approves it in the Space " +
+				"before the Bot joins; a proposal adds nobody and grants no access. Handoffs to Bots " +
+				"already in the Space need no proposal.",
+		}, m.proposeMember)
+	}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_skill",
 		Description: "Propose a new skill when the user asks you to draft one. It shows in this " +
@@ -376,6 +398,10 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
 	m.registerProjectTools(srv)
+	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.Kind == store.KindConversation {
+		m.registerConsult(srv)
+		m.registerSendToSpace(srv)
+	}
 	if tok.Review {
 		restrictToReview(srv)
 	}
@@ -909,6 +935,17 @@ func (m *mcpServer) proposeSpace(
 	p, err := m.st.CreateSpaceProposal(ctx, store.SpaceProposal{
 		ProposedBy: name, Name: in.Name, BotIDs: in.BotIDs, CoordinatorBotID: in.CoordinatorID,
 	})
+	return nil, p, err
+}
+
+func (m *mcpServer) proposeMember(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeMemberIn,
+) (*mcp.CallToolResult, store.MemberProposal, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.MemberProposal{}, err
+	}
+	p, err := m.st.CreateMemberProposal(ctx, m.tok.SpaceID, name, in.BotID, in.Reason)
 	return nil, p, err
 }
 

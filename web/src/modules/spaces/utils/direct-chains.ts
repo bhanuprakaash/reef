@@ -1,13 +1,14 @@
 import type { Status } from '@/components/status-dot';
 import type { DirectMessage, Turn } from '@/types/api';
 
-export type ChainState = 'working' | 'paused' | 'failed' | 'stopped' | 'completed';
+export type ChainState = 'working' | 'paused' | 'failed' | 'stopped' | 'cancelled' | 'completed';
 
 export const dotFor: Record<ChainState, Status> = {
   working: 'working',
   paused: 'paused',
   failed: 'failed',
   stopped: 'asleep',
+  cancelled: 'asleep',
   completed: 'done',
 };
 
@@ -26,6 +27,7 @@ type Context = {
 
 function stateOf(request: DirectMessage, ctx: Context): ChainState {
   if (request.state === 'stopped') return 'stopped';
+  if (request.state === 'cancelled') return 'cancelled';
   if (request.state === 'failed') return ctx.running === request.toBotId ? 'working' : 'failed';
   if (ctx.paused) return 'paused';
   return request.state === 'answered' ? 'completed' : 'working';

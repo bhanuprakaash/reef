@@ -11,6 +11,7 @@ const { useRollbackTurn } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/modules/spaces/api/rollback-turn', () => ({ useRollbackTurn }));
+vi.mock('@/modules/spaces/components/exchange-link', () => ({ ExchangeLink: () => null }));
 
 const botIds: Record<string, number> = { developer: 1, tester: 2, lead: 3 };
 const message = (id: number, author: string, body: string, createdAt: string): Message => ({
@@ -93,6 +94,28 @@ describe('MessageList', () => {
 
     expect(markup.match(/check the build/g)).toHaveLength(1);
     expect(markup).not.toContain('coordinat');
+  });
+
+  it('shows no join divider for a Bot whose only message links an exchange', () => {
+    const linked = {
+      ...message(3, 'tester', 'The login plan holds.', '2026-10-18T10:05:00Z'),
+      exchangeId: 1,
+    };
+    const markup = renderToStaticMarkup(
+      <MessageList
+        spaceId={2}
+        threads={groupThreads([...messages, linked])}
+        chains={[]}
+        faces={{}}
+        turns={[]}
+        checkpoints={[]}
+        onOpen={() => {}}
+        onOpenChain={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('The login plan holds.');
+    expect(markup).not.toContain('Joined');
   });
 
   it('offers reply as a hover icon on a bubble with no thread', () => {

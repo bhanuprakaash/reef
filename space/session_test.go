@@ -1867,6 +1867,94 @@ func TestSession_DirectBotUsesRecipientIDAfterRename(t *testing.T) {
 	}
 }
 
+func TestSession_UserGuidanceToOneBotReachesAnotherOnce(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	architect, other := *testBotID(t, st, "architect"), *testBotID(t, st, "lead")
+	if _, err := st.AddSpaceMember(ctx, ch.ID, other); err != nil {
+		t.Fatal(err)
+	}
+	key := "g"
+	g, _, err := st.CreateExchange(ctx, store.DirectMessage{
+		SpaceID: ch.ID, OriginSpaceID: &ch.ID, From: "user", To: "architect", ToBotID: &architect,
+		Body: "use sessions", Kind: store.ExchangeGuidance, RequestKey: &key,
+	}, "To architect: use sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	sess, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()),
+		func(string) (agent.Agent, error) { ag := newRecordingAgent(); ags = append(ags, ag); return ag, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err = sess.RunDirectBot(ctx, architect, "guidance", g, discard); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err = sess.RunBot(ctx, other, "hello", nil, nil, discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var prompts []string
+	for _, a := range ags {
+		prompts = append(prompts, a.prompts...)
+	}
+	notice := fmt.Sprintf("User guidance (to architect, message %d): use sessions\n\n", *g.OriginMessageID)
+	if len(prompts) != 3 || strings.Contains(prompts[0], "User guidance") ||
+		!strings.HasSuffix(prompts[1], notice+"hello") || prompts[2] != "hello" {
+		t.Errorf("prompts = %q, want the notice on the first run of the other Bot only", prompts)
+	}
+}
+
+func TestSession_RelayedUserInstructionReachesAnotherBotOnce(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	architect, lead := *testBotID(t, st, "architect"), *testBotID(t, st, "lead")
+	other, err := st.CreateBot(ctx, store.Bot{Name: "tester", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddSpaceMember(ctx, ch.ID, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	key := "i"
+	g, _, err := st.CreateExchange(ctx, store.DirectMessage{
+		SpaceID: ch.ID, OriginSpaceID: &ch.ID, From: "lead", FromBotID: &lead, To: "architect",
+		ToBotID: &architect, Body: "use sessions", Kind: store.ExchangeGuidance, RequestKey: &key,
+	}, "Sent to architect: use sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	sess, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()),
+		func(string) (agent.Agent, error) { ag := newRecordingAgent(); ags = append(ags, ag); return ag, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err = sess.RunDirectBot(ctx, architect, "guidance", g, discard); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err = sess.RunBot(ctx, other.ID, "hello", nil, nil, discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var prompts []string
+	for _, a := range ags {
+		prompts = append(prompts, a.prompts...)
+	}
+	notice := fmt.Sprintf("User instruction relayed by lead from Space %d (to architect, message %d): use sessions\n\n",
+		ch.ID, *g.OriginMessageID)
+	if len(prompts) != 3 || !strings.HasSuffix(prompts[1], notice+"hello") || prompts[2] != "hello" {
+		t.Errorf("prompts = %q, want the relayed instruction on the first run of the other Bot only", prompts)
+	}
+}
+
 func TestSession_CoordinatorUsesEditedProfileOnReopen(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

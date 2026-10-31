@@ -380,6 +380,37 @@ func TestWakeAs_ThreadReplyDoesNotHideEarlierTopLevelMessages(t *testing.T) {
 	}
 }
 
+func TestWakeAs_CancelledGuidanceIsNotInTheWakeText(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	team, err := e.st.SpaceTeam(ctx, e.ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var devID int64
+	for _, r := range team.Roles {
+		if r.Name == "developer" {
+			devID = r.BotID
+		}
+	}
+	key := "g"
+	g, _, err := e.st.CreateExchange(ctx, store.DirectMessage{
+		SpaceID: e.ch.ID, OriginSpaceID: &e.ch.ID, From: "user", To: "developer", ToBotID: &devID,
+		Body: "Say fine in one word", Kind: store.ExchangeGuidance, RequestKey: &key,
+	}, "To developer: Say fine in one word")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.CancelExchange(ctx, g.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	e.say("user", "@developer Say ok in one word", nil)
+	routed := "[Space 1, message 2]\n@developer Say ok in one word"
+	if got := e.wake("developer", routed, nil, store.Scope{}); got != routed {
+		t.Errorf("wake =\n%q\nwant\n%q", got, routed)
+	}
+}
+
 func TestWakeAs_ReplyGoesWhereTheFirstSentBlockSays(t *testing.T) {
 	e := newWakeEnv(t)
 	root := e.say("user", "root", nil)

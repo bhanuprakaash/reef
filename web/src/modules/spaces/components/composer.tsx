@@ -6,7 +6,10 @@ import { useMediaQuery } from '@/lib/use-media-query';
 import { useDraft } from '@/modules/spaces/hooks/use-draft';
 import { stepHistory } from '@/modules/spaces/utils/history-step';
 import { splitMentions } from '@/utils/split-mentions';
+import { useQuery } from '@tanstack/react-query';
+import { spacesQuery } from '@/lib/api/get-spaces';
 import { findMention, insertMention } from '@/modules/spaces/utils/mention';
+import { findSpaceRef, insertSpaceRef } from '@/modules/spaces/utils/space-ref';
 import { insertFiles, withPaths } from '@/modules/spaces/utils/file-path';
 import { ClipboardChip } from '@/modules/spaces/components/clipboard-chip';
 import { Button } from '@/components/button';
@@ -79,8 +82,19 @@ export function Composer({
   const matches = mention
     ? (roles ?? []).filter((r) => r.name.toLowerCase().startsWith(mention.query.toLowerCase()))
     : [];
-  const open = mention !== null && matches.length > 0;
-  const highlighted = Math.min(active, matches.length - 1);
+  const ref = closed || paused ? null : findSpaceRef(text, caret);
+  const spaces = useQuery({ ...spacesQuery(), enabled: ref !== null });
+  const refMatches = ref
+    ? (spaces.data ?? [])
+        .filter(
+          (s) =>
+            s.kind !== 'conversation' &&
+            (s.name.toLowerCase().includes(ref.query.toLowerCase()) || String(s.id) === ref.query),
+        )
+        .slice(0, 8)
+    : [];
+  const open = (mention !== null && matches.length > 0) || refMatches.length > 0;
+  const highlighted = Math.min(active, (mention ? matches.length : refMatches.length) - 1);
 
   const history = (messages.data ?? [])
     .filter((m) => m.author === 'user' && (m.parentId ?? undefined) === parent)
@@ -145,6 +159,14 @@ export function Composer({
     picked.current = next.caret;
   }
 
+  function pickSpace(space: { id: number; name: string }) {
+    if (!ref) return;
+    const next = insertSpaceRef(text, caret, ref, space);
+    setText(next.text);
+    setCaret(next.caret);
+    picked.current = next.caret;
+  }
+
   const narrow = useMediaQuery('(max-width: 767px)');
   const state = (botId: number): CreatureState =>
     !running ? 'idle' : botId === workingBotId ? 'working' : 'asleep';
@@ -171,7 +193,35 @@ export function Composer({
       }}
     >
       {send.isError && !paused && <p className="text-sm text-danger">{send.error.message}</p>}
-      {open && (
+      {refMatches.length > 0 && (
+        <Menu
+          role="listbox"
+          aria-label="Space"
+          className="absolute bottom-full left-4 z-10 mb-2 w-[320px]"
+        >
+          {refMatches.map((space, i) => (
+            <div
+              key={space.id}
+              role="option"
+              aria-selected={i === highlighted}
+              tabIndex={-1}
+              className={`flex h-[38px] cursor-pointer items-center gap-2.5 rounded-lg px-2 ${i === highlighted ? 'bg-hover' : ''}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pickSpace(space);
+              }}
+            >
+              <span className="truncate">{space.name}</span>
+              <span className="ml-auto shrink-0 text-xs text-muted">
+                {space.kind.replace('_', ' ')} ·{' '}
+                {space.workItemId ? `item ${space.workItemId} · ` : ''}
+                {space.id}
+              </span>
+            </div>
+          ))}
+        </Menu>
+      )}
+      {mention !== null && matches.length > 0 && (
         <Menu
           role="listbox"
           aria-label="Mention"
@@ -277,12 +327,14 @@ export function Composer({
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                   e.preventDefault();
                   const step = e.key === 'ArrowDown' ? 1 : -1;
-                  setActive((highlighted + step + matches.length) % matches.length);
+                  const count = mention ? matches.length : refMatches.length;
+                  setActive((highlighted + step + count) % count);
                   return;
                 }
                 if (e.key === 'Enter' || e.key === 'Tab') {
                   e.preventDefault();
-                  pick(matches[highlighted].name);
+                  if (mention) pick(matches[highlighted].name);
+                  else pickSpace(refMatches[highlighted]);
                   return;
                 }
                 if (e.key === 'Escape') {

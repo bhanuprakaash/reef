@@ -35,12 +35,13 @@ func validActiveTurn(kind string) bool {
 	return false
 }
 
-// Space kinds: a Work item's Space, a free Space with no Work item, and a direct conversation
-// with one Bot.
+// Space kinds: a Work item's Space, a free Space with no Work item, a direct conversation
+// with one Bot, and a consultation: one Bot asked by another Bot's direct conversation.
 const (
 	KindWorkItem     = "work_item"
 	KindFree         = "free"
 	KindConversation = "conversation"
+	KindConsultation = "consultation"
 )
 
 // A Space's project is its work item's project, or its first associated project, or 0.
@@ -187,14 +188,19 @@ func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space
 		return Space{}, err
 	}
 	switch {
-	case c.Kind == KindConversation && c.WorkItemID != nil:
-		return Space{}, fmt.Errorf("%w: a direct conversation has no work item", ErrInvalid)
-	case c.Kind != KindConversation && c.WorkItemID != nil:
+	case (c.Kind == KindConversation || c.Kind == KindConsultation) && c.WorkItemID != nil:
+		return Space{}, fmt.Errorf("%w: a direct conversation or consultation has no work item", ErrInvalid)
+	case c.Kind != KindConversation && c.Kind != KindConsultation && c.WorkItemID != nil:
 		c.Kind = KindWorkItem
-	case c.Kind != KindConversation:
+	case c.Kind != KindConversation && c.Kind != KindConsultation:
 		c.Kind = KindFree
 	}
-	return s.insertSpace(ctx, c, nil, func(tx *sql.Tx, id int64) error {
+	return s.insertSpace(ctx, c, nil, leadMember(ctx, botID))
+}
+
+// leadMember adds the Bot as the only member, which leads, of a new Space.
+func leadMember(ctx context.Context, botID int64) func(tx *sql.Tx, id int64) error {
+	return func(tx *sql.Tx, id int64) error {
 		res, err := tx.ExecContext(ctx,
 			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, 1 FROM bot WHERE id = ?",
 			id, botID)
@@ -205,7 +211,7 @@ func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space
 			return fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 		}
 		return nil
-	})
+	}
 }
 
 // insertSpace stores c, then calls members to copy its members, in one transaction.
@@ -220,6 +226,20 @@ func (s *Store) insertSpace(
 		return Space{}, fmt.Errorf("begin create Space: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	id, err := s.insertSpaceTx(ctx, tx, c, teamID, members)
+	if err != nil {
+		return Space{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Space{}, fmt.Errorf("commit create Space: %w", err)
+	}
+	return s.Space(ctx, id)
+}
+
+// insertSpaceTx stores c and calls members to copy its members, in tx, and returns its id.
+func (s *Store) insertSpaceTx(
+	ctx context.Context, tx *sql.Tx, c Space, teamID *int64, members func(tx *sql.Tx, id int64) error,
+) (int64, error) {
 	now := time.Now().UTC()
 	var projectID *int64
 	if c.WorkItemID != nil {
@@ -231,28 +251,25 @@ func (s *Store) insertSpace(
 		projectID, c.WorkItemID, c.Name, c.Role, TokenBudget, now.Format(time.RFC3339Nano), teamID, c.Kind)
 	if err != nil {
 		_ = tx.Rollback()
-		return Space{}, s.spaceWriteErr(ctx, "insert space", err, c.WorkItemID,
+		return 0, s.spaceWriteErr(ctx, "insert space", err, c.WorkItemID,
 			parent{table: "project", id: &c.ProjectID}, parent{table: "work_item", id: c.WorkItemID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return Space{}, fmt.Errorf("insert Space: %w", err)
+		return 0, fmt.Errorf("insert Space: %w", err)
 	}
 	if c.ProjectID != 0 {
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO space_project (space_id, project_id) VALUES (?, ?)", id, c.ProjectID); err != nil {
 			_ = tx.Rollback()
-			return Space{}, s.writeErr(ctx, "insert Space project", err, ErrInvalid,
+			return 0, s.writeErr(ctx, "insert Space project", err, ErrInvalid,
 				parent{table: "project", id: &c.ProjectID})
 		}
 	}
 	if err := members(tx, id); err != nil {
-		return Space{}, fmt.Errorf("insert Space members: %w", err)
+		return 0, fmt.Errorf("insert Space members: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return Space{}, fmt.Errorf("commit create Space: %w", err)
-	}
-	return s.Space(ctx, id)
+	return id, nil
 }
 
 // spaceWriteErr turns a failed write of a Space row into ErrConflict when the work item

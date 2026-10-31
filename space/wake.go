@@ -32,10 +32,14 @@ func wakeText(
 	if err != nil {
 		return "", nil, err
 	}
+	known, err := st.GuidanceKnown(ctx, spaceID, botID)
+	if err != nil {
+		return "", nil, err
+	}
 	var blocks []string
 	var sent store.Scopes
 	for _, sc := range scopes {
-		b, newest, err := block(ctx, st, spaceID, botID, sc, read, sessionID == "")
+		b, newest, err := block(ctx, st, spaceID, botID, sc, read, known, sessionID == "")
 		if err != nil {
 			return "", nil, err
 		}
@@ -50,7 +54,7 @@ func wakeText(
 
 func block(
 	ctx context.Context, st *store.Store, spaceID, botID int64, sc store.Scope,
-	read map[int64]int64, fresh bool,
+	read map[int64]int64, known map[int64]bool, fresh bool,
 ) (text string, newest int64, err error) {
 	var msgs []store.Message
 	if sc.Thread != 0 {
@@ -70,6 +74,8 @@ func block(
 	unread := slices.DeleteFunc(msgs, func(m store.Message) bool {
 		switch {
 		case (m.BotID != nil && *m.BotID == botID) || m.Author == store.ReefAuthor:
+			return true
+		case m.ExchangeID != nil && known[*m.ExchangeID]:
 			return true
 		case m.ParentID != nil:
 			return sc.Thread == 0 || m.ID <= read[*m.ParentID]
@@ -118,7 +124,28 @@ func block(
 	} else {
 		b.WriteString(last.Author + " wrote: " + last.Body)
 	}
+	for _, m := range unread {
+		refs, err := st.MessageRefs(ctx, m.ID)
+		if err != nil {
+			return "", 0, err
+		}
+		for _, r := range refs {
+			b.WriteString("\n" + refLine(r))
+		}
+	}
 	return b.String(), last.ID, nil
+}
+
+func refLine(r store.SpaceRef) string {
+	if !r.Available {
+		return fmt.Sprintf("Referenced Space %d is unavailable: it was deleted.", r.SpaceID)
+	}
+	state := r.Kind
+	if r.Closed {
+		state += ", closed"
+	}
+	return fmt.Sprintf("Referenced Space %d '%s' (%s); read it with read_space, which starts no work there.",
+		r.SpaceID, r.Name, state)
 }
 
 // readThrough maps a thread root, or 0 for the top level, to the newest message that role's

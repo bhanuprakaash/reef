@@ -13,6 +13,9 @@ vi.mock('@/modules/spaces/api/set-coordinator', () => ({
 vi.mock('@/modules/spaces/api/refresh-bot', () => ({
   useRefreshBot: () => ({ isPending: false, isError: false, isSuccess: false, mutate: () => {} }),
 }));
+vi.mock('@/modules/spaces/api/remove-member', () => ({
+  useRemoveMember: () => ({ isPending: false, isError: false, mutate: () => {}, data: undefined }),
+}));
 vi.mock('@/modules/spaces/components/space-projects', () => ({ SpaceProjects: () => null }));
 
 const role: Role = {
@@ -43,13 +46,13 @@ const role: Role = {
   },
 };
 
-function render(r: Role) {
+function render(r: Role, ...others: Role[]) {
   return renderToStaticMarkup(
     <MemoryRouter>
       <TeamPanel
         spaceId={1}
         workItemId={null}
-        roles={[r]}
+        roles={[r, ...others]}
         projects={[]}
         working={null}
         onClose={() => {}}
@@ -69,6 +72,23 @@ describe('TeamPanel', () => {
     );
     expect(markup).toContain('codex:lint is not available here: needs Codex');
     expect(markup).toContain('Bot settings changed. Refresh to adopt edits.');
+  });
+
+  it('offers Remove, with a successor to pick for the coordinator, only when another Bot stays', () => {
+    expect(render(role)).not.toContain('Remove');
+
+    const markup = render(role, { ...role, botId: 2, name: 'mira', lead: false });
+
+    expect(markup).toContain('aria-label="Coordinator after prakash leaves"');
+    expect(markup).not.toContain('Coordinator after mira leaves');
+    expect(markup.match(/>Remove</g)).toHaveLength(2);
+  });
+
+  it('shows a pending removal from the Space data, not from the click', () => {
+    const markup = render(role, { ...role, botId: 2, name: 'mira', lead: false, leaving: true });
+
+    expect(markup).toContain('Leaves after its current turn.');
+    expect(markup.match(/>Remove</g)).toHaveLength(1);
   });
 
   it('shows no hint when the session matches the Bot', () => {

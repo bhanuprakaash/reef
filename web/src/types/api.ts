@@ -83,7 +83,7 @@ export type Brief = {
 
 export type Space = {
   id: number;
-  kind: 'work_item' | 'free' | 'conversation';
+  kind: 'work_item' | 'free' | 'conversation' | 'consultation';
   projectId: number;
   workItemId: number | null;
   name: string;
@@ -101,6 +101,37 @@ export type SpaceDetail = Space & { tokenBudget: number; tokensUsed: number };
 export type SpacePreview = Space & {
   members: number[];
   lastMessage: { author: string; body: string; createdAt: string } | null;
+};
+
+export type ChatOrigin = { spaceId: number; label: string };
+
+export type BotChat = {
+  kind: 'chat' | 'space' | 'consultation';
+  spaceId: number;
+  botId: number;
+  label: string;
+  origin?: ChatOrigin;
+  active: boolean;
+  closed: boolean;
+  lastActivity: string;
+};
+
+export type ActivityToolCall = {
+  id: number;
+  name: string;
+  input: string;
+  result: string;
+  parentId?: number;
+};
+
+export type BotActivity = {
+  space: Space;
+  botId: number;
+  label: string;
+  origin?: ChatOrigin;
+  messages: Message[];
+  exchanges: DirectMessage[];
+  turns: (Turn & { toolCalls: ActivityToolCall[] })[];
 };
 
 export type PinKind = 'bot' | 'chat' | 'space';
@@ -135,6 +166,17 @@ export type Proposal = {
   createdAt: string;
 };
 
+export type MemberProposal = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  botName: string;
+  proposedBy: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+};
+
 export type Message = {
   id: number;
   spaceId: number;
@@ -143,6 +185,12 @@ export type Message = {
   botId?: number | null;
   body: string;
   createdAt: string;
+  exchangeId?: number | null;
+};
+
+export type Exchange = {
+  request: DirectMessage;
+  response: DirectMessage | null;
 };
 
 export type Turn = {
@@ -163,6 +211,7 @@ export type Role = {
   botId: number;
   name: string;
   lead: boolean;
+  leaving?: boolean;
   write: boolean;
   backend: string;
   provider?: string;
@@ -267,7 +316,8 @@ export type DirectMessage = {
   toBotId?: number | null;
   body: string;
   status: 'sent' | 'done' | 'failed';
-  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped';
+  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped' | 'cancelled';
+  kind?: 'request' | 'question' | 'guidance';
   createdAt: string;
 };
 

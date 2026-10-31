@@ -6,6 +6,7 @@ import { Author } from '@/modules/spaces/components/author';
 import { Bubble } from '@/modules/spaces/components/bubble';
 import { CheckpointButton } from '@/modules/spaces/components/checkpoint-button';
 import { CoordinationItem } from '@/modules/spaces/components/coordination-item';
+import { ExchangeLink } from '@/modules/spaces/components/exchange-link';
 import { PullRequestIcon } from '@/modules/spaces/components/pull-request-icon';
 import { checkpointAnchor } from '@/modules/spaces/utils/checkpoint-anchor';
 import { messageTime, showTimestamp, timestampLabel } from '@/modules/spaces/utils/message-time';
@@ -57,7 +58,7 @@ export function MessageList({
   onOpen,
   onOpenChain,
 }: Props) {
-  if (threads.length === 0) {
+  if (threads.length === 0 && chains.length === 0) {
     return (
       <div className="py-16">
         <EmptyState
@@ -73,7 +74,9 @@ export function MessageList({
   const firstId = new Map<number, number>();
   for (const { root, replies } of threads) {
     for (const m of [root, ...replies]) {
-      if (m.botId != null) firstId.set(m.botId, Math.min(m.id, firstId.get(m.botId) ?? m.id));
+      if (m.botId != null && m.exchangeId == null) {
+        firstId.set(m.botId, Math.min(m.id, firstId.get(m.botId) ?? m.id));
+      }
     }
   }
   const founder = Math.min(...firstId.values());
@@ -218,6 +221,9 @@ export function MessageList({
                     </div>
                   </div>
                 </>
+              )}
+              {root.exchangeId != null && (
+                <ExchangeLink exchangeId={root.exchangeId} spaceId={spaceId} />
               )}
             </li>
           </Fragment>

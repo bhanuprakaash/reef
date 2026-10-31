@@ -17,6 +17,7 @@ import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
 import { Composer } from '@/modules/spaces/components/composer';
+import { GuidanceInput } from '@/modules/spaces/components/guidance-input';
 import { CoordinationPanel } from '@/modules/spaces/components/coordination-panel';
 import { DeniedToolRows } from '@/modules/spaces/components/denied-tool-rows';
 import { FailedTurnRows } from '@/modules/spaces/components/failed-turn-rows';
@@ -25,6 +26,7 @@ import { LiveTurn } from '@/modules/spaces/components/live-turn';
 import { MessageList } from '@/modules/spaces/components/message-list';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
+import { MemberProposalPanel } from '@/modules/spaces/components/member-proposal-panel';
 import { ProposalPanel } from '@/modules/spaces/components/proposal-panel';
 import { TeamPanel } from '@/modules/spaces/components/team-panel';
 import { ThreadPane } from '@/modules/spaces/components/thread-pane';
@@ -253,6 +255,7 @@ export function SpaceView({
               <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
               <DeniedToolRows space={space} roles={roles} running={running} />
               <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
+              <MemberProposalPanel spaceId={space.id} />
               {drafts}
             </div>
           </div>
@@ -306,6 +309,14 @@ export function SpaceView({
                     Reopen
                   </Button>
                 </div>
+              ) : space.kind === 'consultation' && roles.length > 0 ? (
+                <GuidanceInput
+                  spaceId={space.id}
+                  botId={roles[0].botId}
+                  botName={roles[0].name}
+                  paused={space.paused !== ''}
+                  running={running}
+                />
               ) : (
                 <Composer
                   spaceId={space.id}

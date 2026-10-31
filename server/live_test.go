@@ -149,6 +149,17 @@ func (f *fakeSession) RunDirectAs(
 	f.mu.Lock()
 	f.ran = append(f.ran, text)
 	f.mu.Unlock()
+	if dm.OriginSpaceID != nil {
+		turn, err := f.st.CreateTurn(ctx, store.Turn{
+			SpaceID: dm.SpaceID, Role: role, Backend: "claude", BotID: dm.ToBotID, DirectMessageID: &dm.ID})
+		if err != nil {
+			return err
+		}
+		defer func() {
+			turn.Status = "done"
+			_, _ = f.st.EndTurn(context.WithoutCancel(ctx), turn)
+		}()
+	}
 	if f.onRun != nil {
 		f.onRun(role, text, nil)
 	}

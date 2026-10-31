@@ -515,10 +515,20 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if in.Crew != "" {
+		before, err := s.st.SpaceTeam(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 		roles, err := s.st.AddSpaceCrew(r.Context(), id, in.Crew)
 		if err != nil {
 			writeError(w, err)
 			return
+		}
+		for _, role := range roles {
+			if !slices.ContainsFunc(before.Roles, func(b store.Role) bool { return b.BotID == role.BotID }) {
+				s.noteJoined(r.Context(), id, role.Name)
+			}
 		}
 		writeJSON(w, http.StatusOK, viewTeam(store.Team{Roles: roles}).Roles)
 		return
@@ -531,7 +541,7 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	role, err := s.st.AddSpaceMember(r.Context(), id, in.BotID)
+	role, err := s.joinSpace(r.Context(), id, in.BotID)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -60,6 +60,7 @@ type Role struct {
 	BotID          int64        `json:"botId,omitempty"`
 	Name           string       `json:"name"`
 	Lead           bool         `json:"lead"`
+	Leaving        bool         `json:"leaving,omitempty"`
 	Write          bool         `json:"write"`
 	Backend        string       `json:"backend"`
 	PermissionMode string       `json:"permissionMode"`

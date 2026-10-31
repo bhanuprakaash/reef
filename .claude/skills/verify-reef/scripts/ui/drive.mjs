@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate, guidance, 'guidance-share': guidanceShare };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2300,6 +2300,14 @@ async function team() {
   check(after.width === before.width, 'opening it does not change the Space width', `${before.width} -> ${after.width}`);
   const rows = await panel.locator('ul').first().getByRole('listitem').allInnerTexts();
   check(rows.length === 4 && rows.some((r) => /developer[\s\S]*working/i.test(r)), 'it lists four roles and the developer as working', rows.join(' | ').replace(/\n/g, ' '));
+  await panel.getByRole('listitem').filter({ hasText: /^developer/i }).getByRole('button', { name: 'Remove' }).click();
+  const leaves = panel.getByText('Leaves after its current turn.');
+  await leaves.waitFor();
+  const box = await panel.boundingBox();
+  const note = await leaves.boundingBox();
+  const select = await panel.getByRole('combobox').first().boundingBox();
+  check(note.height < 20 && note.x + note.width <= box.x + box.width, 'the leaving note is one line inside the popover', JSON.stringify(note));
+  check(select.x >= box.x && select.x + select.width <= box.x + box.width, 'the coordinator select is inside the popover', JSON.stringify(select));
   await shot('popover-working');
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'hidden' });
@@ -2752,6 +2760,143 @@ async function conversationMove() {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'the moved conversation has no horizontal scroll at 390 px', String(overflow));
   await shot('phone-moved');
+}
+
+async function consult() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  const call = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  await call('POST', '/bots', { name: 'sam', backend: 'claude' });
+  await call('POST', '/bots', { name: 'kit', backend: 'claude' });
+  const was = page.url();
+  await plus('New conversation');
+  await page.getByRole('button', { name: 'sam', exact: true }).click();
+  await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
+  const chat = page.url().split('/').pop();
+  await send('CONSULT kit about the login plan.');
+  const link = main.getByRole('link', { name: 'Open consultation' });
+  await link.waitFor();
+  const kit = () => sql(`select count(*) from message where space_id=${chat} and author='kit'`);
+  for (let i = 0; i < 100 && kit() === '0'; i++) await page.waitForTimeout(200);
+  const shape = sql(`select kind, (select count(*) from space_member where space_id=${chat}), moved_to is null from Space where id=${chat}`);
+  check(shape === 'conversation|1|1', 'the chat stays one conversation with one member', shape);
+  const consultation = (await link.getAttribute('href')).split('/').pop();
+  const kinds = sql(`select kind, name from Space where id=${consultation}`);
+  check(kinds === `consultation|Consultation from sam · Please review the login plan and… #${consultation}`, 'the link opens a consultation titled by its origin', kinds);
+  await main.getByText('Asked kit: Please review the login plan').waitFor();
+  await shot('desktop-chat');
+  await link.click();
+  await page.waitForURL(`**/spaces/${consultation}`);
+  await main.getByRole('heading', { name: /^Consultation from sam · /, level: 1 }).waitFor();
+  await main.getByText(/sam and kit (coordinated|are coordinating)/i).waitFor();
+  const own = sql(`select count(*) from space_member m join Space s on s.id = m.space_id where s.kind = 'conversation' and m.bot_id = (select id from bot where name = 'kit')`);
+  check(own === '0', 'the consultation makes no chat of kit', own);
+  await shot('desktop-consultation');
+}
+
+async function sendSpace() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  const projectId = sql('select max(id) from project');
+  await sendJson('POST', '/bots', { name: 'sam', backend: 'claude' });
+  await sendJson('POST', '/bots', { name: 'kit', backend: 'claude' });
+  await sendJson('POST', '/spaces', { projectId: Number(projectId), name: 'Login' });
+  await sendJson('POST', '/spaces/1/members', { botId: Number(sql("select id from bot where name='kit'")) });
+  const counts = () => sql("select (select count(*) from turn where space_id=1 and role='kit'), (select count(*) from bot_session where space_id=1 and bot_id=(select id from bot where name='kit'))");
+  const settled = async (turns) => {
+    for (let i = 0; i < 150 && sql(`select count(*) from turn where space_id=1 and role='kit' and status='done'`) !== String(turns); i++) await page.waitForTimeout(200);
+  };
+  await sendJson('POST', '/spaces/1/send', { text: '@kit Say ok in one word' });
+  await settled(1);
+  check(counts() === '1|1', 'kit has an active session in the Login Space', counts());
+
+  await page.goto(base + '/');
+  await plus('New conversation');
+  await page.getByRole('button', { name: 'sam', exact: true }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith('/spaces/1'));
+  const chat = page.url().split('/').pop();
+  const receipts = (state) => main.getByText(new RegExp(`^${state} ·`));
+  const exchangeState = (id) => sql(`select state from direct_message where id=${id}`);
+
+  await send('ASK kit in #[Login](space:1) which login method we chose.');
+  await main.getByText('Kit says we chose sessions, not JWT.').waitFor({ timeout: 30000 });
+  await settled(2);
+  const answers = sql(`select count(*) from message where space_id=${chat} and author='kit' and exchange_id=1`);
+  check(answers === '1', 'the question has one linked answer in the origin chat', answers);
+  const kinds = sql(`select kind, state, origin_space_id from direct_message where id=1`);
+  check(kinds === `question|answered|${chat}`, 'the exchange is an answered question that keeps its origin', kinds);
+  check(counts() === '2|1', 'kit ran one more turn in its existing session and no session was added', counts());
+  await receipts('Answered').first().waitFor();
+  await shot('desktop-question-answered');
+
+  sql(`update space set paused='hold' where id=1`, true);
+  await page.reload();
+  await send('TELL kit in #[Login](space:1) to use sessions.');
+  await main.getByText('Told kit.').waitFor({ timeout: 30000 });
+  await receipts('Waiting for Space to resume').first().waitFor();
+  check(exchangeState(3) === 'waiting' && counts() === '2|1', 'an instruction to a paused Space stays waiting and starts no turn', `${exchangeState(3)} ${counts()}`);
+  check(sql('select paused from space where id=1') === 'hold', 'sending did not resume the Space');
+  await shot('desktop-instruction-waiting');
+  const samTurns = () => sql(`select count(*) from turn where space_id=${chat} and role='sam'`);
+  const samBefore = samTurns();
+  await page.goto(`${base}/spaces/1`);
+  await main.getByRole('button', { name: 'Continue' }).click();
+  await settled(3);
+  for (let i = 0; i < 50 && exchangeState(3) !== 'answered'; i++) await page.waitForTimeout(200);
+  check(exchangeState(3) === 'answered' && counts() === '3|1', 'Continue delivers the instruction once, in the same session', `${exchangeState(3)} ${counts()}`);
+  check(samTurns() === samBefore, 'the instruction did not wake sam again', `${samBefore} -> ${samTurns()}`);
+  await shot('desktop-destination-instruction');
+  await page.goto(`${base}/spaces/${chat}`);
+  await receipts('Delivered').first().waitFor();
+  await shot('desktop-instruction-delivered');
+
+  sql(`update space set closed_at='2026-10-31T10:00:00Z' where id=1`, true);
+  await send('TELL kit in #[Login](space:1) to use sessions.');
+  await main.getByText('No reply: failed, space 1 is closed', { exact: false }).first().waitFor({ timeout: 30000 });
+  check(exchangeState(5) === 'failed' && counts() === '3|1', 'an instruction to a closed Space fails visibly and starts no turn', `${exchangeState(5)} ${counts()}`);
+  await receipts('Failed').first().waitFor();
+  await shot('desktop-instruction-failed');
+}
+
+async function spaceRef() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  const call = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const projectId = sql('select max(id) from project');
+  await call('POST', '/bots', { name: 'sam', backend: 'claude' });
+  await call('POST', '/spaces', { projectId: Number(projectId), name: 'Login' });
+  await call('POST', '/spaces', { projectId: Number(projectId), name: 'Login' });
+  await call('POST', '/messages', { spaceId: 1, author: 'user', body: 'We chose sessions, not JWT, for login.' });
+  const before = sql('select (select count(*) from turn where space_id=1), (select count(*) from bot_session where space_id=1), (select count(*) from space_member where space_id=1), (select count(*) from space_project where space_id=1)');
+  await page.goto(base + '/');
+  await plus('New conversation');
+  await page.getByRole('button', { name: 'sam', exact: true }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith('/spaces/1') && !u.pathname.endsWith('/spaces/2'));
+  const chat = page.url().split('/').pop();
+  const box = page.getByLabel('Message');
+  await box.click();
+  await page.keyboard.type('Why did we choose sessions in #Lo');
+  const options = page.getByRole('listbox', { name: 'Space', exact: true }).getByRole('option');
+  await options.first().waitFor();
+  const shown = (await options.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+  check(shown.length === 2 && shown.every((t) => t.startsWith('Login')) && new Set(shown).size === 2, 'the # picker lists the two Spaces named Login with different ids', shown.join(' / '));
+  await shot('picker');
+  await options.filter({ hasText: /· 1$/ }).click();
+  await page.keyboard.type('?');
+  await box.press('Enter');
+  const chip = main.getByRole('link', { name: '#Login' });
+  await chip.waitFor();
+  check((await chip.getAttribute('href')) === '/spaces/1', 'the message shows a chip linking the Space by id', await chip.getAttribute('href'));
+  await main.getByText('Sessions, not JWT (Space 1, message 1).').waitFor({ timeout: 30000 });
+  await shot('chip-answer');
+  const after = sql('select (select count(*) from turn where space_id=1), (select count(*) from bot_session where space_id=1), (select count(*) from space_member where space_id=1), (select count(*) from space_project where space_id=1)');
+  check(before === after && before.startsWith('0|0|'), 'the referenced Space got no turn, session, member or project', `${before} -> ${after}`);
+  const shape = sql(`select kind, moved_to is null, (select count(*) from space_member where space_id=${chat}) from space where id=${chat}`);
+  check(shape === 'conversation|1|1', 'the chat stays one conversation with one member', shape);
+  const ref = sql(`select r.space_id from message_ref r join message m on m.id = r.message_id where m.space_id=${chat}`);
+  check(ref === '1', 'the reference is stored by Space id', ref);
 }
 
 async function hovercard() {
@@ -3598,10 +3743,11 @@ async function bot() {
   const memoryCount = (await memoryCard.locator('h2 + span').innerText()).trim();
   check(memoryCount === '2', 'the memory count matches', memoryCount);
 
-  const convoCard = main.getByRole('region', { name: 'Conversations' });
+  const convoCard = main.getByRole('region', { name: 'Chats' });
   await convoCard.getByRole('link', { name: /newer chat/ }).waitFor();
   const order = async () => (await convoCard.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop())));
-  const restOrder = async () => (await getJson(`/bots/${sam.id}/conversations`)).map((c) => String(c.id));
+  const restOrder = async () => (await getJson(`/bots/${sam.id}/chats`)).map((c) => String(c.spaceId));
+  check((await convoCard.getByText('Chat', { exact: true }).count()) === 2, 'each chat shows the Chat kind chip');
   check((await order()).join() === (await restOrder()).join() && (await order()).length === 2, 'the conversations list matches REST, newest first', (await order()).join());
   check((await convoCard.getByRole('link').first().innerText()).includes('newer chat'), 'the newer conversation is first');
   await shot('desktop-1280x800');
@@ -3625,7 +3771,7 @@ async function bot() {
   await shot('phone-390x844');
   await page.goto(`${base}/bots/${loner.id}`);
   await main.getByRole('heading', { name: loner.name, level: 1 }).waitFor();
-  check((await main.getByText('In no Crew yet').count()) === 1 && (await main.getByText('No conversations yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Bot with no Team, conversation or memory shows three empty states');
+  check((await main.getByText('In no Crew yet').count()) === 1 && (await main.getByText('No chats yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Bot with no Team, conversation or memory shows three empty states');
   await shot('phone-empty-390x844');
   await page.goto(`${base}/bots/999999`);
   await main.getByText('No Bot 999999').waitFor();
@@ -4350,6 +4496,62 @@ async function navigate() {
   check(set.status === 200 && (await members()) === `${kit.name}*,${sam.name}`, 'PUT /spaces/{id}/coordinator moves the coordinator and keeps both members', `${set.status} ${await members()}`);
   const outsider = await make('/bots', { name: `out-${suffix}`, backend: 'claude' });
   check((await sendJson('PUT', `/spaces/${room.id}/coordinator`, { botId: outsider.id })).status === 400, 'a Bot that is not a member cannot be made coordinator');
+}
+
+async function guidance() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  await addProject();
+  const project = (await getJson('/projects')).at(-1);
+  const bot = (await sendJson('POST', '/bots', { name: `guide-${suffix}`, backend: 'claude' })).body;
+  const room = (await sendJson('POST', '/spaces', { projectId: project.id, name: `room-${suffix}`, botIds: [bot.id], coordinatorBotId: bot.id })).body;
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: 'Output the numbers from 1 to 600, one per line, no tools.' });
+  await page.goto(`${base}/spaces/${room.id}/bots/${bot.id}`);
+  const input = main.getByRole('textbox', { name: new RegExp(`^Message ${bot.name} · room-${suffix}`) });
+  await input.waitFor();
+  check(true, 'the activity view input names its destination', await input.getAttribute('aria-label'));
+  await input.fill('Reply with one word.');
+  await main.getByRole('button', { name: 'Send', exact: true }).click();
+  await main.getByText('Queued — after the current turn').waitFor();
+  const waiting = sql(`select state from direct_message where space_id=${room.id} and kind='guidance'`);
+  check(waiting === 'waiting', 'guidance sent mid-turn shows Queued and is waiting in the store', waiting);
+  await shot('guidance-queued');
+  await main.getByText('Delivered', { exact: true }).waitFor({ timeout: 60000 });
+  const turnsOf = () => sql(`select count(*), group_concat(coalesce(direct_message_id, 0)) from turn where space_id=${room.id} and status='done'`);
+  for (let i = 0; i < 40 && !turnsOf().startsWith('2|'); i++) await page.waitForTimeout(250);
+  const turns = turnsOf();
+  check(turns === '2|0,1' || turns === '2|0,2', 'the guidance ran as its own turn after the first one', turns);
+  await shot('guidance-delivered');
+}
+
+async function guidanceShare() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  await addProject();
+  const project = (await getJson('/projects')).at(-1);
+  const a = (await sendJson('POST', '/bots', { name: `ana-${suffix}`, backend: 'claude' })).body;
+  const b = (await sendJson('POST', '/bots', { name: `ben-${suffix}`, backend: 'claude' })).body;
+  const room = (await sendJson('POST', '/spaces', { projectId: project.id, name: `room-${suffix}`, botIds: [a.id, b.id], coordinatorBotId: a.id })).body;
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: 'Output the numbers from 1 to 600, one per line, no tools.' });
+  const g = (await sendJson('POST', `/spaces/${room.id}/bots/${a.id}/guidance`, { body: 'Reply with one word.', key: `k-${suffix}` })).body;
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: `@${b.name} Say ok in one word. Use no tools.` });
+  const turnsOf = () => sql(`select group_concat(bot_id) from (select bot_id from turn where space_id=${room.id} and status='done' order by id)`);
+  for (let i = 0; i < 240 && turnsOf() !== `${a.id},${a.id},${b.id}`; i++) await page.waitForTimeout(250);
+  check(turnsOf() === `${a.id},${a.id},${b.id}`, 'the busy Bot finished, then its guidance ran, then the waiting Bot', turnsOf());
+  const notice = `User guidance (to ${a.name}, message ${g.request.originMessageId}): Reply with one word.`;
+  const seen = sql(`select count(*) from turn where space_id=${room.id} and bot_id=${b.id} and instr(wake_text, '${notice}') > 0`);
+  check(seen === '1', 'the waiting Bot got the attributed guidance in its wake', seen);
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: `@${b.name} Say fine in one word. Use no tools.` });
+  for (let i = 0; i < 80 && sql(`select count(*) from turn where space_id=${room.id} and bot_id=${b.id} and status='done'`) !== '2'; i++) await page.waitForTimeout(250);
+  const again = sql(`select count(*) from turn where space_id=${room.id} and bot_id=${b.id} and instr(wake_text, 'User guidance') > 0`);
+  check(again === '1', 'the guidance is not repeated on its next wake', again);
+  const notes = sql(`select count(*) from message where space_id=${room.id} and exchange_id=${g.request.id}`);
+  check(notes === '1', 'the Space holds one message linking the guidance', notes);
+  await page.goto(`${base}/spaces/${room.id}`);
+  const linked = main.getByText(`To ${a.name}: Reply with one word.`).first();
+  await linked.waitFor();
+  await linked.scrollIntoViewIfNeeded();
+  await shot('guidance-share');
 }
 
 try {

@@ -41,6 +41,15 @@ var _scenarios = []scenario{
 	{"sent-back-lead", "lead", pat(`^Sent back from review by the user:`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
+	{"read-space", "sam", pat(`Why did we choose sessions in #\[Login\]\(space:1\)`)},
+	{"consult-ask", "sam", pat(`CONSULT kit about the login plan`)},
+	{"consult-answer", "kit", pat(`sam wrote privately: Please review the login plan`)},
+	{"send-question-ask", "sam", pat(`ASK kit in #\[Login\]\(space:1\)`)},
+	{"send-question-answer", "kit", pat(`sam wrote privately: Which login method did we choose`)},
+	{"send-question-relay", "sam", pat(`^kit replied: Sessions, not JWT`)},
+	{"send-instruction-ask", "sam", pat(`TELL kit in #\[Login\]\(space:1\)`)},
+	{"send-instruction-noted", "kit", pat(`User instruction relayed by sam from Space \d+ \(.*\): Use sessions`)},
+	{"consult-relay", "sam", pat(`^kit replied: `)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},
 	{"direct-fail", "architect", pat(`wrote privately: Please review the failing plan`)},
 	{"direct-noted", "", pat(`(?s)architect wrote privately: .*REVIEWED`)},
@@ -110,6 +119,7 @@ var _scenarios = []scenario{
 	{"rollback-hello", "", pat(`^Say hello\. Answer in one or two sentences, use no tools\.\s*$`)},
 	{"rollback-files-changed", "", pat(`Did anything change in the files since your last answer`)},
 	{"short-answer", "", pat(`Answer in one or two sentences, use no tools\.\s*$`)},
+	{"ack-heard", "", pat(`^\S+ wrote: (ack\s*$|1 2 3 4 5 6 7 8 9 10 )`)},
 }
 
 // matchScenario returns the name of the first scenario whose role fits role and whose

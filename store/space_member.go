@@ -20,6 +20,17 @@ func (s *Store) SpaceTeam(ctx context.Context, id int64) (Team, error) {
 	if err != nil {
 		return Team{}, fmt.Errorf("read members of Space %d: %w", id, err)
 	}
+	pending, err := s.LeavingMembers(ctx, id)
+	if err != nil {
+		return Team{}, err
+	}
+	for _, p := range pending {
+		for i := range roles {
+			if roles[i].BotID == p.BotID {
+				roles[i].Leaving = true
+			}
+		}
+	}
 	return Team{Name: c.Team, Roles: roles}, nil
 }
 
@@ -30,8 +41,8 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, erro
 	if err != nil {
 		return Role{}, err
 	}
-	if c.Kind == KindConversation {
-		return Role{}, fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
+	if c.Kind == KindConversation || c.Kind == KindConsultation {
+		return Role{}, fmt.Errorf("%w: Space %d is a %s with one Bot", ErrInvalid, id, c.Kind)
 	}
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, 0 FROM bot WHERE id = ?",
@@ -87,8 +98,8 @@ func (s *Store) AddSpaceCrew(ctx context.Context, id int64, crew string) ([]Role
 	if err != nil {
 		return nil, err
 	}
-	if c.Kind == KindConversation {
-		return nil, fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
+	if c.Kind == KindConversation || c.Kind == KindConsultation {
+		return nil, fmt.Errorf("%w: Space %d is a %s with one Bot", ErrInvalid, id, c.Kind)
 	}
 	if _, err := s.Team(ctx, crew); err != nil {
 		return nil, err

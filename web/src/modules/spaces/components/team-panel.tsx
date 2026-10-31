@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useRefreshBot } from '@/modules/spaces/api/refresh-bot';
+import { useRemoveMember } from '@/modules/spaces/api/remove-member';
 import { useSetCoordinator } from '@/modules/spaces/api/set-coordinator';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
@@ -9,6 +10,7 @@ import type { Project, Role, RoleSession } from '@/types/api';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
+import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
 import { Creature, type CreatureState } from '@/components/creature';
 
@@ -71,7 +73,13 @@ export function TeamPanel({
   const inspector = useInspector(spaceId, true);
   const setCoordinator = useSetCoordinator(spaceId);
   const refresh = useRefreshBot(spaceId);
+  const remove = useRemoveMember(spaceId);
   const [models, setModels] = useState<Record<number, string>>({});
+  const [successors, setSuccessors] = useState<Record<number, number>>({});
+
+  function successorOf(role: Role): number {
+    return successors[role.botId] ?? roles.find((r) => r.botId !== role.botId)!.botId;
+  }
 
   function stateOf(role: Role): CreatureState {
     if (role.botId === working) return 'working';
@@ -145,7 +153,7 @@ export function TeamPanel({
                   </span>
                 )}
                 {role.session && <SessionSummary session={role.session} />}
-                <div className="flex basis-full gap-2 pl-[42px]">
+                <div className="flex basis-full flex-wrap items-center gap-2 pl-[42px]">
                   <TextField
                     aria-label={`Model for ${role.name}`}
                     placeholder={shown.model || 'model'}
@@ -161,6 +169,41 @@ export function TeamPanel({
                   >
                     Refresh
                   </Button>
+                  {roles.length > 1 &&
+                    (role.leaving ? (
+                      <span className="text-[12.5px] text-muted">
+                        Leaves after its current turn.
+                      </span>
+                    ) : (
+                      <>
+                        {role.lead && (
+                          <Select
+                            aria-label={`Coordinator after ${role.name} leaves`}
+                            value={String(successorOf(role))}
+                            onChange={(v) =>
+                              setSuccessors({ ...successors, [role.botId]: Number(v) })
+                            }
+                            options={roles
+                              .filter((r) => r.botId !== role.botId)
+                              .map((r) => ({ value: String(r.botId), label: r.name }))}
+                            className="w-32"
+                          />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={remove.isPending}
+                          onClick={() =>
+                            remove.mutate({
+                              botId: role.botId,
+                              coordinator: role.lead ? successorOf(role) : undefined,
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </>
+                    ))}
                 </div>
               </li>
             );
@@ -174,6 +217,7 @@ export function TeamPanel({
               : 'Refresh requested: the next message starts a new session.'}
           </p>
         )}
+        {remove.isError && <p className="mt-1.5 text-sm text-danger">{remove.error.message}</p>}
         {setCoordinator.isError && (
           <p className="mt-1.5 text-sm text-danger">{setCoordinator.error.message}</p>
         )}

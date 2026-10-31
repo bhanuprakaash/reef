@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -62,21 +63,53 @@ func (s *server) directWakes(
 		if m.FromBotID == nil || author == nil || *m.FromBotID != *author {
 			continue
 		}
-		if m.Status == store.DirectFailed {
+		if m.Status == store.DirectFailed || m.OriginSpaceID != nil {
 			continue
 		}
-		source := "direct request"
-		if m.ReplyToID != nil {
-			source = "direct response"
-		}
-		text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
-			spaceID, m.ID, m.ChainID, source, m.From, m.Body)
-		ws = append(ws, wake{
-			from: m.From, fromBotID: m.FromBotID, botID: m.ToBotID, messageID: m.ID,
-			role: m.To, text: text, direct: &msgs[i], stored: m.CreatedAt,
-		})
+		ws = append(ws, directWake(&msgs[i]))
 	}
 	return ws, after, nil
+}
+
+// directWake is the wake of direct message m for its recipient.
+func directWake(m *store.DirectMessage) wake {
+	source := "direct request"
+	if m.ReplyToID != nil {
+		source = "direct response"
+	}
+	text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
+		m.SpaceID, m.ID, m.ChainID, source, m.From, m.Body)
+	if m.IsUserGuidance() && m.FromBotID != nil {
+		text = fmt.Sprintf("User instruction relayed by %s from Space %d (sent at %s, message %d): %s",
+			m.From, *m.OriginSpaceID, m.CreatedAt.Format(time.RFC3339), *m.OriginMessageID, m.Body)
+	} else if m.IsUserGuidance() {
+		text = fmt.Sprintf("Guidance from the user (sent at %s, message %d): %s",
+			m.CreatedAt.Format(time.RFC3339), *m.OriginMessageID, m.Body)
+	}
+	return wake{
+		from: m.From, fromBotID: m.FromBotID, botID: m.ToBotID, messageID: m.ID,
+		role: m.To, text: text, direct: m, stored: m.CreatedAt,
+	}
+}
+
+// guidanceFirst moves the wakes the user's words are in ahead of the wakes a Bot started, each
+// group keeping its order, the user's wakes in the order they were stored, so guidance never
+// jumps a message the user sent before it.
+func guidanceFirst(ws []wake) []wake {
+	slices.SortStableFunc(ws, func(a, b wake) int {
+		if c := cmp.Compare(guidanceRank(a), guidanceRank(b)); c != 0 || guidanceRank(a) != 0 {
+			return c
+		}
+		return a.stored.Compare(b.stored)
+	})
+	return ws
+}
+
+func guidanceRank(w wake) int {
+	if w.fromBotID == nil || (w.direct != nil && w.direct.IsUserGuidance()) {
+		return 0
+	}
+	return 1
 }
 
 // inStoredOrder is the wakes of one routing read, the public ones and the direct ones, in the

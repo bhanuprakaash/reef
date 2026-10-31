@@ -60,8 +60,14 @@ func TestFailRunningTurns(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"a", "b", "c"} {
-		if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: name}); err != nil {
+	if _, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "Auth"}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	for _, c := range []Space{
+		{ProjectID: 1, WorkItemID: &one, Name: "a"}, {ProjectID: 1, Name: "b"}, {ProjectID: 1, Name: "c"},
+	} {
+		if _, err := s.CreateSpace(ctx, c); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -106,7 +112,7 @@ func TestFailRunningTurns(t *testing.T) {
 
 	wantMessages := map[int64][]messageRow{
 		1: {{"reef", "Turn 1 by architect, turn 3 by developer failed: server restarted. The worktree may be dirty; retry or roll back."}},
-		2: {{"reef", "Turn 2 by developer failed: server restarted. The worktree may be dirty; retry or roll back."}},
+		2: {{"reef", "Turn 2 by developer failed: server restarted."}},
 		3: nil,
 	}
 	for ch, want := range wantMessages {

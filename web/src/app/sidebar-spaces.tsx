@@ -50,7 +50,13 @@ export function SidebarSpaces({ project }: { project?: Project }) {
     return status === 'review' || status === 'done' || status === 'dropped';
   };
   const live = mine
-    .filter((c) => c.kind !== 'conversation' && c.closedAt === null && !handedOver(c))
+    .filter(
+      (c) =>
+        c.kind !== 'conversation' &&
+        c.kind !== 'consultation' &&
+        c.closedAt === null &&
+        !handedOver(c),
+    )
     .sort(byRecent);
   const conversations = mine.filter((c) => c.kind === 'conversation').sort(byRecent);
 

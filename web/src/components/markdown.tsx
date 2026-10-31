@@ -5,7 +5,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { Hovercard } from '@/components/hovercard';
+import { Link } from 'react-router';
 import { splitMentions } from '@/utils/split-mentions';
+import { spaceRefLinks } from '@/utils/space-ref-links';
 
 function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
   return nodes.flatMap((node, i): PhrasingContent[] => {
@@ -107,11 +109,20 @@ const components: Components = {
     ) : (
       <span className={className}>{children}</span>
     ),
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  ),
+  a: ({ href, children }) =>
+    href !== undefined && /^\/spaces\/\d+$/.test(href) ? (
+      <Link
+        to={href}
+        title={`Space ${href.slice('/spaces/'.length)}`}
+        className="rounded-md bg-current/[0.09] px-1.5 py-0.5 no-underline"
+      >
+        {children}
+      </Link>
+    ) : (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    ),
   table: ({ children }) => (
     <div className="my-0.5 overflow-x-auto rounded-lg border border-current/15">
       <table>{children}</table>
@@ -129,7 +140,7 @@ export function Markdown({ children }: { children: string }) {
   return (
     <div className={style}>
       <ReactMarkdown remarkPlugins={plugins} components={components}>
-        {children}
+        {spaceRefLinks(children)}
       </ReactMarkdown>
     </div>
   );

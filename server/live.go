@@ -36,7 +36,7 @@ func talkTool(name string) bool {
 		strings.HasPrefix(name, "mcp__reef__") && !strings.HasPrefix(name, "mcp__reef__browser_")
 }
 
-const _restartReason = "app restarted: wakes were waiting to run"
+const _restartReason = store.RestartReason
 
 var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
 
@@ -70,6 +70,8 @@ type turnState struct {
 	Error           string `json:"error,omitempty"`
 	Note            string `json:"note,omitempty"`
 	DirectMessageID *int64 `json:"directMessageId,omitempty"`
+	// skipped marks the end of a wake that ran no turn, because another one had run its exchange.
+	skipped bool
 }
 
 type pauseState struct {
@@ -124,6 +126,9 @@ type live struct {
 	// queued is the wakes that arrived while a chain starts or runs; the chain runs them after
 	// its current turn, or gives them back when it ends first.
 	queued []wake
+	// redeliver is set when an exchange found the Space busy with a turn it cannot join: the
+	// chain that ends the Space's busy state delivers what waits.
+	redeliver bool
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
 	dropped   int
 	activeGen uint64
@@ -171,6 +176,8 @@ type chain struct {
 	// unpause is set when start clears the Space's pause and sets its budget to budget.
 	unpause bool
 	budget  int64
+	// settling marks the chain that applies pending removals, which does not settle again.
+	settling bool
 }
 
 // directFail is a wake a chain ends without running, whose sender is told that delivery
@@ -525,6 +532,10 @@ func (s *server) runOne(
 			}
 		}
 	}
+	if errors.Is(err, store.ErrNotWaiting) {
+		end = turnState{Role: w.role, BotID: w.botID, Status: "done", Note: err.Error(), skipped: true}
+		return end, true, false
+	}
 	end = turnState{Role: w.role, BotID: w.botID, Status: "done", DirectMessageID: w.direct.IDRef()}
 	if errors.Is(err, space.ErrNoProposal) {
 		err = nil
@@ -724,6 +735,15 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		}
 		held = append(held, w)
 	}
+	if err == nil && wakeErr == nil {
+		held, err = s.withWaitingExchanges(r.Context(), id, held, false)
+		if err == nil {
+			var team store.Team
+			if team, err = s.st.SpaceTeam(r.Context(), id); err == nil {
+				held = keepMembers(held, team)
+			}
+		}
+	}
 	if wakeErr != nil {
 		for _, h := range holds {
 			if rerr := s.st.ReopenHold(context.WithoutCancel(r.Context()), h.ID); rerr != nil {
@@ -748,7 +768,7 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		err = c.release(berr)
 	} else {
 		c.lift(&ch, budget)
-		err = c.resume(r.Context(), ch, held)
+		err = c.resume(r.Context(), ch, guidanceFirst(held))
 	}
 	if err != nil {
 		for _, h := range holds {
@@ -787,18 +807,23 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 
 // failSent gives every request role sent after direct message after, during the turn that
 // just ended unrun by a stop or a failure, a failed response with body "stopped" or "failed".
-func (s *server) failSent(ctx context.Context, spaceID int64, botID *int64, after int64, stopped bool) {
+// The exchanges the turn, which began at since, asked for are withdrawn.
+func (s *server) failSent(
+	ctx context.Context, spaceID int64, botID *int64, after int64, since time.Time, stopped bool,
+) {
 	body := "failed"
 	if stopped {
 		body = "stopped"
 	}
+	s.cancelAsked(ctx, spaceID, botID, since, body)
 	msgs, err := s.st.DirectMessages(ctx, spaceID, after)
 	if err != nil {
 		log.Printf("list direct messages of Space %d: %v", spaceID, err)
 		return
 	}
 	for _, m := range msgs {
-		if botID == nil || m.FromBotID == nil || *m.FromBotID != *botID || m.ReplyToID != nil {
+		if botID == nil || m.FromBotID == nil || *m.FromBotID != *botID || m.ReplyToID != nil ||
+			m.OriginSpaceID != nil {
 			continue
 		}
 		if err := recordFailedDirect(ctx, s.st, m.ID, m.To, body); err != nil {
@@ -1189,6 +1214,7 @@ func (c *chain) release(err error) error {
 	c.cancel()
 	var directFailed []directFail
 	var holds []int64
+	again := false
 	if c.l != nil {
 		c.l.mu.Lock()
 		directFailed, holds = c.shedLocked(nil, stopped)
@@ -1198,12 +1224,19 @@ func (c *chain) release(err error) error {
 		if mine {
 			c.l.state, c.l.cancel = _idle, nil
 			c.l.activeGen = 0
+			again, c.l.redeliver = c.l.redeliver, false
 		}
 		c.l.mu.Unlock()
 		c.finalize(mine, directFailed, holds)
 		close(c.done)
 		close(c.ready)
 		c.s.dropIdle(c.id, c.l, false)
+		if !c.settling {
+			c.s.settleLeaving(c.ctx, c.id)
+		}
+		if again {
+			c.s.deliverWaiting(c.id)
+		}
 	} else {
 		close(c.done)
 	}
@@ -1247,9 +1280,13 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 		body = "stopped"
 	}
 	kept := len(c.l.held)
+	closing := c.s.ctx.Err() != nil
 	for _, w := range c.l.queued {
 		if w.hold != 0 {
 			holds = append(holds, w.hold)
+			continue
+		}
+		if keepsWaiting(w, closing) {
 			continue
 		}
 		if w.direct != nil {
@@ -1264,6 +1301,9 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 			holds = append(holds, w.hold)
 			continue
 		}
+		if keepsWaiting(w, closing) {
+			continue
+		}
 		if w.direct != nil {
 			directFailed = append(directFailed, directFail{w.direct.ID, w.role, body})
 			continue
@@ -1272,6 +1312,12 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 	}
 	c.l.shed = append(c.l.shed, c.l.held[kept:]...)
 	return
+}
+
+// keepsWaiting reports whether the wake of an exchange that a chain ends without running leaves
+// the exchange waiting: any at shutdown, and user guidance on a stop, which a later wake delivers.
+func keepsWaiting(w wake, closing bool) bool {
+	return w.direct != nil && w.direct.OriginSpaceID != nil && (closing || w.direct.IsUserGuidance())
 }
 
 // lift clears the pause in ch and sets its budget, and has start do the same in the store.
@@ -1324,6 +1370,13 @@ func (c *chain) start(
 		} else {
 			c.hint = kindStr
 		}
+	}
+	if kind == _message {
+		var err error
+		if queue, err = c.s.withWaitingExchanges(ctx, c.id, queue, true); err != nil {
+			return c.release(err)
+		}
+		queue = guidanceFirst(queue)
 	}
 	if queue[0].botID == nil {
 		return c.release(fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid))
@@ -1407,7 +1460,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	finish := func(remaining []wake) {
 		directFailed, holds := c.shedLocked(remaining, c.ctx.Err() != nil)
 		mine := c.gen == l.activeGen
+		again := false
 		if mine {
+			again, l.redeliver = l.redeliver, false
 			// Only the chain that still owns the live state may retire it; an older
 			// chain whose teardown ran late leaves a newer chain's state alone.
 			l.cancel()
@@ -1417,6 +1472,10 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.mu.Unlock()
 		c.finalize(mine, directFailed, holds)
 		close(c.done)
+		s.settleLeaving(c.ctx, c.id)
+		if again {
+			s.deliverWaiting(c.id)
+		}
 	}
 	for {
 		var w wake
@@ -1425,6 +1484,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.mu.Lock()
 		l.turnBot, l.turnCancel = w.botID, cancelTurn
 		l.mu.Unlock()
+		started := time.Now()
 		end, ok, closed := s.runOne(turnCtx, c.id, l, sess, kind, w)
 		cancelTurn()
 		l.mu.Lock()
@@ -1432,9 +1492,17 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.turnBot, l.turnCancel, l.revoked = nil, nil, false
 		l.mu.Unlock()
 		if !ok || c.ctx.Err() != nil {
-			s.failSent(context.WithoutCancel(c.ctx), c.id, w.botID, afterDirect, c.ctx.Err() != nil)
-		} else if w.botID != nil {
+			s.failSent(context.WithoutCancel(c.ctx), c.id, w.botID, afterDirect, started, c.ctx.Err() != nil)
+		} else if w.botID != nil && !end.skipped {
 			s.reviewMemory(c.id, *w.botID)
+		}
+		if ok && !end.skipped {
+			if d := w.direct; d != nil && d.ReplyToID == nil && d.OriginSpaceID != nil && *d.OriginSpaceID != c.id {
+				s.wakeAsker(context.WithoutCancel(c.ctx), d.ID, *d.OriginSpaceID)
+			}
+			if kind == _message && c.ctx.Err() == nil {
+				s.deliverAsked(c.ctx, c.id, w.botID, started)
+			}
 		}
 		if revoked && !closed && c.ctx.Err() == nil {
 			ok = true
@@ -1444,7 +1512,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		}
 		var stall error
 		var again *retry
-		if ok && kind == _message && c.ctx.Err() == nil {
+		if ok && !end.skipped && kind == _message && c.ctx.Err() == nil {
 			ws, last, err := s.wakes(c.ctx, c.id, after, w.botID)
 			if err != nil {
 				stall = fmt.Errorf("route messages: %w", err)
@@ -1475,6 +1543,15 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 				}
 			}
 		}
+		l.mu.Unlock()
+		if err := s.applyLeaving(c.ctx, c.id, sess); err != nil {
+			log.Printf("apply removals in Space %d: %v", c.id, err)
+		}
+		team, teamErr := s.st.SpaceTeam(context.WithoutCancel(c.ctx), c.id)
+		l.mu.Lock()
+		if teamErr == nil {
+			queue, l.queued = keepMembers(queue, team), keepMembers(l.queued, team)
+		}
 		if !ok {
 			l.sess = nil
 		}
@@ -1491,7 +1568,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			finish(queue)
 			return
 		}
-		queue, l.queued = append(queue, l.queued...), nil
+		queue, l.queued = guidanceFirst(append(queue, l.queued...)), nil
 		l.mu.Unlock()
 		kind = _message
 		ch, err := s.st.Space(c.ctx, c.id)
