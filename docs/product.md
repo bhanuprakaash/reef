@@ -16,7 +16,7 @@ Reef is a personal Mac app where a team of AI agents works on your projects in o
 
 ## Core entities
 
-The target model below is settled. The runtime already has Bots, one global profile each, and still has Teams (Crews are not built yet); Bot ids sit in Team and Space rosters. The numbered decisions override historical descriptions below where they conflict. See [server](server.md), [memory](memory.md) and [agents](agents.md) for current behavior.
+The target model below is settled. The runtime already has Bots, one global profile each, and Crews (the `team` table; a Team and a Crew are the same thing); Bot ids sit in Team and Space rosters. The numbered decisions override historical descriptions below where they conflict. See [server](server.md), [memory](memory.md) and [agents](agents.md) for current behavior.
 
 | Entity | Responsibility |
 | --- | --- |
