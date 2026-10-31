@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2785,6 +2785,70 @@ async function consult() {
   const own = sql(`select count(*) from space_member m join Space s on s.id = m.space_id where s.kind = 'conversation' and m.bot_id = (select id from bot where name = 'kit')`);
   check(own === '0', 'the consultation makes no chat of kit', own);
   await shot('desktop-consultation');
+}
+
+async function sendSpace() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  const projectId = sql('select max(id) from project');
+  await sendJson('POST', '/bots', { name: 'sam', backend: 'claude' });
+  await sendJson('POST', '/bots', { name: 'kit', backend: 'claude' });
+  await sendJson('POST', '/spaces', { projectId: Number(projectId), name: 'Login' });
+  await sendJson('POST', '/spaces/1/members', { botId: Number(sql("select id from bot where name='kit'")) });
+  const counts = () => sql("select (select count(*) from turn where space_id=1 and role='kit'), (select count(*) from bot_session where space_id=1 and bot_id=(select id from bot where name='kit'))");
+  const settled = async (turns) => {
+    for (let i = 0; i < 150 && sql(`select count(*) from turn where space_id=1 and role='kit' and status='done'`) !== String(turns); i++) await page.waitForTimeout(200);
+  };
+  await sendJson('POST', '/spaces/1/send', { text: '@kit Say ok in one word' });
+  await settled(1);
+  check(counts() === '1|1', 'kit has an active session in the Login Space', counts());
+
+  await page.goto(base + '/');
+  await plus('New conversation');
+  await page.getByRole('button', { name: 'sam', exact: true }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith('/spaces/1'));
+  const chat = page.url().split('/').pop();
+  const receipts = (state) => main.getByText(new RegExp(`^${state} ·`));
+  const exchangeState = (id) => sql(`select state from direct_message where id=${id}`);
+
+  await send('ASK kit in #[Login](space:1) which login method we chose.');
+  await main.getByText('Kit says we chose sessions, not JWT.').waitFor({ timeout: 30000 });
+  await settled(2);
+  const answers = sql(`select count(*) from message where space_id=${chat} and author='kit' and exchange_id=1`);
+  check(answers === '1', 'the question has one linked answer in the origin chat', answers);
+  const kinds = sql(`select kind, state, origin_space_id from direct_message where id=1`);
+  check(kinds === `question|answered|${chat}`, 'the exchange is an answered question that keeps its origin', kinds);
+  check(counts() === '2|1', 'kit ran one more turn in its existing session and no session was added', counts());
+  await receipts('Answered').first().waitFor();
+  await shot('desktop-question-answered');
+
+  sql(`update space set paused='hold' where id=1`, true);
+  await page.reload();
+  await send('TELL kit in #[Login](space:1) to use sessions.');
+  await main.getByText('Told kit.').waitFor({ timeout: 30000 });
+  await receipts('Waiting for Space to resume').first().waitFor();
+  check(exchangeState(3) === 'waiting' && counts() === '2|1', 'an instruction to a paused Space stays waiting and starts no turn', `${exchangeState(3)} ${counts()}`);
+  check(sql('select paused from space where id=1') === 'hold', 'sending did not resume the Space');
+  await shot('desktop-instruction-waiting');
+  const samTurns = () => sql(`select count(*) from turn where space_id=${chat} and role='sam'`);
+  const samBefore = samTurns();
+  await page.goto(`${base}/spaces/1`);
+  await main.getByRole('button', { name: 'Continue' }).click();
+  await settled(3);
+  for (let i = 0; i < 50 && exchangeState(3) !== 'answered'; i++) await page.waitForTimeout(200);
+  check(exchangeState(3) === 'answered' && counts() === '3|1', 'Continue delivers the instruction once, in the same session', `${exchangeState(3)} ${counts()}`);
+  check(samTurns() === samBefore, 'the instruction did not wake sam again', `${samBefore} -> ${samTurns()}`);
+  await shot('desktop-destination-instruction');
+  await page.goto(`${base}/spaces/${chat}`);
+  await receipts('Delivered').first().waitFor();
+  await shot('desktop-instruction-delivered');
+
+  sql(`update space set closed_at='2026-10-31T10:00:00Z' where id=1`, true);
+  await send('TELL kit in #[Login](space:1) to use sessions.');
+  await main.getByText('No reply: failed, space 1 is closed', { exact: false }).first().waitFor({ timeout: 30000 });
+  check(exchangeState(5) === 'failed' && counts() === '3|1', 'an instruction to a closed Space fails visibly and starts no turn', `${exchangeState(5)} ${counts()}`);
+  await receipts('Failed').first().waitFor();
+  await shot('desktop-instruction-failed');
 }
 
 async function spaceRef() {
