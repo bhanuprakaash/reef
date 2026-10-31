@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bhanuprakaash/reef/store"
 )
 
 // writePRGh writes a fake `gh` for the PR panel. `pr view` answers with $GH_RESP, or fails
@@ -34,7 +32,7 @@ fi
 }
 
 func TestWorkItemPR(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

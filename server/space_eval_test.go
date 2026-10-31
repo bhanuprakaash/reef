@@ -128,7 +128,7 @@ func (e *evalEnv) restart() {
 	if err := e.store().Close(); err != nil {
 		e.t.Fatal(err)
 	}
-	st, err := store.Open(e.dir)
+	st, err := openStore(e.dir)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -444,7 +444,7 @@ func TestSpaceEval_WakeCountsItsDelta(t *testing.T) {
 
 func newEval(t *testing.T, backend string) *evalEnv {
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

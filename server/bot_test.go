@@ -12,7 +12,7 @@ import (
 )
 
 func TestBotAndMembership(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestBotAndMembership(t *testing.T) {
 
 func TestProfileUpdateReachesSpaceMembersREST(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

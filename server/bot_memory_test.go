@@ -13,7 +13,7 @@ import (
 
 func TestRenamingABotKeepsItsMemoryItems(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -233,6 +233,11 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	if nHold := waitHolds(t, env.dir, int64(id)); nHold != 1 {
 		t.Fatalf("holds = %d, want exactly one", nHold)
 	}
+	held, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil || len(held) == 0 {
+		t.Fatalf("direct before continue = %+v, %v", held, err)
+	}
+	heldID := held[len(held)-1].ID
 	// Block the held direct wake so we can prove Continue started it.
 	env.fake.directRelease = make(chan struct{})
 	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
@@ -245,28 +250,21 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	}
 	env.fake.directRelease <- struct{}{}
 	// The held wake completes as a direct response: private identity preserved.
-	deadline = time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		direct, _ := env.st.DirectMessages(ctx, int64(id), 0)
-		if len(direct) >= 2 && direct[len(direct)-1].Status == store.DirectDone &&
-			direct[len(direct)-1].From == "architect" && direct[len(direct)-1].To == "lead" &&
-			direct[len(direct)-1].ReplyToID != nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	direct, err := env.st.DirectMessages(ctx, int64(id), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	var direct []store.DirectMessage
 	var doneResponse bool
-	for _, m := range direct {
-		if m.Status == store.DirectDone && m.From == "architect" && m.To == "lead" && m.ReplyToID != nil {
-			doneResponse = true
+	for deadline := time.Now().Add(5 * time.Second); !doneResponse && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if direct, err = env.st.DirectMessages(ctx, int64(id), 0); err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range direct {
+			if m.Status == store.DirectDone && m.From == "architect" && m.To == "lead" &&
+				m.ReplyToID != nil && *m.ReplyToID == heldID {
+				doneResponse = true
+			}
 		}
 	}
 	if !doneResponse {
-		t.Fatalf("direct = %+v, want a done architect->lead response", direct)
+		t.Fatalf("direct = %+v, want a done architect->lead response to %d", direct, heldID)
 	}
 	msgs, _ := env.st.Messages(ctx, int64(id), 0)
 	for _, m := range msgs {
@@ -492,7 +490,7 @@ func TestDirectTurnFailureMarksQueuedWakesFailed(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		direct, _ := env.st.DirectMessages(ctx, int64(id), 0)
-		if len(direct) == 4 && direct[1].Status == store.DirectFailed &&
+		if len(direct) == 4 && direct[2].Status == store.DirectFailed &&
 			direct[3].Status == store.DirectFailed {
 			break
 		}
@@ -640,7 +638,7 @@ func TestDirectRejectSendDuringWrap(t *testing.T) {
 func TestDirectCloseRejectsSend(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,7 +16,7 @@ import (
 
 func TestSubItemUsesParentTreeBranchAndPR(t *testing.T) {
 	dataDir := t.TempDir()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestSubItemUsesParentTreeBranchAndPR(t *testing.T) {
 
 func TestPollGitHub_SubItemNotPolledOnItsOwn(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

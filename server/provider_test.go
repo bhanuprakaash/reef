@@ -14,7 +14,7 @@ import (
 )
 
 func TestProviders(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -62,7 +62,7 @@ func TestGhInterval_ZeroOrNegativeDefaults(t *testing.T) {
 // note for a minute.
 func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	storeDir, dataDir := t.TempDir(), t.TempDir()
-	st, err := store.Open(storeDir)
+	st, err := openStore(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 // still run, without waiting a full REEF_GH_INTERVAL.
 func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	storeDir, dataDir := t.TempDir(), t.TempDir()
-	st, err := store.Open(storeDir)
+	st, err := openStore(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,8 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	h.Close()
 
 	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\nsleep 5\n"+
+	gate := filepath.Join(binDir, "gate")
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\nwhile [ ! -e "+gate+" ]; do sleep 0.01; done\n"+
 		"echo '{\"number\":12,\"url\":\"https://github.com/x/y/pull/12\",\"state\":\"OPEN\",\"statusCheckRollup\":[]}'\n"),
 		0o755); err != nil {
 		t.Fatal(err)
@@ -148,6 +149,9 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	t.Cleanup(h2.Close)
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("New() took %v, want under 1s: it must not wait on the slow gh", elapsed)
+	}
+	if err := os.WriteFile(gate, nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	var msgs []store.Message
@@ -166,7 +170,7 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 
 func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	storeDir, dataDir := t.TempDir(), t.TempDir()
-	st, err := store.Open(storeDir)
+	st, err := openStore(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +235,7 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st2, err := store.Open(storeDir)
+	st2, err := openStore(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +253,7 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 // neither must be recorded as posted, or the note is lost for good. Once the first Space
 // exists, the next poll posts both notes, once.
 func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +307,7 @@ func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 // Space: the poll's note must tell its stream a message arrived, so it refreshes without a
 // reload.
 func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +342,7 @@ func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
 }
 
 func TestPollGitHub_NoGhOnPathLogsOnce(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +364,7 @@ func TestPollGitHub_NoGhOnPathLogsOnce(t *testing.T) {
 }
 
 func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +421,7 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 // same name, such as a matrix job or two workflows: each run is its own row, keyed by
 // (work item, name, run key), so both are noted once and neither is re-noted on a repeat poll.
 func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +471,7 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 	for _, conclusion := range []string{"TIMED_OUT", "STARTUP_FAILURE"} {
 		t.Run(conclusion, func(t *testing.T) {
-			st, err := store.Open(t.TempDir())
+			st, err := openStore(t.TempDir())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -508,7 +512,7 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 }
 
 func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +579,7 @@ const _ghFailedCheck = `{"number":12,"url":"https://github.com/x/y/pull/12","sta
 func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -656,7 +660,7 @@ func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}
-	st2, err := store.Open(dir)
+	st2, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -683,7 +687,7 @@ func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -752,7 +756,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -842,7 +846,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 
 func TestPollGitHub_SoloTeamFailedCheckWakesCoordinator(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -886,7 +890,7 @@ func TestPollGitHub_SoloTeamFailedCheckWakesCoordinator(t *testing.T) {
 func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -972,7 +976,7 @@ func failedCheckJSON(n int) string {
 func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st, err := store.Open(dir)
+	st, err := openStore(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
