@@ -38,7 +38,7 @@ import { checkpointAnchor, unanchoredCheckpoints } from '@/modules/spaces/utils/
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
-import type { SpaceDetail, WorkItem } from '@/types/api';
+import type { Project, SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { faceOf } from '@/components/creature';
 
@@ -47,6 +47,7 @@ type Props = {
   scope: ReactNode;
   status?: string;
   workItems: WorkItem[];
+  projects: Project[];
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
@@ -68,6 +69,7 @@ export function SpaceView({
   scope,
   status,
   workItems,
+  projects,
   diff,
   diffPanel,
   brief,
@@ -392,6 +394,7 @@ export function SpaceView({
                 spaceId={space.id}
                 workItemId={space.workItemId}
                 roles={roles}
+                projects={projects}
                 working={running ? (workingBotId ?? null) : null}
                 brief={brief}
                 onClose={() => setTeamOpen(false)}

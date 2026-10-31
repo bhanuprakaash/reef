@@ -5,8 +5,8 @@ import type { Project } from '@/types/api';
 import { ProjectSwitcher } from './project-switcher';
 
 const projects: Project[] = [
-  { id: 1, name: 'reef', path: '/reef', baseBranch: 'main', createdAt: '' },
-  { id: 2, name: 'site', path: '/site', baseBranch: 'main', createdAt: '' },
+  { id: 1, name: 'reef', path: '/reef', purpose: '', baseBranch: 'main', createdAt: '' },
+  { id: 2, name: 'site', path: '/site', purpose: '', baseBranch: 'main', createdAt: '' },
 ];
 
 function render(stored: string | null) {

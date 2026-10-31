@@ -24,7 +24,14 @@ vi.mock('@/lib/api/get-teams', () => ({ useTeams }));
 vi.mock('@/modules/inbox/api/get-inbox', () => ({ useInbox }));
 vi.mock('@/modules/spaces/api/get-turns', () => ({ useRunningTurns }));
 
-const project: Project = { id: 1, name: 'reef', path: '/reef', baseBranch: 'main', createdAt: '' };
+const project: Project = {
+  id: 1,
+  name: 'reef',
+  path: '/reef',
+  purpose: '',
+  baseBranch: 'main',
+  createdAt: '',
+};
 
 const workItem: WorkItem = {
   id: 2,

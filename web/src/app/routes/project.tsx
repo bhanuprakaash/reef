@@ -13,6 +13,7 @@ import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
+import { ProjectPurposeForm } from '@/modules/projects/components/project-purpose-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
@@ -59,6 +60,7 @@ export function ProjectPage() {
           <ProjectMemoryForm projectId={id} />
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
+          <ProjectPurposeForm project={project} />
           <ProjectBaseBranchForm project={project} />
           <Card title="Work items">
             {workItems.isError && <p className="text-sm text-danger">{workItems.error.message}</p>}

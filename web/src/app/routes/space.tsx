@@ -6,6 +6,7 @@ import { MentionCardsProvider } from '@/app/mention-hovercard';
 import { ReviewDiff } from '@/app/review-diff';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useTerminal } from '@/app/use-terminal';
+import { useSpaceProjects } from '@/modules/spaces/api/space-projects';
 import { useSpace } from '@/modules/spaces/api/get-space';
 import { SpaceView } from '@/modules/spaces/components/space-view';
 import { useBriefVersions } from '@/modules/work-items/api/get-brief-versions';
@@ -36,6 +37,7 @@ export function SpacePage() {
   const id = Number(useParams().id);
   const space = useSpace(id);
   const workItems = useWorkItems();
+  const spaceProjects = useSpaceProjects(id);
   const projects = useProjects();
   const { browserOpen, setBrowserDriver } = useOutletContext<LayoutContext>();
   const project = projects.data?.find((p) => p.id === space.data?.projectId);
@@ -52,13 +54,15 @@ export function SpacePage() {
   const props: ViewProps = {
     space: space.data,
     workItems: workItems.data ?? [],
+    projects: projects.data ?? [],
     status: workItem && statusLabel(workItem.status),
     scope: workItem ? (
       <span className="truncate">{workItem.title}</span>
-    ) : space.data.kind === 'conversation' ? (
-      'conversation'
     ) : (
-      'free Space'
+      [
+        space.data.kind === 'conversation' ? 'conversation' : 'free Space',
+        ...(spaceProjects.data ?? []).map((p) => p.name),
+      ].join(' · ')
     ),
     browserOpen: hasBrowser && browserOpen,
     onBrowserDriver: setBrowserDriver,

@@ -2,7 +2,8 @@ import { Link } from 'react-router';
 import { useSetCoordinator } from '@/modules/spaces/api/set-coordinator';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
-import type { Role } from '@/types/api';
+import { SpaceProjects } from '@/modules/spaces/components/space-projects';
+import type { Project, Role } from '@/types/api';
 import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
 import { Creature, type CreatureState } from '@/components/creature';
@@ -11,6 +12,7 @@ type Props = {
   spaceId: number;
   workItemId: number | null;
   roles: Role[];
+  projects: Project[];
   working: number | null;
   brief?: string;
   onClose: () => void;
@@ -26,7 +28,15 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
-export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose }: Props) {
+export function TeamPanel({
+  spaceId,
+  workItemId,
+  roles,
+  projects,
+  working,
+  brief,
+  onClose,
+}: Props) {
   const inspector = useInspector(spaceId, true);
   const setCoordinator = useSetCoordinator(spaceId);
 
@@ -108,6 +118,7 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
           <p className="mt-1.5 text-sm text-danger">{setCoordinator.error.message}</p>
         )}
       </div>
+      <SpaceProjects spaceId={spaceId} projects={projects} readOnly={workItemId !== null} />
       {workItemId !== null && (
         <div>
           <h2 className="mb-1.5 text-[13px] text-muted">Brief</h2>
