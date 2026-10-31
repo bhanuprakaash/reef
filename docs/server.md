@@ -210,6 +210,7 @@ Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described
 | `id` | number | |
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
+| `purpose` | string | what the Project is for, in a line; default `""` |
 | `createdAt` | string | |
 
 ### profile
@@ -567,6 +568,21 @@ attach](#wrap-up-and-attach)). See [memory.md](memory.md#wrap-up).
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
+
+### space_proposal
+
+A Bot's suggestion for a new Space, made with the `propose_space` tool (migration 81
+[`081_space_proposal.sql`](../store/migrations/081_space_proposal.sql)). It creates no Space: it
+shows in the inbox, the user accepts or changes it in the new Space form, and dismissing the
+inbox item deletes it.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `proposedBy` | string | required; name of the proposing Bot |
+| `name` | string | required, not blank |
+| `botIds` | array | ids of the Bots, de-duplicated; at least one, each must exist (`invalid: unknown bot 9`). The SQL column holds them as JSON text |
+| `coordinatorBotId` | number | one of `botIds`; the first when sent as 0 |
 
 ## REST
 
