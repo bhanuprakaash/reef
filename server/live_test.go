@@ -195,7 +195,7 @@ func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.
 	return store.Proposal{}, nil
 }
 
-func (f *fakeSession) Maintain(ctx context.Context, botID int64, _ func(agent.Event)) error {
+func (f *fakeSession) maintain(ctx context.Context, _, botID int64, _ func(agent.Event)) error {
 	f.mu.Lock()
 	f.reviews = append(f.reviews, botID)
 	hold, fail := f.reviewHold, f.reviewFail
@@ -252,7 +252,9 @@ type liveEnv struct {
 	h      *Handler
 	fake   *fakeSession
 	opened atomic.Int32
-	open   func(ctx context.Context) (session, error)
+	// clock is the unix time the server's memory review sees.
+	clock atomic.Int64
+	open  func(ctx context.Context) (session, error)
 }
 
 func newLiveEnv(t *testing.T) *liveEnv {
@@ -280,6 +282,9 @@ func (e *liveEnv) serve(t *testing.T) {
 			return e.open(ctx)
 		}
 		return e.fake, nil
+	}, func(s *server) {
+		s.now = func() time.Time { return time.Unix(e.clock.Load(), 0) }
+		s.maintain = e.fake.maintain
 	})
 	e.ts = httptest.NewServer(e.h)
 	e.url = e.ts.URL

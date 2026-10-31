@@ -550,8 +550,14 @@ turns that end together in several Spaces start one review; a claim older than a
 taken again.
 
 The review runs in the background after the activating turn, so it holds up neither that turn nor the
-Space's next one. It is one turn of the Bot in a copy of its session in the activating Space, with the
-settings the Bot adopted there (as a wrap-up turn does), on the `reef` MCP server only. The turn keeps no
+Space's next one. It shares nothing with the Space's session: it is one turn of the Bot in a new backend
+context (the Bot's current backend and model; no resume, no fork), recorded in the activating Space, with no
+write (claude: permission mode `default`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Bash` denied;
+codex: read-only sandbox), none of the Bot's connections, the `reef` MCP server only, and a folder of its own,
+`<data>/reviews/<bot id>`, to run in. It takes neither the Space's lock nor its tree lock. Its `reef` token is a
+review token (`token.review`): the MCP server lists and runs only `recall`, `read_memory`, `remember` and
+`retire_memory` for it, and `remember` accepts only scope `bot`, so posting, routing, proposals and sub-items
+are refused by the token, not by the prompt. The turn keeps no
 wake and stores no message: its reply stays on the turn. The prompt asks the Bot to read its own items with
 `recall` (scope `bot`) and `read_memory`, to merge duplicates with `remember` (scope `bot`, `replaces`) and
 to retire stale lessons with `retire_memory`. Retirement is never a delete: an item is marked `retired`

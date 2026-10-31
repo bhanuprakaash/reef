@@ -8,12 +8,7 @@ import (
 
 var _reviewStart = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 
-func setClock(t *testing.T, at time.Time) {
-	t.Helper()
-	old := _now
-	t.Cleanup(func() { _now = old })
-	_now = func() time.Time { return at }
-}
+func (e *liveEnv) setClock(at time.Time) { e.clock.Store(at.Unix()) }
 
 // reviewMarker reads the review columns of Bot id.
 func reviewMarker(t *testing.T, e *liveEnv, id int64) (reviewed int64, started sql.NullInt64) {
@@ -55,17 +50,17 @@ func TestMemoryReview_StartsOnceAfterSevenDays(t *testing.T) {
 	env := newLiveEnv(t)
 	botID := *testServerBot(t, env.st, "lead")
 
-	setClock(t, _reviewStart)
+	env.setClock(_reviewStart)
 	env.sendAndWait(t, "hello")
 	if got, _ := reviewMarker(t, env, botID); got != _reviewStart.Unix() {
 		t.Fatalf("marker after first activity = %d, want %d", got, _reviewStart.Unix())
 	}
 
-	setClock(t, _reviewStart.Add(6*24*time.Hour))
+	env.setClock(_reviewStart.Add(6 * 24 * time.Hour))
 	env.sendAndWait(t, "hello")
 
 	due := _reviewStart.Add(7 * 24 * time.Hour)
-	setClock(t, due)
+	env.setClock(due)
 	env.fake.mu.Lock()
 	env.fake.reviewHold = make(chan struct{})
 	hold := env.fake.reviewHold
@@ -96,10 +91,10 @@ func TestMemoryReview_FailureKeepsMarker(t *testing.T) {
 	env := newLiveEnv(t)
 	botID := *testServerBot(t, env.st, "lead")
 
-	setClock(t, _reviewStart)
+	env.setClock(_reviewStart)
 	env.sendAndWait(t, "hello")
 	due := _reviewStart.Add(8 * 24 * time.Hour)
-	setClock(t, due)
+	env.setClock(due)
 	env.fake.mu.Lock()
 	env.fake.reviewFail = true
 	env.fake.mu.Unlock()

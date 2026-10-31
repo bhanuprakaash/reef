@@ -286,8 +286,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
 			"decisions, open questions). items are memory items made in this Space that " +
 			"are not saved with remember yet, each with a kind, body, why, a scope " +
-			"(work_item by default; project, bot, or team when you are the team lead: " +
-			"team items wait for the user) and replaces for earlier items it replaces. " +
+			"(work_item by default; project or bot) and replaces for earlier items it replaces. " +
 			"retire lists ids of live memory items that are stale or duplicate.",
 	}, m.proposeWrap)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -377,6 +376,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
 	m.registerProjectTools(srv)
+	if tok.Review {
+		restrictToReview(srv)
+	}
 	return srv
 }
 
@@ -435,6 +437,9 @@ func (m *mcpServer) remember(
 	scopes, err := m.withProjects(ctx, space.BotScopes(c, *m.tok.BotID))
 	if err != nil {
 		return nil, rememberOut{}, err
+	}
+	if m.tok.Review && in.Scope != memory.ScopeBot {
+		return nil, rememberOut{}, fmt.Errorf("%w: a memory review remembers only with scope bot", store.ErrInvalid)
 	}
 	switch in.Scope {
 	case "":

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -681,6 +682,71 @@ func TestMCPRetireOwnMemory(t *testing.T) {
 	want = "memory 4: not found"
 	if got != want || !isErr {
 		t.Errorf("retire_memory of a project item = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPReviewTokenOnlyTouchesOwnMemory(t *testing.T) {
+	ctx := context.Background()
+	st, tok := mcpFixture(t)
+	botID, err := st.SpaceMemberBotID(ctx, tok.SpaceID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := st.CreateReviewToken(ctx, tok.SpaceID, botID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Token(ctx, review.Token); err != nil || !got.Review {
+		t.Fatalf("stored token = %+v, %v, want a review token", got, err)
+	}
+	ct, st2 := mcp.NewInMemoryTransports()
+	ss, err := NewMCP(st, openMemory(t, st), review, t.TempDir()).Connect(ctx, st2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close(); _ = ss.Wait() })
+	call := func(name string, args map[string]any) (string, error) {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			return "", err
+		}
+		text, _ := res.Content[0].(*mcp.TextContent)
+		if res.IsError {
+			return text.Text, errors.New(text.Text)
+		}
+		return text.Text, nil
+	}
+
+	var names []string
+	for tool, err := range cs.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	slices.Sort(names)
+	if want := []string{"read_memory", "recall", "remember", "retire_memory"}; !slices.Equal(names, want) {
+		t.Errorf("tools = %v, want %v", names, want)
+	}
+	if _, err := call("post_to_space", map[string]any{"body": "hi"}); err == nil {
+		t.Error("post_to_space was allowed to a review")
+	}
+	if _, err := call("remember", map[string]any{"kind": "fact", "body": "shared", "scope": "project"}); err == nil {
+		t.Error("remember with scope project was allowed to a review")
+	}
+	if _, err := call("remember", map[string]any{"kind": "fact", "body": "shared"}); err == nil {
+		t.Error("remember with no scope was allowed to a review")
+	}
+	if _, err := call("remember", map[string]any{"kind": "lesson", "body": "run tests first", "scope": "bot"}); err != nil {
+		t.Errorf("remember with scope bot: %v", err)
+	}
+	got, err := call("retire_memory", map[string]any{"id": 1})
+	if err != nil || !strings.Contains(got, `"status":"retired"`) {
+		t.Errorf("retire_memory = %q, %v, want the item retired", got, err)
 	}
 }
 

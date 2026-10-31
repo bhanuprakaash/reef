@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1089,30 +1091,78 @@ func TestSession_Wrap(t *testing.T) {
 	}
 }
 
-func TestSession_MaintainPostsNothingAndKeepsNoWake(t *testing.T) {
+func TestMaintain_SharesNothingWithTheSession(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
-	ag := newRecordingAgent()
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	dir := t.TempDir()
+	var mu sync.Mutex
+	var agents []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		mu.Lock()
+		agents = append(agents, ag)
+		mu.Unlock()
+		return ag, nil
+	}
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
+	lead := s.leadID
 
-	if err := s.Maintain(ctx, s.leadID, discard); err != nil {
+	done := make(chan error, 1)
+	go func() {
+		done <- Maintain(ctx, st, dir, "/bin/reef", ch.ID, lead, mk, discard)
+	}()
+	for range 10 {
+		if err := s.RunBot(ctx, lead, "hello", nil, nil, discard); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Refresh(ctx, lead); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(ag.prompts[0], _maintainPrompt) || !ag.closed || len(s.members) != 0 {
-		t.Errorf("prompt = %q, closed = %v, members = %d, want the review prompt on a closed copy",
-			ag.prompts[0], ag.closed, len(s.members))
+
+	var review *recordingAgent
+	for _, ag := range agents {
+		if len(ag.prompts) == 1 && ag.prompts[0] == _maintainPrompt {
+			review = ag
+		}
 	}
-	if msgs, err := st.Messages(ctx, ch.ID, 0); err != nil || len(msgs) != 0 {
-		t.Errorf("messages = %+v, %v, want none", msgs, err)
+	if review == nil {
+		t.Fatal("no agent got the review prompt alone")
+	}
+	cfg := review.cfg
+	if review.resumed != "" || cfg.Fork || cfg.PermissionMode != "default" || !review.closed ||
+		!slices.Equal(cfg.DisallowedTools, []string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"}) ||
+		len(cfg.MCPServers) != 1 || cfg.Cwd != filepath.Join(dir, "reviews", strconv.FormatInt(lead, 10)) {
+		t.Errorf("config = %+v, resumed = %q, closed = %v, want a fresh read-only context in the review folder with only reef",
+			cfg, review.resumed, review.closed)
+	}
+	if _, err := st.Token(ctx, cfg.MCPServers["reef"].Env[TokenEnv]); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("review token after the review: error = %v, want ErrNotFound", err)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if replies := slices.DeleteFunc(msgs, func(m store.Message) bool { return m.Author != "architect" }); err != nil || len(replies) != 10 {
+		t.Errorf("replies = %d, %v, want the 10 of the session turns and none of the review", len(replies), err)
 	}
 	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
-	if err != nil || len(turns) != 1 || turns[0].WakeText != "" || turns[0].Reply != "ok" {
-		t.Errorf("turns = %+v, %v, want one done turn with no wake that kept its reply", turns, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reviews int
+	for _, turn := range turns {
+		if turn.WakeText == "" && turn.Reply == "ok" && turn.Status == "done" {
+			reviews++
+		}
+	}
+	if reviews != 1 {
+		t.Errorf("done turns with no wake that kept their reply = %d, want 1", reviews)
 	}
 }
 

@@ -14,14 +14,15 @@ const (
 	_reviewTimeout = 10 * time.Minute
 )
 
-// _now is the clock of the memory review; tests set it.
-var _now = time.Now
-
 // reviewMemory starts the review of Bot botID's own memory in the background when it is due,
-// after one of its turns has ended and its reply is stored. One review runs per
-// Bot at a time, however many Spaces it works in. The marker moves only when the review ends well.
-func (s *server) reviewMemory(sess session, botID int64) {
-	ok, err := s.st.ClaimMemoryReview(s.ctx, botID, _now(), _reviewEvery, _reviewStale)
+// after one of its turns in Space spaceID has ended and its reply is stored. One review runs per
+// Bot at a time, however many Spaces it works in. The review shares nothing with the Space's
+// session. The marker moves only when the review ends well.
+func (s *server) reviewMemory(spaceID, botID int64) {
+	if s.maintain == nil {
+		return
+	}
+	ok, err := s.st.ClaimMemoryReview(s.ctx, botID, s.now(), _reviewEvery, _reviewStale)
 	if err != nil {
 		log.Printf("claim memory review of Bot %d: %v", botID, err)
 		return
@@ -33,11 +34,11 @@ func (s *server) reviewMemory(sess session, botID int64) {
 		defer s.wg.Done()
 		ctx, cancel := context.WithTimeout(s.ctx, _reviewTimeout)
 		defer cancel()
-		err := sess.Maintain(ctx, botID, func(agent.Event) {})
+		err := s.maintain(ctx, spaceID, botID, func(agent.Event) {})
 		if err != nil {
 			log.Printf("memory review of Bot %d: %v", botID, err)
 		}
-		if err := s.st.FinishMemoryReview(context.Background(), botID, _now(), err == nil); err != nil {
+		if err := s.st.FinishMemoryReview(context.Background(), botID, s.now(), err == nil); err != nil {
 			log.Print(err)
 		}
 	}()

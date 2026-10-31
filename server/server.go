@@ -14,7 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
@@ -29,6 +31,10 @@ type server struct {
 	open    func(ctx context.Context, spaceID int64) (session, error)
 	// name proposes a Space name from its first message, with the Space's backend.
 	name func(ctx context.Context, backend, message string) (string, error)
+	// now is the clock of the memory review. maintain runs that review for a Bot in a Space; with
+	// none set no review runs.
+	now      func() time.Time
+	maintain func(ctx context.Context, spaceID, botID int64, onEvent func(agent.Event)) error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -71,6 +77,10 @@ func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
 			return nil, err
 		}
 		return sess, nil
+	}, func(s *server) {
+		s.maintain = func(ctx context.Context, spaceID, botID int64, onEvent func(agent.Event)) error {
+			return space.Maintain(ctx, st, dataDir, exe, spaceID, botID, space.NewAgent, onEvent)
+		}
 	})
 }
 
@@ -81,14 +91,17 @@ func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
 	st *store.Store, ms *memory.Store, dataDir string, trees *space.Trees,
-	open func(ctx context.Context, spaceID int64) (session, error),
+	open func(ctx context.Context, spaceID int64) (session, error), opts ...func(*server),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
-		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{},
+		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{}, now: time.Now,
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
