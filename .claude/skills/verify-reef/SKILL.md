@@ -83,7 +83,7 @@ REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --
 ```
 
 In `fake` mode the binary reads one stdin line (one turn) at a time: it picks a scenario from
-the role (read off the first prompt, `You are the <role> on work item` / `in project`) and the
+the role (read off the first prompt, `You are <role> on work item` / `in project`) and the
 newest message of the prompt's last wake block (after its `[Space N, message N]` header, reef's
 notes, `Asked together:` and the `New in the Space:` list: `<role> wrote: <body>` or the
 user's text), by a table of name/role/regexp in
@@ -299,6 +299,18 @@ npx playwright@1.64.0 install-deps chromium   # or the same libraries with apt
 export REEF_VERIFY_CHROME=$(ls $HOME/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | tail -1)  # chrome-linux/ on x64, chrome-linux-arm64/ on arm64
 ```
 
+Chromium crashes (SIGTRAP) on a box with no system fonts. `ui` and `doctor` therefore prefer
+the newest `~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell`
+(install it with `npx playwright@1.64.0 install chromium-headless-shell`) and, when `fc-list` finds
+no fonts and `FONTCONFIG_FILE` is unset, write `~/.reef-verify/fonts/fonts.conf` over copies of
+the fonts the t3 client ships. `doctor` prints the `browser:` and `fontconfig:` it chose. Set
+`REEF_VERIFY_CHROME` or `FONTCONFIG_FILE` to override. No fonts live in the repo.
+
+`verify-reef one SCENARIO [TEAM...]` is the one-command check: it makes its own run, runs
+`build`, `doctor`, `serve-start --data-name ui`, `team-apply teams/TEAM.json` for each TEAM and
+`ui SCENARIO`, prints the `PASS`/`FAIL` lines and `rc=<n> run=<id>`, then `serve-stop` and
+`cleanup`. Example: `verify-reef one team full`. It builds `web/` when `web/dist` is missing.
+
 `1.64.0` is the `playwright-core` version in `scripts/ui/package.json`. The default download host
 may be blocked, hence `PLAYWRIGHT_DOWNLOAD_HOST`. `<rev>` is the folder `install` made; `ls` it
 for the binary's exact path.
@@ -364,7 +376,7 @@ REEF_VERIFY_RUN=<id> $H ui navigate # a Bot, a chat and a Space pin from their o
 
 `teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
 `$H team-apply FILE.json` for each after `serve-start --data-name ui` (the
-files are in `features/bots.md`). `inbox` counts every item of the server, so run it first, or
+files are `teams/duo.json` and `teams/full.json`; both define `lead` and `architect`, so apply the one a scenario needs last). `inbox` counts every item of the server, so run it first, or
 on a folder of its own (`--data-name inbox`, with `duo` applied). `inspector`, `review` and `workshop`
 need the team `full` applied: `$H team-apply "$PWD/teams/full.json"` (the server must run; it makes the four Bots, then `reef team apply`).
 

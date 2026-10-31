@@ -70,7 +70,7 @@ Preconditions:
 
 Claude, Space 1:
 
-- **Turn, context, typed-ahead and wrap approve.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y --timeout 300 -- chat 1 --debug`. stderr starts with `--- prompt ---`, `## You` and `You are the lead on work item "Email login" (1) in project "cwd".`. stdout has the reply, `proposal 1 from lead`, `brief:`, `items:` (`- decision (work_item): lock an account after 5 failed logins (slows down password guessing)`, `- fact (project): login lives at /login`, `- lesson (bot): answer in one short sentence`), `ignored while wrapping: typed-ahead line`, `approve? [y/N] approved: brief and N items saved`, and `space 1: resume with reef chat --space 1`. Result `feed: sent "y" after approve? [y/N]`, `exit: 0`, `orphans_alive: none`. Then:
+- **Turn, context, typed-ahead and wrap approve.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y --timeout 300 -- chat 1 --debug`. stderr starts with `--- prompt ---`, `## You` and `You are lead on work item "Email login" (1) in project "cwd".`. stdout has the reply, `proposal 1 from lead`, `brief:`, `items:` (`- decision (work_item): lock an account after 5 failed logins (slows down password guessing)`, `- fact (project): login lives at /login`, `- lesson (bot): answer in one short sentence`), `ignored while wrapping: typed-ahead line`, `approve? [y/N] approved: brief and N items saved`, and `space 1: resume with reef chat --space 1`. Result `feed: sent "y" after approve? [y/N]`, `exit: 0`, `orphans_alive: none`. Then:
   - `$H sql "select id, author, substr(body, 1, 50) from message"`: `user`, `lead`, `user` (`/wrap`), `lead`. The typed-ahead line is not stored.
   - `$H sql "select id, role, backend, status, session_id != '' as has_session, input_tokens + cache_read_tokens > 0 as has_usage from turn"`: two rows `lead|claude|done|1|1`.
   - `$H sql "select id, role, status, decided_at is not null from proposal"`: `1|lead|approved|1`.
@@ -119,7 +119,7 @@ Claude, a second folder (`chat-extra`). Setup: `$H reef --data-name chat-extra -
 - The model may save the decision live with `remember` in the first turn. Then the wrap-up proposes it again or not at all and prints one item fewer in `approved: brief and N items saved`. Both are correct; the `memory` row is the proof either way.
 - If the model does not call `propose_wrap`, stdout says `no proposal made` and the result says `feed: no proposal made, answer not sent`. Re-run with a new data folder rather than reading on.
 - The stored user message is `/wrap`; only the agent gets the wrap-up prompt.
-- The `--debug` prompt holding `You are the lead on work item` right after `## You` holds only while the `solo` lead has no description or skills.
+- The `--debug` prompt holding `You are lead on work item` right after `## You` holds only while the `solo` lead has no description or skills.
 - An interrupted turn's partial reply is not stored, so it adds one message (the user line) to the Space's count.
 - Claude stores sessions per cwd, and the chat runs in the Space's own folder (a work item's worktree, or `<data folder>/chats/<id>` for a Space with no work item). Resume only works inside the same run. Codex threads are global, in `~/.codex/sessions`; cleanup leaves them.
 - Never run two `$H reef` at once in one run: they share the run's output files. `$H sql`, `$H api` and `$H serve-*` can run beside one background `$H reef`; a second chat for the lock check runs the binary directly.

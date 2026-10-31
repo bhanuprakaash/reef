@@ -64,29 +64,10 @@ wait_done() { for i in $(seq 60); do [ "$(curl -s "http://$A/turns?space=$1&stat
 wait_for() { for i in $(seq 60); do curl -s "http://$A$1" | grep -q "$2" && return; sleep 2; done; echo "timeout: $1 never had $2"; return 1; }
 ```
 
-- Team files in `$E`. They are profile files: `$H team-apply FILE` (needs the server) makes or updates one Bot per role with a profile, then runs `reef team apply` on the roster of Bot ids; a Bot name is unique, so a later file's role replaces the Bot of that name. `duo.json` (a lead that mentions the architect only when the message says DESIGN, and an architect with a description, a skill and one tool):
+- Team files in `$E`. They are profile files: `$H team-apply FILE` (needs the server) makes or updates one Bot per role with a profile, then runs `reef team apply` on the roster of Bot ids; a Bot name is unique, so a later file's role replaces the Bot of that name. `duo.json` (in `teams/`; a lead that mentions the architect only when the message says DESIGN, and an architect with a description, a skill and one tool):
 
 ```sh
-cat > $E/duo.json <<'EOF'
-{
-  "name": "duo",
-  "roles": [
-    {
-      "name": "lead",
-      "lead": true,
-      "backend": "claude",
-      "description": "You are the lead. Answer in one short sentence. If the user's message contains the word DESIGN, reply instead with exactly one line: @architect followed by the user's request. If asked to wrap up the Space, call propose_wrap, then reply with exactly two lines: Proposed. and then @architect FYI"
-    },
-    {
-      "name": "architect",
-      "backend": "claude",
-      "description": "You are the architect. Answer in one short sentence, and end it with the word PLANNED. Use no tools unless asked to. Never @mention anyone.",
-      "skills": ["short-plans"],
-      "tools": ["Read"]
-    }
-  ]
-}
-EOF
+cp "$PWD/teams/duo.json" $E/duo.json
 cat > $E/pingpong.json <<'EOF'
 {
   "name": "pingpong",

@@ -124,9 +124,9 @@ func matchScenario(role, text string) string {
 	return ""
 }
 
-// _roleRe reads the role out of a Space's first prompt: "You are the <role> on work item"
-// or, for a Space with no work item, "You are the <role>." (space/context.go).
-var _roleRe = regexp.MustCompile(`You are the (\S+?)(?: on work item|\.\n)`)
+// _roleRe reads the role out of a Space's first prompt: "You are <role> on work item"
+// or, for a Space with no work item, "You are <role>." (space/context.go).
+var _roleRe = regexp.MustCompile(`You are (\S+?)(?: on work item|\.\n)`)
 
 // _headerRe is a wake block's header line (space/wake.go), "[Space N, message M]" or
 // "[Space N, message M, thread T]", or a direct message's (server/wake.go).

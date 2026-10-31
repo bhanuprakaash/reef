@@ -18,6 +18,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
        REEF_VERIFY_RUN=ID verify-reef ui live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar
+       verify-reef one SCENARIO [TEAM...]
        REEF_VERIFY_RUN=ID verify-reef feature NAME [ARG...]
        REEF_VERIFY_RUN=ID verify-reef real
        REEF_VERIFY_RUN=ID verify-reef desktop
@@ -117,6 +118,7 @@ cmd_build() {
 
 cmd_doctor() {
 	load_run
+	browser_setup
 	out="$EV/doctor.txt"
 	check() { # check NAME OK DETAIL
 		if [ "$2" = 1 ]; then echo "ok   $1: $3"; else echo "FAIL $1: $3"; fi
@@ -150,6 +152,8 @@ cmd_doctor() {
 		check binary "$([ -x "$BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$BIN built from ${rev:-unknown}, HEAD $head"
 		check reef "$([ -x "$REEF_BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$REEF_BIN built from ${rev:-unknown}, HEAD $head"
 		check cwd "$([ -d "$CWD" ] && echo 1)" "$CWD"
+		echo "browser: ${REEF_VERIFY_CHROME:-<none: system Chrome or none found>}"
+		echo "fontconfig: ${FONTCONFIG_FILE:-<unset: system fonts>}"
 		echo "mode: REEF_VERIFY_CLAUDE=${REEF_VERIFY_CLAUDE:-fake}"
 		echo "model: ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-<unset: claude picks its default>}"
 	} | tee "$out"
@@ -707,6 +711,53 @@ sys.exit(0 if got else 1)
 EOF
 }
 
+# browser_setup: with no REEF_VERIFY_CHROME and no system Chrome, use the newest Playwright
+# chrome-headless-shell (else its Chromium). On a Linux box with no fonts Chrome crashes
+# (SIGTRAP), so with FONTCONFIG_FILE unset write ~/.reef-verify/fonts/fonts.conf over copies
+# of the fonts the t3 client ships (else Playwright's codicon font); nothing goes in the repo.
+browser_setup() {
+	if [ -z "${REEF_VERIFY_CHROME:-}" ] && [ ! -e "/Applications/Google Chrome.app" ] && [ ! -x /opt/google/chrome/chrome ]; then
+		REEF_VERIFY_CHROME=$(ls "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell 2>/dev/null | sort -V | tail -n 1)
+		[ -n "$REEF_VERIFY_CHROME" ] || REEF_VERIFY_CHROME=$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -n 1)
+		export REEF_VERIFY_CHROME
+	fi
+	if [ -z "${FONTCONFIG_FILE:-}" ] && [ -n "${REEF_VERIFY_CHROME:-}" ] && [ "$(uname)" = Linux ] && ! fc-list 2>/dev/null | grep -q .; then
+		fdir="$EVIDENCE_ROOT/fonts"
+		if ! ls "$fdir"/ttf/*.ttf >/dev/null 2>&1; then
+			mkdir -p "$fdir/ttf"
+			cp "$HOME"/.t3/runtime/versions/*/client/assets/*.ttf "$fdir/ttf/" 2>/dev/null ||
+				cp "$REPO"/.claude/skills/verify-reef/scripts/ui/node_modules/playwright-core/lib/vite/*/*.ttf "$fdir/ttf/" 2>/dev/null
+		fi
+		printf '<?xml version="1.0"?>\n<fontconfig><dir>%s/ttf</dir><cachedir>%s/cache</cachedir></fontconfig>\n' "$fdir" "$fdir" >"$fdir/fonts.conf"
+		FONTCONFIG_FILE="$fdir/fonts.conf"
+		export FONTCONFIG_FILE
+	fi
+}
+
+# one SCENARIO [TEAM...]: build, doctor, serve-start --data-name ui, team-apply teams/TEAM.json
+# for each TEAM, ui SCENARIO, then serve-stop and cleanup, in a run of its own. Prints the
+# PASS and FAIL lines and `rc=<n> run=<id>`; exits with the ui status.
+cmd_one() {
+	[ $# -ge 1 ] || usage
+	sc=$1
+	shift
+	[ -f "$REPO/web/dist/index.html" ] || (cd "$REPO/web" && npm ci && npm run build) >&2 || fail "web build failed"
+	unset REEF_VERIFY_RUN
+	id=$("$0" build 2>/dev/null) || fail "build failed"
+	export REEF_VERIFY_RUN=$id ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-sonnet}
+	"$0" doctor >/dev/null 2>&1
+	"$0" serve-start --data-name ui >/dev/null 2>&1 || fail "serve-start failed (run=$id)"
+	for t in "$@"; do
+		"$0" team-apply "$REPO/teams/$t.json" >/dev/null 2>&1 || echo "team-apply $t failed"
+	done
+	"$0" ui "$sc" 2>&1 | cut -c1-400 | grep -E '^(PASS|FAIL)'
+	rc=${PIPESTATUS[0]}
+	echo "rc=$rc run=$id"
+	"$0" serve-stop >/dev/null 2>&1
+	"$0" cleanup >/dev/null 2>&1
+	exit "$rc"
+}
+
 # ui SCENARIO: drive the window of this run's server in Chrome (scripts/ui/drive.mjs).
 cmd_ui() {
 	load_run
@@ -714,11 +765,7 @@ cmd_ui() {
 	[ -s "$SCR/serve.addr" ] || fail "no server up; run serve-start first (ANTHROPIC_MODEL=sonnet for claude Spaces)"
 	ui="$REPO/.claude/skills/verify-reef/scripts/ui"
 	[ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2) || fail "npm ci failed in $ui"
-	# No REEF_VERIFY_CHROME and no system Chrome: use the newest Playwright Chromium.
-	if [ -z "${REEF_VERIFY_CHROME:-}" ] && [ ! -e "/Applications/Google Chrome.app" ] && [ ! -x /opt/google/chrome/chrome ]; then
-		REEF_VERIFY_CHROME=$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -n 1)
-		export REEF_VERIFY_CHROME
-	fi
+	browser_setup
 	mkdir -p "$EV/ui"
 	REEF_UI_DATA=$(cat "$SCR/serve.data") REEF_UI_PROJECT=$CWD REEF_UI_REEF=$REEF_BIN REEF_UI_PROOF=$EV/ui REEF_FAKE_LOG=$EV/fake-claude.log REEF_UI_FAKE=$SCR/fake \
 		node "$ui/drive.mjs" "$1" "http://$(cat "$SCR/serve.addr")" 2>&1 | tee "$EV/ui-$1.log"
@@ -877,6 +924,7 @@ sql) cmd_sql "$@" ;;
 reef) cmd_reef "$@" ;;
 mcp-call) cmd_mcp_call "$@" ;;
 ui) cmd_ui "$@" ;;
+one) cmd_one "$@" ;;
 feature) cmd_feature "$@" ;;
 real) cmd_real "$@" ;;
 desktop) cmd_desktop "$@" ;;
