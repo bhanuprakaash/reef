@@ -168,18 +168,23 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t st
 type restore struct{ dir, ref string }
 
 // checkpointTrees is the workspace folder and ref of each checkpoint of t. A checkpoint taken
-// in a workspace that the work item of the Space ch does not have now, or that git cannot read
-// there, is a conflict: a free Space's turn from before an attach has none to give.
+// in a workspace that the work item of the Space ch, or the Space itself, does not have now,
+// or that git cannot read there, is a conflict: a free Space's turn from before an attach has
+// none to give.
 func (s *server) checkpointTrees(ctx context.Context, ch store.Space, t store.Turn) ([]restore, error) {
+	var ws []store.Workspace
+	var err error
+	owner := fmt.Sprintf("Space %d", ch.ID)
 	if ch.WorkItemID == nil {
-		return nil, fmt.Errorf("%w: Space %d has no work item, so no checkpoint to restore",
-			store.ErrConflict, ch.ID)
+		ws, err = s.st.SpaceWorkspaces(ctx, ch.ID)
+	} else {
+		var f store.WorkItem
+		if f, err = s.st.WorkItem(ctx, *ch.WorkItemID); err != nil {
+			return nil, err
+		}
+		owner = fmt.Sprintf("work item %d", f.ID)
+		ws, err = s.itemWorkspaces(ctx, f)
 	}
-	f, err := s.st.WorkItem(ctx, *ch.WorkItemID)
-	if err != nil {
-		return nil, err
-	}
-	ws, err := s.itemWorkspaces(ctx, f)
 	if err != nil {
 		return nil, err
 	}
@@ -187,8 +192,8 @@ func (s *server) checkpointTrees(ctx context.Context, ch store.Space, t store.Tu
 	for _, c := range t.Checkpoints {
 		i := slices.IndexFunc(ws, func(w store.Workspace) bool { return w.ID == c.WorkspaceID })
 		if i < 0 {
-			return nil, fmt.Errorf("turn %d was checkpointed in workspace %d, which work item %d does not have: %w",
-				t.ID, c.WorkspaceID, f.ID, store.ErrConflict)
+			return nil, fmt.Errorf("turn %d was checkpointed in workspace %d, which %s does not have: %w",
+				t.ID, c.WorkspaceID, owner, store.ErrConflict)
 		}
 		from, _, err := worktree.Origin(ctx, ws[i].Dir, c.Ref)
 		if err != nil {

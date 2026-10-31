@@ -14,6 +14,7 @@ const (
 	WorkspaceCreating = "creating"
 	WorkspaceReady    = "ready"
 	WorkspacePaused   = "paused"
+	WorkspaceRemoved  = "removed"
 )
 
 // Workspace is one working tree of one repository. An assignment has one per target, kept by

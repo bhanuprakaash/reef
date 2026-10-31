@@ -275,6 +275,11 @@ func firstPrompt(
 			}
 		}
 		b.WriteString(who)
+		if spaceID != 0 && ch.Kind != store.KindConsultation {
+			if err := fixLines(ctx, st, &b, spaceID); err != nil {
+				return "", err
+			}
+		}
 		if know, err = itemParts(ctx, st, ms, nil, ch, r); err != nil {
 			return "", err
 		}

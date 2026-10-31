@@ -5,6 +5,7 @@ import { useRemoveMember } from '@/modules/spaces/api/remove-member';
 import { useSetCoordinator } from '@/modules/spaces/api/set-coordinator';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
+import { SpaceFixes } from '@/modules/spaces/components/space-fixes';
 import { SpaceProjects } from '@/modules/spaces/components/space-projects';
 import type { Project, Role, RoleSession } from '@/types/api';
 import { Button } from '@/components/button';
@@ -223,6 +224,7 @@ export function TeamPanel({
         )}
       </div>
       <SpaceProjects spaceId={spaceId} projects={projects} readOnly={workItemId !== null} />
+      {workItemId === null && <SpaceFixes spaceId={spaceId} />}
       {workItemId !== null && (
         <div>
           <h2 className="mb-1.5 text-[13px] text-muted">Brief</h2>

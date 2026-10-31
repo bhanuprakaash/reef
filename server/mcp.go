@@ -402,6 +402,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
 	m.registerProjectTools(srv)
+	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.WorkItemID == nil && c.Kind != store.KindConsultation {
+		m.registerOpenWorkspace(srv)
+	}
 	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.Kind == store.KindConversation {
 		m.registerConsult(srv)
 		m.registerSendToSpace(srv)

@@ -261,6 +261,15 @@ func HasCommit(ctx context.Context, dir string) bool {
 	return err == nil
 }
 
+// Head is the short id of the commit HEAD points at in dir, or "" when it points at none.
+func Head(ctx context.Context, dir string) string {
+	sha, err := git(ctx, dir, "rev-parse", "--short", "--verify", "--quiet", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return sha
+}
+
 // Checkpoint stores HEAD and the whole working tree of the checkout at dir, untracked files
 // included and ignored ones left out, as a commit at ref. Its first parent is HEAD; its second
 // is a commit of the index as it was, so Restore can bring back what was staged. The index,

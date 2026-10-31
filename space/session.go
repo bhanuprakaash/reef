@@ -656,8 +656,11 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run.OnPrompt = s.onPrompt
 	m.run.Memory = s.ms
-	if m.write && key != "" {
+	if m.write {
 		m.run.Workspaces = func(ctx context.Context) ([]store.Workspace, error) {
+			if key == "" {
+				return readyFixWorkspaces(ctx, s.st, s.ch.ID)
+			}
 			return readyWorkspaces(ctx, s.st, key)
 		}
 		m.run.DataDir = s.dataDir

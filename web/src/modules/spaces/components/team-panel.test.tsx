@@ -17,6 +17,7 @@ vi.mock('@/modules/spaces/api/remove-member', () => ({
   useRemoveMember: () => ({ isPending: false, isError: false, mutate: () => {}, data: undefined }),
 }));
 vi.mock('@/modules/spaces/components/space-projects', () => ({ SpaceProjects: () => null }));
+vi.mock('@/modules/spaces/components/space-fixes', () => ({ SpaceFixes: () => null }));
 
 const role: Role = {
   botId: 1,

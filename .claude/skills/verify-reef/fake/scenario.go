@@ -34,6 +34,8 @@ var _scenarios = []scenario{
 	{"flow-lead-submit", "lead", pat(`^tester wrote: @lead the form passes`)},
 	{"flow-lead-resubmit", "lead", pat(`^Sent back from review by the user:\nADD A PHONE FIELD`)},
 	{"propose-owner", "lead", pat(`^PROPOSE THE SLOW SEARCH FOR BOB`)},
+	{"quick-fix-open", "", pat(`^QUICK FIX LOGIN`)},
+	{"quick-fix-again", "", pat(`^QUICK FIX AGAIN`)},
 	{"flow-propose-kit", "kit", pat(`PROPOSE THE SLOW SEARCH`)},
 	{"assign-two-repos", "lead", pat(`^Work item \d+: Rename in two repos`)},
 	{"queue-lead", "lead", pat(`^Work item \d+: `)},

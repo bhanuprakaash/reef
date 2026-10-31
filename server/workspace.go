@@ -8,6 +8,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
+	"strconv"
 
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
@@ -65,6 +67,94 @@ func (s *server) ensureWorkItemWorkspaces(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, ws)
+}
+
+// spaceWorkspace is a quick fix of a conversation as the window and delivery read it: where it
+// is, what it started from and what it holds now.
+type spaceWorkspace struct {
+	store.Workspace
+	ProjectName string `json:"projectName"`
+	Head        string `json:"head"`
+	Dirty       bool   `json:"dirty"`
+}
+
+// listSpaceWorkspaces returns the quick fixes the conversation holds, abandoned ones included,
+// with the head commit and whether the tree has uncommitted changes. It never makes one.
+func (s *server) listSpaceWorkspaces(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := s.st.Space(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	ws, err := s.st.SpaceWorkspaces(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := make([]spaceWorkspace, 0, len(ws))
+	for _, wk := range ws {
+		p, err := s.st.Project(r.Context(), wk.ProjectID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		sw := spaceWorkspace{Workspace: wk, ProjectName: p.Name}
+		if wk.State == store.WorkspaceReady {
+			sw.Head = worktree.Head(r.Context(), wk.Dir)
+			sw.Dirty, _ = worktree.Dirty(r.Context(), wk.Dir)
+		}
+		out = append(out, sw)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// abandonSpaceWorkspace gives up a quick fix: its tree is removed and its branch is kept, so
+// committed work stays in the repository. A tree with uncommitted changes is 409 and stays, as
+// does one a running turn of the conversation may be writing in.
+func (s *server) abandonSpaceWorkspace(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	wid, err := strconv.ParseInt(r.PathValue("workspaceId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: workspace id %q is not a number", store.ErrInvalid, r.PathValue("workspaceId")))
+		return
+	}
+	ws, err := s.st.SpaceWorkspaces(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	i := slices.IndexFunc(ws, func(wk store.Workspace) bool { return wk.ID == wid })
+	if i < 0 {
+		writeError(w, fmt.Errorf("%w: Space %d has no workspace %d", store.ErrNotFound, id, wid))
+		return
+	}
+	wk := ws[i]
+	if wk.State != store.WorkspaceRemoved {
+		unlock, ok := s.trees.TryLock(space.ChatDir(s.dataDir, id))
+		if !ok {
+			writeError(w, fmt.Errorf("%w: a turn is running in this conversation; abandon the fix when it ends", store.ErrConflict))
+			return
+		}
+		defer unlock()
+		if err := s.removeWorkspaces(r.Context(), []store.Workspace{wk}); err != nil {
+			writeError(w, err)
+			return
+		}
+		wk.State = store.WorkspaceRemoved
+		if err := s.st.SetWorkspace(r.Context(), wk); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // getWorkItemDiff returns the changes of every ready workspace of the work item, uncommitted

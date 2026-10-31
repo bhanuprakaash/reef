@@ -25,11 +25,15 @@ func WorkRoot(dataDir, key string) string {
 
 // WorkspaceDir is where the workspace of the Work item with tree key key for project p lives.
 func WorkspaceDir(dataDir, key string, p store.Project) string {
+	return filepath.Join(WorkRoot(dataDir, key), strconv.FormatInt(p.ID, 10)+"-"+projectSlug(p))
+}
+
+func projectSlug(p store.Project) string {
 	slug := strings.Trim(_notSlug.ReplaceAllString(strings.ToLower(p.Name), "-"), "-")
 	if slug == "" {
 		slug = "project"
 	}
-	return filepath.Join(WorkRoot(dataDir, key), strconv.FormatInt(p.ID, 10)+"-"+slug)
+	return slug
 }
 
 // EnsureWorkspaces makes the workspace of every target of item, one per repository, and returns
@@ -57,7 +61,8 @@ func EnsureWorkspaces(ctx context.Context, st *store.Store, trees *Trees, dataDi
 		if err != nil {
 			return nil, err
 		}
-		if err := ensureWorkspace(ctx, st, trees, p, w, topID); err != nil {
+		note := func(ctx context.Context, body string) error { return noteWorkspace(ctx, st, topID, body) }
+		if err := ensureWorkspace(ctx, st, trees, p, w, note); err != nil {
 			if ctx.Err() != nil {
 				return nil, err
 			}
@@ -129,7 +134,27 @@ func readyWorkspaces(ctx context.Context, st *store.Store, key string) ([]store.
 	return ready, nil
 }
 
-func ensureWorkspace(ctx context.Context, st *store.Store, trees *Trees, p store.Project, w store.Workspace, topID int64) error {
+// readyFixWorkspaces lists the quick-fix workspaces of conversation spaceID that can be worked in.
+func readyFixWorkspaces(ctx context.Context, st *store.Store, spaceID int64) ([]store.Workspace, error) {
+	all, err := st.SpaceWorkspaces(ctx, spaceID)
+	if err != nil {
+		return nil, err
+	}
+	var ready []store.Workspace
+	for _, w := range all {
+		if w.State == store.WorkspaceReady {
+			ready = append(ready, w)
+		}
+	}
+	return ready, nil
+}
+
+// ensureWorkspace makes the worktree of w, recording how it went, and calls note with the
+// visible line when the note of w changed.
+func ensureWorkspace(
+	ctx context.Context, st *store.Store, trees *Trees, p store.Project, w store.Workspace,
+	note func(ctx context.Context, body string) error,
+) error {
 	if _, err := os.Stat(filepath.Join(w.Dir, ".git")); err == nil && w.State == store.WorkspaceReady {
 		return nil
 	}
@@ -161,12 +186,12 @@ func ensureWorkspace(ctx context.Context, st *store.Store, trees *Trees, p store
 		return err
 	}
 	if w.Note != "" && w.Note != before {
-		return noteWorkspace(ctx, st, topID, p, w.Note)
+		return note(ctx, fmt.Sprintf("Workspace for %s: %s", p.Name, w.Note))
 	}
 	return nil
 }
 
-func noteWorkspace(ctx context.Context, st *store.Store, topID int64, p store.Project, note string) error {
+func noteWorkspace(ctx context.Context, st *store.Store, topID int64, body string) error {
 	sp, err := st.WorkItemActiveSpace(ctx, topID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
@@ -175,9 +200,91 @@ func noteWorkspace(ctx context.Context, st *store.Store, topID int64, p store.Pr
 		return err
 	}
 	_, err = st.CreateMessage(ctx, store.Message{
-		SpaceID: sp.ID, Author: store.ReefAuthor, Body: fmt.Sprintf("Workspace for %s: %s", p.Name, note),
+		SpaceID: sp.ID, Author: store.ReefAuthor, Body: body,
 	})
 	return err
+}
+
+var _notFixName = regexp.MustCompile(`[^a-z0-9-]+`)
+
+// FixName turns what a Bot calls a fix into the name its folder and branch carry, or "" when
+// nothing usable is left.
+func FixName(name string) string {
+	return strings.Trim(_notFixName.ReplaceAllString(strings.ToLower(name), "-"), "-")
+}
+
+// FixDir is where the quick fix fix of Space spaceID for project p lives, inside the Space's
+// own folder, so the agent of that Space, and no other, reaches it from its working folder.
+func FixDir(dataDir string, spaceID int64, fix string, p store.Project) string {
+	return filepath.Join(ChatDir(dataDir, spaceID), fix+"-"+projectSlug(p))
+}
+
+// EnsureFixWorkspace makes, or finds again, the workspace of the quick fix fix of the
+// conversation spaceID in project p, on branch fix/<space>-<fix> from the project's base branch,
+// and returns its row. The fix is the Space's own: another Space naming the same fix gets its
+// own folder and branch, and never this one. A row made earlier keeps its folder, so a retry or
+// a restart continues it with its edits. A base that cannot be found leaves the row `paused`
+// with a note. Notes are also posted in the conversation.
+func EnsureFixWorkspace(
+	ctx context.Context, st *store.Store, trees *Trees, dataDir string, spaceID int64, fix string, p store.Project,
+) (store.Workspace, error) {
+	w, err := st.EnsureWorkspace(ctx, store.Workspace{
+		ProjectID: p.ID, SpaceID: &spaceID, Name: fix, Dir: FixDir(dataDir, spaceID, fix, p),
+		Branch: fmt.Sprintf("fix/%d-%s", spaceID, fix), Base: p.BaseBranch,
+	})
+	if err != nil {
+		return w, err
+	}
+	note := func(ctx context.Context, body string) error {
+		_, err := st.CreateMessage(ctx, store.Message{SpaceID: spaceID, Author: store.ReefAuthor, Body: body})
+		return err
+	}
+	if err := ensureWorkspace(ctx, st, trees, p, w, note); err != nil {
+		return w, err
+	}
+	rows, err := st.SpaceWorkspaces(ctx, spaceID)
+	if err != nil {
+		return w, err
+	}
+	for _, r := range rows {
+		if r.ID == w.ID {
+			return r, nil
+		}
+	}
+	return w, nil
+}
+
+// fixLines tells the agent of a conversation which fixes it holds and how to choose between
+// them. The tool enforces the ambiguous case.
+func fixLines(ctx context.Context, st *store.Store, b *strings.Builder, spaceID int64) error {
+	ws, err := st.SpaceWorkspaces(ctx, spaceID)
+	if err != nil {
+		return err
+	}
+	var open []store.Workspace
+	for _, w := range ws {
+		if w.State != store.WorkspaceRemoved {
+			open = append(open, w)
+		}
+	}
+	if len(open) == 0 {
+		return nil
+	}
+	b.WriteString("Fixes of this conversation (open_workspace), each in its own folder under your working " +
+		"folder. A follow-up to a fix goes in the same fix (pass its name); clearly independent work " +
+		"gets a new fix name; when it is unclear, ask the user whether to continue a fix or start a new one.\n")
+	for _, w := range open {
+		p, err := st.Project(ctx, w.ProjectID)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "- %s in %s: %s/ on branch %s (%s)", w.Name, p.Name, filepath.Base(w.Dir), w.Branch, w.State)
+		if w.Note != "" {
+			fmt.Fprintf(b, ": %s", w.Note)
+		}
+		b.WriteString("\n")
+	}
+	return nil
 }
 
 func oneLine(err error) string {
