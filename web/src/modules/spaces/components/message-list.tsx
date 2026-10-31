@@ -178,7 +178,7 @@ export function MessageList({
                     {root.body}
                   </Bubble>
                   <div
-                    className={`flex items-center gap-1.5 ${replies.length === 0 ? `-mt-2.5 pt-2.5 ${root.id === openId ? '' : 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity motion-reduce:transition-none'}` : ''}`}
+                    className={`flex items-center gap-1.5 ${replies.length === 0 ? `-mt-2.5 pt-2.5 ${root.id === openId ? '' : 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 max-md:opacity-100 pointer-coarse:opacity-100 transition-opacity motion-reduce:transition-none'}` : ''}`}
                   >
                     {replies.length > 0 && (
                       <Button
@@ -193,7 +193,7 @@ export function MessageList({
                       </Button>
                     )}
                     <div
-                      className={`flex items-center gap-1 ${replies.length > 0 ? 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity motion-reduce:transition-none' : ''}`}
+                      className={`flex items-center gap-1 ${replies.length > 0 ? 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 max-md:opacity-100 pointer-coarse:opacity-100 transition-opacity motion-reduce:transition-none' : ''}`}
                     >
                       <span className="text-[13px] text-faint">
                         {messageTime(root.createdAt, now)}
@@ -203,7 +203,7 @@ export function MessageList({
                           type="button"
                           aria-label="Reply in thread"
                           title="Reply in thread"
-                          className="flex size-7 items-center justify-center rounded-field text-soft hover:bg-card"
+                          className="flex size-7 items-center justify-center rounded-field text-soft hover:bg-card max-md:size-11"
                           onClick={() => onOpen(root.id)}
                         >
                           <svg {...icon}>
