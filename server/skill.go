@@ -21,13 +21,15 @@ func (s *server) skillRoutes(mux *http.ServeMux) {
 }
 
 // skillEntry is one pickable skill. Ref is "reef:name", "claude:name" or "codex:name"; Version is
-// the library version of a Reef skill.
+// the library version of a Reef skill. Compat says for each backend why it cannot use the skill,
+// or "" when it can.
 type skillEntry struct {
-	Ref         string `json:"ref"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Source      string `json:"source"`
-	Version     int    `json:"version,omitempty"`
+	Ref         string            `json:"ref"`
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Source      string            `json:"source"`
+	Version     int               `json:"version,omitempty"`
+	Compat      map[string]string `json:"compat"`
 }
 
 type skillFileView struct {
@@ -66,15 +68,30 @@ func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := []skillEntry{}
 	for _, k := range library {
-		entries = append(entries, skillEntry{"reef:" + k.Name, k.Name, k.Description, "reef", k.Version})
+		files, err := s.st.SkillFiles(r.Context(), k.ID, k.Version)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		entries = append(entries, skillEntry{"reef:" + k.Name, k.Name, k.Description, "reef", k.Version, skill.Package{Files: files}.Compat()})
 	}
 	for _, k := range skill.Claude(home, p.Path) {
-		entries = append(entries, skillEntry{"claude:" + k.Name, k.Name, k.Description, "claude", 0})
+		entries = append(entries, skillEntry{"claude:" + k.Name, k.Name, k.Description, "claude", 0, diskCompat(k.Dir)})
 	}
 	for _, k := range skill.Codex(home, p.Path) {
-		entries = append(entries, skillEntry{"codex:" + k.Name, k.Name, k.Description, "codex", 0})
+		entries = append(entries, skillEntry{"codex:" + k.Name, k.Name, k.Description, "codex", 0, diskCompat(k.Dir)})
 	}
 	writeJSON(w, http.StatusOK, entries)
+}
+
+// diskCompat is the compatibility of the skill folder at dir; a folder Reef cannot read is
+// incompatible with both backends, for the reason it cannot be read.
+func diskCompat(dir string) map[string]string {
+	pkg, err := skill.ReadFolder(dir)
+	if err != nil {
+		return map[string]string{"claude": err.Error(), "codex": err.Error()}
+	}
+	return pkg.Compat()
 }
 
 func (s *server) skillLibrary(w http.ResponseWriter, r *http.Request) {

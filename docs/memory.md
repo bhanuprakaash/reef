@@ -141,8 +141,8 @@ read them: create a Bot for each role with its text as the `description`, then a
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the Bot's selected connections
   unless `tools` lists them (`mcp__<connection name>__*`).
   A claude Bot that picks skills (`skills`) may use only those: each `claude:` ref is allowed as `Skill(name)` and every
-  other claude skill on disk is denied. A Bot that picks none keeps every skill. A codex Bot gets the
-  names in its prompt only.
+  other claude skill on disk is denied. A Bot that picks none keeps every skill. Every Bot, claude or codex, gets its
+  compatible skills copied and listed in its session instructions (see below).
   A claude Bot without `write` cannot list plain `Bash` (or `Bash(*)`): saving it is
   `invalid`, so list patterns such as `Bash(go test:*)`.
   Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies
@@ -283,7 +283,10 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
 A session has four layers. The first two are stable instructions, not part of this prompt: the
 shared Reef behavior (`_reefPrompt` in `space/context.go`), then the Bot's description as the
 Space adopted it, together `space.Instructions`, passed in `agent.Config.Instructions` (claude
-`--append-system-prompt`, codex `developerInstructions`; see [agents.md](agents.md)). Every new
+`--append-system-prompt`, codex `developerInstructions`; see [agents.md](agents.md)). After the description come the skills the Bot adopted that its backend can use, `## Your skills`:
+one line each with the name, description and absolute path of the copy of its `SKILL.md`, and one
+sentence saying to read it when the skill applies and that its supporting files are relative to it.
+A skill that is incompatible is not listed. Every new
 backend context carries them, so a renewal or a resume after compaction restores them. The
 description says how the Bot contributes and grants no tool: tools and permissions come only from
 the adopted settings. The third and fourth layers are this prompt: the assignment, participants,
@@ -292,9 +295,6 @@ instructions (`## How to work`). It goes before the first message of a session a
 compaction; later turns carry only the request and what changed.
 
 1. `## You`
-   - When the role has skills: `Your skills:` and the skills, followed by a blank line. `reef context`
-     has no role to read them from and does not print them. A role keeps the skills it adopted
-     in the Space; a later edit of the Bot changes none of this.
    - One line: role, work item title and id, project name. A free Space says instead:
      the role and that it is a free Space with no work item, so there is no brief or work item items.
      A direct conversation says it is a direct conversation with the user. Either then lists

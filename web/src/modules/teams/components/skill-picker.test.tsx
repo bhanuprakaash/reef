@@ -75,4 +75,26 @@ describe('SkillPicker', () => {
 
     expect(markup).not.toContain(onlyHint);
   });
+
+  it('says why a picked skill is not usable on the backend', () => {
+    const markup = renderToStaticMarkup(
+      <SkillPicker
+        label="dev"
+        backend="codex"
+        picked={['claude:plugged']}
+        available={[
+          {
+            ref: 'claude:plugged',
+            name: 'plugged',
+            description: 'Needs Claude.',
+            source: 'claude' as const,
+            compat: { claude: '', codex: 'uses ${CLAUDE_PLUGIN_ROOT}' },
+          },
+        ]}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('claude:plugged is not usable on codex: uses ${CLAUDE_PLUGIN_ROOT}');
+  });
 });

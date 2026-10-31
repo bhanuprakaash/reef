@@ -39,6 +39,7 @@ Interrupt() error                     // stop the turn and the process
   because they ride on the `Config`), `Tools` (tools allowed
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
   them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
+  `AddDirs` (extra folders the backend may read: Claude gets one `--add-dir` each; Codex ignores it),
   `Env` (`KEY=value`, added to `os.Environ`).
 
 An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are left out.
@@ -79,7 +80,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -276,6 +277,25 @@ parent), so `text` has none. Codex links subagents by thread id (`parentThreadId
 Both: a tool id is the same in its call and result. Claude's tool input also streams as
 `input_json_delta` fragments; the adapter ignores them and uses the whole `tool_use` block.
 Codex item types not listed (`webSearch`, `reasoning` ...) give no event.
+
+## Skills
+
+Reef gives a Bot's adopted skills to Claude and Codex the same way: it copies each skill's folder
+under the data folder (`bot-sessions/<id>/skills/<source>/<name>/`) and lists the compatible ones
+in the session instructions, each with its description and the absolute path of its `SKILL.md`
+(see [memory.md](memory.md#the-context-prompt)). The backend reads a skill's files with its own file
+tools; supporting files are relative to `SKILL.md`. Claude also gets `--add-dir` for the skills
+folder. Codex needs nothing extra: its `read-only` and `workspace-write` sandboxes restrict
+writes, not reads (not run against a real Codex here). A skill that uses `CLAUDE_` plugin
+variables, such as `${CLAUDE_PLUGIN_ROOT}`, is incompatible with Codex: it is not listed to the
+session, and `GET /skills` and the Bot editor show why. Reef never edits a package to make it fit.
+
+Enforced by Reef: for a Claude Bot that picks skills, `--allowedTools` gets `Skill(name)` for each
+`claude:` pick and `--disallowedTools` gets `Skill(name)` for every other Claude skill on disk.
+
+Inherited from the backend, not enforced: Codex finds `~/.agents/skills` and the project's
+`.agents/skills` on its own, and Reef has no switch to stop that. A Codex Bot can therefore use a
+skill it did not pick. The picked list only adds the skills Reef supplies; it does not limit Codex.
 
 ## Gotchas
 

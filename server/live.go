@@ -880,7 +880,7 @@ func (s *server) refreshBot(w http.ResponseWriter, r *http.Request) {
 	if sess != nil {
 		err = sess.Refresh(r.Context(), botID)
 	} else {
-		_, err = s.st.AdoptBotSession(r.Context(), id, botID)
+		_, err = space.AdoptBotSession(r.Context(), s.st, s.dataDir, id, botID)
 	}
 	if err = c.release(err); err != nil {
 		writeError(w, err)

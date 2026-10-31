@@ -468,7 +468,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, nil, whoAmI); err != nil {
 		t.Fatal(err)
 	}
-	want := "## You\nYour skills:\nclaude:sketch\n\nYou are architect on work item"
+	want := "## You\nYou are architect on work item"
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}

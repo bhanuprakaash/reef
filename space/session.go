@@ -380,7 +380,7 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 func (s *Session) botSession(ctx context.Context, botID int64) (store.BotSession, error) {
 	bs, err := s.st.ActiveBotSession(ctx, s.ch.ID, botID)
 	if errors.Is(err, store.ErrNotFound) {
-		return s.st.AdoptBotSession(ctx, s.ch.ID, botID)
+		return AdoptBotSession(ctx, s.st, s.dataDir, s.ch.ID, botID)
 	}
 	return bs, err
 }
@@ -543,8 +543,11 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		return nil, err
 	}
 	m.dir = cwd
-	cfg := roleConfig(r, cwd)
+	cfg := roleConfig(r, cwd, bs.Skills)
 	cfg.MCPServers = servers
+	if skillsPrompt(bs.Skills) != "" {
+		cfg.AddDirs = []string{BotSkillsDir(s.dataDir, bs.ID)}
+	}
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && key != "" {
 		var c store.Space
@@ -629,7 +632,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 // is closed, so its next turn starts a new backend context, with a handover, and never resumes the
 // earlier one. Call it only between turns.
 func (s *Session) Refresh(ctx context.Context, botID int64) error {
-	if _, err := s.st.AdoptBotSession(ctx, s.ch.ID, botID); err != nil {
+	if _, err := AdoptBotSession(ctx, s.st, s.dataDir, s.ch.ID, botID); err != nil {
 		return err
 	}
 	if m, ok := s.members[botID]; ok {
@@ -647,13 +650,13 @@ func refreshNote(r store.Role) string {
 	return r.Name + " refreshed: " + settings
 }
 
-func roleConfig(r store.Role, cwd string) agent.Config {
+func roleConfig(r store.Role, cwd string, skills []store.AdoptedSkill) agent.Config {
 	mode, tools, denied := access(r, claudeSkills(r, cwd))
 	return agent.Config{
 		Cwd:             cwd,
 		PermissionMode:  mode,
 		Model:           r.Model,
-		Instructions:    Instructions(r),
+		Instructions:    Instructions(r, skills),
 		Tools:           append(tools, "mcp__reef__*"),
 		DisallowedTools: denied,
 	}

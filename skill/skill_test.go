@@ -43,14 +43,14 @@ func TestClaude(t *testing.T) {
 
 	got := Claude(home, dir)
 	want := []Skill{
-		{"folded", "First line second line."},
-		{"how", "Explain flow."},
-		{"linked", "Behind a symlink."},
-		{"nofront", ""},
-		{"repo-only", "From the repo."},
-		{"why", `Say "why" and cite.`},
+		{Name: "folded", Description: "First line second line."},
+		{Name: "how", Description: "Explain flow."},
+		{Name: "linked", Description: "Behind a symlink."},
+		{Name: "nofront", Description: ""},
+		{Name: "repo-only", Description: "From the repo."},
+		{Name: "why", Description: `Say "why" and cite.`},
 	}
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Claude = %+v, want %+v", got, want)
 	}
 }
@@ -69,14 +69,14 @@ func TestClaude_Plugins(t *testing.T) {
 		"theirs@m":[{"scope":"local","projectPath":"/somewhere/else","installPath":"`+other+`"}]}}`)
 
 	got := Claude(home, dir)
-	want := []Skill{{"mine:tidy", "Tidy up."}, {"slack:standup", "Daily."}}
-	if !reflect.DeepEqual(got, want) {
+	want := []Skill{{Name: "mine:tidy", Description: "Tidy up."}, {Name: "slack:standup", Description: "Daily."}}
+	if !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Claude = %+v, want %+v", got, want)
 	}
 
 	other2 := t.TempDir()
 	got = Claude(home, other2)
-	if want := []Skill{{"slack:standup", "Daily."}}; !reflect.DeepEqual(got, want) {
+	if want := []Skill{{Name: "slack:standup", Description: "Daily."}}; !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Claude in another folder = %+v, want %+v", got, want)
 	}
 }
@@ -97,8 +97,8 @@ func TestClaude_BadPluginList(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
 	got := Claude(home, dir)
-	want := []Skill{{"how", "Explain."}, {"repo-skill", "Repo."}}
-	if !reflect.DeepEqual(got, want) {
+	want := []Skill{{Name: "how", Description: "Explain."}, {Name: "repo-skill", Description: "Repo."}}
+	if !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Claude = %+v, want %+v", got, want)
 	}
 	if !strings.Contains(logged.String(), "installed_plugins.json") {
@@ -118,7 +118,7 @@ func TestClaude_UnreadableSkill(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	if got, want := Claude(home, t.TempDir()), []Skill{{"how", "Explain."}}; !reflect.DeepEqual(got, want) {
+	if got, want := Claude(home, t.TempDir()), []Skill{{Name: "how", Description: "Explain."}}; !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Claude = %+v, want %+v", got, want)
 	}
 }
@@ -135,7 +135,7 @@ func TestClaude_InvalidNames(t *testing.T) {
 	log.SetOutput(io.Discard)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	if got, want := Claude(home, dir), []Skill{{"how", "Explain."}}; !reflect.DeepEqual(got, want) {
+	if got, want := Claude(home, dir), []Skill{{Name: "how", Description: "Explain."}}; !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Claude = %+v, want %+v", got, want)
 	}
 }
@@ -159,8 +159,16 @@ func TestCodex(t *testing.T) {
 	write(t, filepath.Join(dir, ".claude/skills/why/SKILL.md"), skillFile("why", "Claude only."))
 
 	got := Codex(home, dir)
-	want := []Skill{{"reef-probe", "Probe."}, {"repo-skill", "Repo."}}
-	if !reflect.DeepEqual(got, want) {
+	want := []Skill{{Name: "reef-probe", Description: "Probe."}, {Name: "repo-skill", Description: "Repo."}}
+	if !reflect.DeepEqual(bare(got), want) {
 		t.Errorf("Codex = %+v, want %+v", got, want)
 	}
+}
+
+func bare(skills []Skill) []Skill {
+	out := make([]Skill, len(skills))
+	for i, s := range skills {
+		out[i] = Skill{Name: s.Name, Description: s.Description}
+	}
+	return out
 }

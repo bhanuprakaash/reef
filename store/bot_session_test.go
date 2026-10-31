@@ -36,7 +36,7 @@ func TestBotSession_AdoptKeepsSettingsAcrossBotEdits(t *testing.T) {
 	}
 	got, err := s.ActiveBotSession(ctx, chat.ID, sam.ID)
 	if err != nil || got.ID != first.ID || got.Backend != "claude" || got.Model != "haiku" ||
-		got.Description != "You code." || !reflect.DeepEqual(got.Skills, []string{"claude:sketch"}) ||
+		got.Description != "You code." || !reflect.DeepEqual(got.Skills, []AdoptedSkill{{Ref: "claude:sketch"}}) ||
 		!reflect.DeepEqual(got.Tools, []string{"Read"}) || !got.Write || got.PermissionMode != "acceptEdits" ||
 		got.Status != BotSessionActive {
 		t.Fatalf("active session = %+v, %v, want the settings adopted before the edit", got, err)

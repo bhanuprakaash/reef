@@ -30,6 +30,11 @@ func TestGetSkills(t *testing.T) {
 	writeSkill(t, filepath.Join(home, ".claude/skills/how/SKILL.md"), "how", "Explain flow.")
 	writeSkill(t, filepath.Join(repo, ".claude/skills/repo-skill/SKILL.md"), "repo-skill", "In the repo.")
 	writeSkill(t, filepath.Join(home, ".agents/skills/probe/SKILL.md"), "probe", "For codex.")
+	plugged := filepath.Join(home, ".claude/skills/plugged/SKILL.md")
+	writeSkill(t, plugged, "plugged", "Needs Claude.")
+	if err := os.WriteFile(plugged, []byte("---\nname: plugged\ndescription: Needs Claude.\n---\nRun ${CLAUDE_PLUGIN_ROOT}/x.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	st, err := openStore(t.TempDir())
 	if err != nil {
@@ -42,6 +47,7 @@ func TestGetSkills(t *testing.T) {
 	}
 	if _, err := st.ImportSkill(context.Background(), "folder", "/src/how", "", "", skill.Package{
 		Name: "how", Description: "Same name in the library.",
+		Files: []skill.File{{Path: "SKILL.md", Body: []byte("---\nname: how\n---\n")}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -57,10 +63,12 @@ func TestGetSkills(t *testing.T) {
 		want  string
 	}{
 		{"a project", "?project=" + strconv.FormatInt(p.ID, 10), http.StatusOK,
-			`[{"ref":"reef:how","name":"how","description":"Same name in the library.","source":"reef","version":1},` +
-				`{"ref":"claude:how","name":"how","description":"Explain flow.","source":"claude"},` +
-				`{"ref":"claude:repo-skill","name":"repo-skill","description":"In the repo.","source":"claude"},` +
-				`{"ref":"codex:probe","name":"probe","description":"For codex.","source":"codex"}]`},
+			`[{"ref":"reef:how","name":"how","description":"Same name in the library.","source":"reef","version":1,"compat":{"claude":"","codex":""}},` +
+				`{"ref":"claude:how","name":"how","description":"Explain flow.","source":"claude","compat":{"claude":"","codex":""}},` +
+				`{"ref":"claude:plugged","name":"plugged","description":"Needs Claude.","source":"claude",` +
+				`"compat":{"claude":"","codex":"SKILL.md uses ${CLAUDE_PLUGIN_ROOT}, which only Claude sets"}},` +
+				`{"ref":"claude:repo-skill","name":"repo-skill","description":"In the repo.","source":"claude","compat":{"claude":"","codex":""}},` +
+				`{"ref":"codex:probe","name":"probe","description":"For codex.","source":"codex","compat":{"claude":"","codex":""}}]`},
 		{"no project", "", http.StatusBadRequest, ""},
 		{"not a number", "?project=x", http.StatusBadRequest, ""},
 		{"unknown project", "?project=999", http.StatusNotFound, ""},

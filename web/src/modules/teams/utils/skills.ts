@@ -17,3 +17,7 @@ export function addableSkills(available: SkillInfo[] | undefined, picked: string
 export function isMissing(available: SkillInfo[] | undefined, ref: string) {
   return available !== undefined && !available.some((s) => s.ref === ref);
 }
+
+export function incompatibility(skill: SkillInfo | undefined, backend: string | undefined) {
+  return (backend && skill?.compat?.[backend]) || '';
+}

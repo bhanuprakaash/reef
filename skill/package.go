@@ -3,12 +3,16 @@ package skill
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -126,4 +130,29 @@ func runGit(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()
 	return strings.TrimSpace(out.String()), err
+}
+
+var _claudeRuntime = regexp.MustCompile(`\$\{?CLAUDE_[A-Z_]+\}?`)
+
+// Compat says for each backend why p cannot run on it, or "" when it can. The only dependency it
+// detects is on Claude's plugin runtime, a CLAUDE_ variable such as ${CLAUDE_PLUGIN_ROOT} in any file.
+func (p Package) Compat() map[string]string {
+	compat := map[string]string{"claude": "", "codex": ""}
+	for _, f := range p.Files {
+		if m := _claudeRuntime.Find(f.Body); m != nil {
+			compat["codex"] = fmt.Sprintf("%s uses %s, which only Claude sets", f.Path, m)
+			break
+		}
+	}
+	return compat
+}
+
+// Hash identifies the content of p: its paths and bodies.
+func (p Package) Hash() string {
+	h := sha256.New()
+	for _, f := range slices.SortedFunc(slices.Values(p.Files), func(a, b File) int { return strings.Compare(a.Path, b.Path) }) {
+		fmt.Fprintf(h, "%s\x00%d\x00", f.Path, len(f.Body))
+		h.Write(f.Body)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
 }

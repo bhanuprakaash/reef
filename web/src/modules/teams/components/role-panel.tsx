@@ -238,6 +238,7 @@ export function RolePanel({
           label={label}
           picked={role.skills}
           available={skills}
+          backend={role.backend}
           noProject={noProject}
           limits={role.backend === 'claude'}
           onChange={(next) => onChange({ ...role, skills: next })}

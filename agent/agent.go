@@ -39,6 +39,7 @@ type Config struct {
 	Tools           []string             // tools allowed without asking; codex ignores it
 	DisallowedTools []string             // tools denied whatever settings allow; codex ignores it
 	MCPServers      map[string]MCPServer // extra MCP servers, by name
+	AddDirs         []string             // extra folders the backend may read; codex ignores it
 	Env             []string             // extra "KEY=value" on top of os.Environ
 	Fork            bool                 // Resume continues in a copy of the session, which gets a new id; claude only
 }

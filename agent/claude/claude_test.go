@@ -667,6 +667,18 @@ func TestToolsDisallowed(t *testing.T) {
 	}
 }
 
+func TestAddDirs(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{Cwd: t.TempDir(), AddDirs: []string{"/data/skills"}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, " --add-dir /data/skills") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
 func TestInstructionsAppended(t *testing.T) {
 	a := fakeClaude(t, "argv")
 	cfg := agent.Config{Cwd: t.TempDir(), Instructions: "Be brief."}

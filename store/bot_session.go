@@ -15,25 +15,37 @@ const (
 	BotSessionRevoked  = "revoked"
 )
 
+// AdoptedSkill is one picked skill as a BotSession adopted it. Dir holds the copy of its files and
+// Version names the content copied: the library version of a Reef skill, a content hash of a skill
+// found on disk. A skill that is not Compatible with the backend has no copy and Reason says why.
+type AdoptedSkill struct {
+	Ref         string `json:"ref"`
+	Description string `json:"description,omitempty"`
+	Version     string `json:"version,omitempty"`
+	Dir         string `json:"dir,omitempty"`
+	Compatible  bool   `json:"compatible"`
+	Reason      string `json:"reason,omitempty"`
+}
+
 // BotSession is the settings one Bot adopted in one Space, as they were when it adopted them. It
 // is execution history: editing the Bot changes no BotSession, and a Space holds one active
 // BotSession per member Bot.
 type BotSession struct {
-	ID             int64        `json:"id"`
-	SpaceID        int64        `json:"spaceId"`
-	BotID          int64        `json:"botId"`
-	Backend        string       `json:"backend"`
-	Provider       string       `json:"provider,omitempty"`
-	Model          string       `json:"model,omitempty"`
-	Description    string       `json:"description"`
-	Skills         []string     `json:"skills"`
-	Tools          []string     `json:"tools"`
-	Connections    []Connection `json:"connections"`
-	Write          bool         `json:"write"`
-	PermissionMode string       `json:"permissionMode"`
-	Status         string       `json:"status"`
-	CreatedAt      time.Time    `json:"createdAt"`
-	EndedAt        *time.Time   `json:"endedAt"`
+	ID             int64          `json:"id"`
+	SpaceID        int64          `json:"spaceId"`
+	BotID          int64          `json:"botId"`
+	Backend        string         `json:"backend"`
+	Provider       string         `json:"provider,omitempty"`
+	Model          string         `json:"model,omitempty"`
+	Description    string         `json:"description"`
+	Skills         []AdoptedSkill `json:"skills"`
+	Tools          []string       `json:"tools"`
+	Connections    []Connection   `json:"connections"`
+	Write          bool           `json:"write"`
+	PermissionMode string         `json:"permissionMode"`
+	Status         string         `json:"status"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	EndedAt        *time.Time     `json:"endedAt"`
 }
 
 const _botSessionCols = "id, space_id, bot_id, backend, provider, model, description, skills, tools, " +
@@ -43,7 +55,11 @@ const _botSessionCols = "id, space_id, bot_id, backend, provider, model, descrip
 // Face and Colour stay.
 func (b BotSession) Apply(r Role) Role {
 	r.Backend, r.Provider, r.Model, r.Description = b.Backend, b.Provider, b.Model, b.Description
-	r.Skills, r.Tools, r.Connections = b.Skills, b.Tools, b.Connections
+	r.Skills = make([]string, len(b.Skills))
+	for i, k := range b.Skills {
+		r.Skills[i] = k.Ref
+	}
+	r.Tools, r.Connections = b.Tools, b.Connections
 	r.Write, r.PermissionMode = b.Write, b.PermissionMode
 	return r
 }
@@ -73,8 +89,8 @@ func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotS
 		BotSessionReplaced, now, spaceID, botID, BotSessionActive); err != nil {
 		return BotSession{}, fmt.Errorf("replace bot session: %w", err)
 	}
-	var picked string
-	err = tx.QueryRowContext(ctx, "SELECT connections FROM bot WHERE id = ?", botID).Scan(&picked)
+	var picked, refs string
+	err = tx.QueryRowContext(ctx, "SELECT connections, skills FROM bot WHERE id = ?", botID).Scan(&picked, &refs)
 	if errors.Is(err, sql.ErrNoRows) {
 		return BotSession{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 	}
@@ -84,6 +100,18 @@ func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotS
 	var ids []int64
 	if err := json.Unmarshal([]byte(picked), &ids); err != nil {
 		return BotSession{}, fmt.Errorf("bot %d: bad connections: %w", botID, err)
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(refs), &names); err != nil {
+		return BotSession{}, fmt.Errorf("bot %d: bad skills: %w", botID, err)
+	}
+	picks := make([]AdoptedSkill, len(names))
+	for i, ref := range names {
+		picks[i].Ref = ref
+	}
+	skills, err := json.Marshal(picks)
+	if err != nil {
+		return BotSession{}, fmt.Errorf("encode skills: %w", err)
 	}
 	all, err := listConnections(ctx, tx)
 	if err != nil {
@@ -96,9 +124,9 @@ func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotS
 	res, err := tx.ExecContext(ctx,
 		"INSERT INTO bot_session (space_id, bot_id, backend, provider, model, description, skills, tools, "+
 			"connections, write, permission_mode, status, created_at) "+
-			"SELECT ?, id, backend, provider, model, description, skills, tools, ?, write, "+
+			"SELECT ?, id, backend, provider, model, description, ?, tools, ?, write, "+
 			"permission_mode, ?, ? FROM bot WHERE id = ?",
-		spaceID, string(resolved), BotSessionActive, now, botID)
+		spaceID, string(skills), string(resolved), BotSessionActive, now, botID)
 	if err != nil {
 		return BotSession{}, fmt.Errorf("insert bot session: %w", err)
 	}
@@ -108,6 +136,20 @@ func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotS
 	}
 	if err := tx.Commit(); err != nil {
 		return BotSession{}, fmt.Errorf("commit adopt bot session: %w", err)
+	}
+	return scanBotSession(s.db.QueryRowContext(ctx,
+		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))
+}
+
+// SetBotSessionSkills records the skills the BotSession adopted, with their copies, in place of
+// the bare picks AdoptBotSession saved.
+func (s *Store) SetBotSessionSkills(ctx context.Context, id int64, skills []AdoptedSkill) (BotSession, error) {
+	body, err := json.Marshal(skills)
+	if err != nil {
+		return BotSession{}, fmt.Errorf("encode skills: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE bot_session SET skills = ? WHERE id = ?", string(body), id); err != nil {
+		return BotSession{}, fmt.Errorf("set bot session skills: %w", err)
 	}
 	return scanBotSession(s.db.QueryRowContext(ctx,
 		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))

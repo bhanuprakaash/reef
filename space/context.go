@@ -228,7 +228,7 @@ func firstPrompt(
 		ch.Kind = sp.Kind
 	}
 	var b strings.Builder
-	b.WriteString(_youHeader + skillsLine(r))
+	b.WriteString(_youHeader)
 	var know []string
 	how := deliveryIntro(team, r)
 	if workItemID == nil {
@@ -483,21 +483,17 @@ func changedSince(
 }
 
 // Instructions are the stable instructions of a Bot's session: the shared Reef behavior, then
-// the Bot's own description. A description says how the Bot contributes; tools and permissions
-// come only from the session's config.
-func Instructions(r store.Role) string {
+// the Bot's own description, then the skills it adopted. A description says how the Bot
+// contributes; tools and permissions come only from the session's config.
+func Instructions(r store.Role, skills []store.AdoptedSkill) string {
+	parts := []string{_reefPrompt}
 	if d := strings.TrimSpace(r.Description); d != "" {
-		return _reefPrompt + "\n\n" + d
+		parts = append(parts, d)
 	}
-	return _reefPrompt
-}
-
-// skillsLine names the role's skills, when it has any, to put before its context.
-func skillsLine(r store.Role) string {
-	if len(r.Skills) == 0 {
-		return ""
+	if p := skillsPrompt(skills); p != "" {
+		parts = append(parts, strings.TrimSpace(p))
 	}
-	return fmt.Sprintf("Your skills:\n%s\n\n", strings.Join(r.Skills, ", "))
+	return strings.Join(parts, "\n\n")
 }
 
 // deliveryIntro tells a bot who is on its team and how delivery between them works. A team of

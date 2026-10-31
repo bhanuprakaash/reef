@@ -202,6 +202,7 @@ export type SkillInfo = {
   description: string;
   source: SkillSource;
   version?: number;
+  compat?: Record<string, string>;
 };
 
 export type Skills = SkillInfo[];
