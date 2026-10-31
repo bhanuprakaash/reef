@@ -343,9 +343,9 @@ neither a working directory nor permission to change a repository, and filters n
 - A Space's context prompt names the projects as `Associated projects, for context only; you do not
   work in them: <name> (<id>), ...`, never their folders. A Space with no project has no `project`
   memory scope and cannot `propose_work_item`.
-- Attach (`POST /spaces/{id}/attach`) works with the Space's `projectId`, its lowest-id project: a
-  Space with none is 400 (`Space N has no project, associate one before attaching`), and a work item
-  of another project is 400 even when the Space is associated with that project too.
+- Attach (`POST /spaces/{id}/attach`) takes any top-level work item, whatever the Space is
+  associated with: the Space moves to the work item's project and is associated with it too, and its
+  other associations stay.
 
 ### message
 
@@ -705,7 +705,7 @@ a message wakes them.
   of another project on the same repo) cannot be added: the start fails with `branch
   work-item/<id> is checked out at <path>; switch that checkout to another branch`. A
   Space with no work item runs in `<data folder>/chats/<Space id>`, a folder of its own that
-  is made when missing and is no git repo; `DELETE /spaces/{id}` leaves it. A project the Space is associated
+  is made when missing and is no git repo; `DELETE /spaces/{id}` removes it. A project the Space is associated
   with is context only, never its folder: repository work needs a work item (attach the Space to one).
   The work item is read at each agent
   start, so an attached Space moves to the worktree at its next wake. A project that is not
