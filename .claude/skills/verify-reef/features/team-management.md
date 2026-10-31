@@ -17,9 +17,8 @@ edits its responsibility, runs a Space whose lead completes a scripted turn, che
 and captures the Team editor at 1280x800 and 390x844.
 
 For the deletion check, create a second Team through `POST /teams`, create a top-level Work
-item assigned to it (`teamId` on `POST /work-items`), then call `DELETE /teams/<name>`. It must
-return 204 and keep the item, now with `teamId` null: a Crew is a roster, so deleting one never
-blocks on a Work item.
+item, then call `DELETE /teams/<name>`. It must return 204 and keep the item: a Crew is a roster,
+so deleting one never blocks on a Work item.
 `POST`, `PUT`, and `GET /teams/<name>` must all return the responsibility text unchanged.
 
 Clean up only this run:

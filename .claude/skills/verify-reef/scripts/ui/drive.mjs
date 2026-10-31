@@ -1500,8 +1500,7 @@ async function inboxGroups() {
     while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
     return ok();
   };
-  const solo = (await getJson('/teams')).find((t) => t.name === 'solo');
-  const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', ownerBotId: 1, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
   const idle = (sid) => sql(`select active_turn from space where id=${sid}`) === '';
   await call('PATCH', `/work-items/${item.id}`, { status: 'queued' });
   await eventually(async () => (await getJson(`/spaces?workItem=${item.id}`)).length > 0);
@@ -3788,9 +3787,7 @@ async function board() {
     return res.json();
   };
   const suffix = Date.now().toString(36);
-  const teamName = `crew-${suffix}`;
   const mate = await call('POST', '/bots', { name: `lead-${suffix}`, backend: 'claude' });
-  const crew = (await call('POST', '/teams', { name: teamName, roles: [{ botId: mate.id, lead: true }] })).id;
   const make = async (title, { status, ...extra } = {}) => {
     const w = await call('POST', '/work-items', { projectId: pid, title, ...extra });
     if (status) sql(`update work_item set status='${status}' where id=${w.id}`, true);
@@ -3804,15 +3801,14 @@ async function board() {
     return ok();
   };
 
-  // The Team is busy (an item needs the user), so queued items stay queued. Items with no Team
-  // are not started by the queue, so nothing runs a turn. Statuses a client cannot set on create
-  // are written to the database.
-  await make('busy item', { teamId: crew, status: 'needs_you' });
-  await make('draft idea', { teamId: crew });
-  await make('login bug', { type: 'bug', teamId: crew });
-  for (const t of ['queue one', 'queue two', 'queue three']) {
-    const w = await make(t, { teamId: crew });
-    await call('PATCH', `/work-items/${w.id}`, { status: 'queued' });
+  // Items with no owner are not started by the queue, so nothing runs a turn. Statuses a client
+  // cannot set on create, and the queue positions, are written to the database.
+  await make('busy item', { ownerBotId: mate.id, status: 'needs_you' });
+  await make('draft idea', { ownerBotId: mate.id });
+  await make('login bug', { type: 'bug', ownerBotId: mate.id });
+  for (const [i, t] of ['queue one', 'queue two', 'queue three'].entries()) {
+    const w = await make(t, { status: 'queued' });
+    sql(`update work_item set queue_position=${i + 1} where id=${w.id}`, true);
   }
   await make('running job', { type: 'task', status: 'in_progress' });
   await make('review me', { status: 'review' });
@@ -3862,20 +3858,11 @@ async function board() {
   check(page.url().includes('type=bug'), 'the filter is in the URL', page.url());
   await shot('filter-bug');
   await pick('Type', 'All types');
-  await pick('Crew', teamName);
+  await pick('Owner', mate.name);
   await card('running job').waitFor({ state: 'hidden' });
-  check((await card('running job').count()) === 0 && (await card('busy item').count()) === 1, 'the Crew filter hides items of other Crews', (await main.getByRole('link').allInnerTexts()).length + ' cards');
-  await pick('Crew', 'All Crews');
+  check((await card('running job').count()) === 0 && (await card('busy item').count()) === 1, 'the Owner filter hides items of other owners', (await main.getByRole('link').allInnerTexts()).length + ' cards');
+  await pick('Owner', 'All owners');
   await region('In progress').getByRole('link', { name: 'running job' }).waitFor();
-
-  await card('draft idea').dragTo(region('Queued'));
-  const drafted = () => byTitle('draft idea');
-  check(await eventually(async () => (await drafted()).status === 'queued'), 'dragging a Backlog item into Queued queues it', JSON.stringify(await drafted().then((w) => [w.status, w.queuePosition])));
-  check((await drafted()).queuePosition === 4, 'it joins the end of its Team queue', `position ${(await drafted()).queuePosition}`);
-  await region('Queued').getByRole('link', { name: 'draft idea' }).waitFor();
-  await card('draft idea').dragTo(region('Backlog'));
-  check(await eventually(async () => (await drafted()).status === 'backlog'), 'dragging it back to Backlog takes it out of the queue', (await drafted()).status);
-  await region('Backlog').getByRole('link', { name: 'draft idea' }).waitFor();
 
   const positions = async () => Object.fromEntries((await items()).filter((i) => i.status === 'queued').map((i) => [i.title, i.queuePosition]));
   await card('queue three').dragTo(card('queue one'));
@@ -3905,18 +3892,18 @@ async function board() {
     if (target === 'Review' || target === 'Done') await shot(`refused-${target.toLowerCase()}`);
   }
 
-  await make('no team item');
+  await make('no owner item');
   await page.goto(base + '/board');
-  await card('no team item').waitFor();
+  await card('no owner item').waitFor();
   await region('Backlog').evaluate((el) => {
     const board = el.parentElement;
     board.scrollLeft += el.getBoundingClientRect().left - board.getBoundingClientRect().left;
   });
-  await card('no team item').dragTo(region('Queued'));
+  await card('no owner item').dragTo(region('Queued'));
   const reason = main.getByRole('alert');
   await reason.waitFor();
-  check((await byTitle('no team item')).status === 'backlog' && (await reason.innerText()) === 'Set a Crew on this item before queuing it.', 'dragging an item with no Crew into Queued is refused with the reason', `${(await byTitle('no team item')).status}; ${await reason.innerText()}`);
-  await shot('refused-no-team');
+  check((await byTitle('no owner item')).status === 'backlog' && (await reason.innerText()) === 'Set an owner on this item before queuing it.', 'dragging an item with no owner into Queued is refused with the reason', `${(await byTitle('no owner item')).status}; ${await reason.innerText()}`);
+  await shot('refused-no-owner');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/board');
@@ -3972,11 +3959,10 @@ async function workItem() {
   const subsText = (await subs.innerText()).replace(/\s+/g, ' ');
   check(subsText.includes('backlog'), 'the sub-item row shows its status', subsText);
 
-  const solo = (await getJson('/teams')).find((t) => t.name === 'solo');
   const put = await fetch(`${base}/work-items/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...(await item()), teamId: solo.id }),
+    body: JSON.stringify({ ...(await item()), ownerBotId: 1, participantBotIds: [1] }),
   });
   await fetch(`${base}/work-items/${id}/brief`, {
     method: 'PUT',
@@ -3985,7 +3971,7 @@ async function workItem() {
   });
   await page.reload();
   const header = await headerText();
-  check(put.status === 200 && header.includes('solo'), 'the header shows the Team of the item', header);
+  check(put.status === 200 && header.includes('owner lead'), 'the header shows the owner of the item', header);
   await main.getByText('Version 1 by').waitFor();
   check((await main.getByRole('region', { name: 'Brief' }).count()) === 1, 'a top-level item shows its brief');
 
@@ -4086,8 +4072,7 @@ async function workItemReview() {
     while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
     return ok();
   };
-  const solo = (await getJson('/teams')).find((t) => t.name === 'solo');
-  const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', ownerBotId: 1, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
   const id = item.id;
   const status = async () => (await getJson(`/work-items/${id}`)).status;
   const spaceOf = async () => (await getJson(`/spaces?workItem=${id}`))[0];
@@ -4182,7 +4167,7 @@ async function workItemReview() {
   check((await getJson(`/work-items/${bare.id}`)).status === 'done', 'Done on an item with no proof sets it done');
 
   await page.setViewportSize({ width: 390, height: 844 });
-  const rev =await call('POST', '/work-items', { projectId: pid, title: 'Review on a phone', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  const rev =await call('POST', '/work-items', { projectId: pid, title: 'Review on a phone', ownerBotId: 1, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
   await call('PATCH', `/work-items/${rev.id}`, { status: 'queued' });
   await eventually(async () => (await getJson(`/spaces?workItem=${rev.id}`))[0] !== undefined);
   const rsid = (await getJson(`/spaces?workItem=${rev.id}`))[0].id;

@@ -52,9 +52,9 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 		store.Hold{SpaceID: 3, From: "lead", To: "architect", MessageID: msg.ID, Text: "plan it"}); err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	env.exec(t, "UPDATE work_item SET status = 'review' WHERE id = 1")
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","ownerBotId":1}`)
 	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
 	env.waitIdle(t, 4)
 	tok, err := testToken(t, env.st, ctx, 4, "lead")
@@ -87,7 +87,7 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 		"review":   "Login",
 		"started":  "Started from the queue: Logout",
 		"sub_item": "lead added sub-item 3 to work item 2: Schema",
-		"proposed": "lead proposed work item 4: Slow deploy. It is in the Backlog until you queue it. Suggested team: solo.",
+		"proposed": "lead proposed work item 4: Slow deploy. It is in the Backlog until you queue it.",
 	} {
 		if texts[kind] != text {
 			t.Errorf("%s text = %q, want %q", kind, texts[kind], text)

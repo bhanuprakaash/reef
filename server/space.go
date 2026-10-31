@@ -151,10 +151,6 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Bot", store.ErrInvalid))
 			return
 		}
-		if err := s.useItemTeam(r.Context(), &in.Space); err != nil {
-			writeError(w, err)
-			return
-		}
 	}
 	if in.BotID != 0 {
 		s.createBotSpace(w, r, in.Space, in.BotID)
@@ -208,27 +204,6 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusCreated, c)
-}
-
-// useItemTeam sets the Team of a new Space of a work item to the item's Team, and refuses another
-// one. An item with no Team, or an unknown item (the store refuses that), leaves the Team as given.
-func (s *server) useItemTeam(ctx context.Context, in *store.Space) error {
-	item, err := s.st.WorkItem(ctx, *in.WorkItemID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && item.TeamID == nil) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	team, err := s.st.TeamByID(ctx, *item.TeamID)
-	if err != nil {
-		return err
-	}
-	if in.Team != "" && in.Team != team.Name {
-		return fmt.Errorf("%w: work item %d belongs to Team %s, not %s", store.ErrInvalid, item.ID, team.Name, in.Team)
-	}
-	in.Team = team.Name
-	return nil
 }
 
 // createBotSpace creates a Space with no Team and one member, the Bot, which leads it

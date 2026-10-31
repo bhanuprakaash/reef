@@ -11,7 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// startQueue starts the first queued item of every free Team and opens what it started, in the
+// startQueue starts every queued item that has an owner and opens what it started, in the
 // background, so a queued item waits no longer than a restart. It also starts the wrap-up of
 // each submitted item the server quit before wrapping up.
 func (s *server) startQueue() {
@@ -35,8 +35,8 @@ func (s *server) startQueue() {
 }
 
 // startSubmitted runs when a chain ends on Space id. submit_for_review runs in the reef mcp
-// process, which the server cannot hear, so this is where it learns of one: the Team is free, so
-// the item the queue started opens now, and the lead wraps up the Space. The wrap-up is claimed
+// process, which the server cannot hear, so this is where it learns of one: the queue may have
+// started an item meanwhile, so it opens now, and the lead wraps up the Space. The wrap-up is claimed
 // first, so one submit starts one. A wrap-up that cannot start is noted in the Space.
 func (s *server) startSubmitted(id int64) {
 	if s.ctx.Err() != nil {
@@ -62,7 +62,7 @@ func (s *server) startSubmitted(id int64) {
 }
 
 // openStarted gives each top-level item the queue moved to in progress that has no open Space
-// one, led by its Team's lead, and tells the lead the item. A failure is noted in the Space. A
+// one, led by its owner with every participant a member, and tells the lead the item. A failure is noted in the Space. A
 // sent-back item already has a Space: its lead is woken with the note. A Space made by hand
 // that has no message yet is started with the item.
 func (s *server) openStarted(ctx context.Context) {
@@ -72,7 +72,7 @@ func (s *server) openStarted(ctx context.Context) {
 		return
 	}
 	for _, w := range items {
-		if w.ParentID != nil || w.TeamID == nil || w.ClosedAt != nil {
+		if w.ParentID != nil || w.OwnerBotID == nil || w.ClosedAt != nil {
 			continue
 		}
 		sp, err := s.st.WorkItemActiveSpace(ctx, w.ID)
@@ -91,14 +91,13 @@ func (s *server) openStarted(ctx context.Context) {
 }
 
 func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
-	team, err := s.st.TeamByID(ctx, *w.TeamID)
+	owner, err := s.st.Bot(ctx, *w.OwnerBotID)
 	if err != nil {
 		return err
 	}
-	lead := team.Roles[0]
-	sp, err := s.st.CreateSpace(ctx, store.Space{
-		ProjectID: w.ProjectID, WorkItemID: &w.ID, Name: w.Title, Role: lead.Name, Team: team.Name,
-	})
+	sp, err := s.st.CreateSpaceOf(ctx, store.Space{
+		ProjectID: w.ProjectID, WorkItemID: &w.ID, Name: w.Title, Role: owner.Name,
+	}, w.ParticipantBotIDs, owner.ID)
 	if err != nil {
 		return err
 	}
@@ -165,7 +164,7 @@ func (s *server) wakeSentBack(ctx context.Context, id int64) bool {
 	return true
 }
 
-// queuePrompt is what the lead is told when its Team starts the item.
+// queuePrompt is what the lead is told when the queue starts the item.
 func queuePrompt(w store.WorkItem, brief string) string {
 	return fmt.Sprintf("Work item %d: %s\nDescription: %s\nBrief: %s", w.ID, w.Title,
 		cmp.Or(w.Description, "none"), cmp.Or(brief, "none"))

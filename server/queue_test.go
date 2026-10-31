@@ -22,30 +22,24 @@ func (e *liveEnv) lastRan(t *testing.T) string {
 func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items",
-		`{"projectId":1,"title":"Login","description":"email and password","teamId":1,`+
+		`{"projectId":1,"title":"Login","description":"email and password",`+
 			`"acceptanceLines":[{"text":"wrong password is refused"},{"text":"session lasts a day"}]}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
 	do(t, http.MethodPut, env.url+"/work-items/1/brief", `{"body":"sessions, not JWT","author":"user"}`)
 
+	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`); status != 400 ||
+		!strings.Contains(body, "needs an owner before it is queued") {
+		t.Fatalf("queue without an owner = %d %s, want 400", status, body)
+	}
+	do(t, http.MethodPut, env.url+"/work-items/1/participants", `{"ownerBotId":1,"participantBotIds":[1]}`)
 	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`); status != 200 ||
 		!strings.Contains(body, `"status":"in_progress"`) {
-		t.Fatalf("queue the first item = %d %s, want 200 in_progress", status, body)
-	}
-	if status, body := do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`); status != 200 ||
-		!strings.Contains(body, `"status":"queued"`) || !strings.Contains(body, `"queuePosition":1`) {
-		t.Fatalf("queue the second item = %d %s, want 200 queued at 1", status, body)
+		t.Fatalf("queue the item = %d %s, want 200 in_progress", status, body)
 	}
 	env.waitIdle(t, 2)
 
 	want := "Work item 1: Login\nDescription: email and password\nBrief: sessions, not JWT"
 	if got := env.lastRan(t); !strings.HasSuffix(got, want) {
 		t.Errorf("first prompt = %q, want it to end with %q", got, want)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/spaces?workItem=2", ""); body != "[]" {
-		t.Errorf("Spaces of the queued item = %s, want none", body)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/messages?space=2", ""); strings.Contains(body, `"author":"reef"`) {
-		t.Errorf("messages of Space 2 = %s, want no note from reef", body)
 	}
 	if got := groupKinds(env.inboxItems(t)); !slices.Equal(got, []string{"fyi started"}) {
 		t.Errorf("inbox = %q, want the started item", got)
@@ -54,7 +48,7 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 
 func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"by hand"}`); status != 201 {
 		t.Fatalf("create Space = %d %s, want 201", status, body)
@@ -82,17 +76,13 @@ func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
 
 func TestQueuedItemStartsAfterRestart(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
-	env.waitIdle(t, 2)
-	env.exec(t, "UPDATE work_item SET status = 'done' WHERE id = 1")
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	env.exec(t, "UPDATE work_item SET status = 'queued', queue_position = 1 WHERE id = 1")
 	env.restart(t)
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		_, body := do(t, http.MethodGet, env.url+"/spaces?workItem=2", "")
+		_, body := do(t, http.MethodGet, env.url+"/spaces?workItem=1", "")
 		if body != "[]" {
 			break
 		}
@@ -101,56 +91,51 @@ func TestQueuedItemStartsAfterRestart(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/work-items/2", ""); !strings.Contains(body, `"status":"in_progress"`) {
+	if _, body := do(t, http.MethodGet, env.url+"/work-items/1", ""); !strings.Contains(body, `"status":"in_progress"`) {
 		t.Errorf("work item after the restart = %s, want in_progress", body)
 	}
 }
 
-func TestDeleteStartsTheNextQueuedItem(t *testing.T) {
+func TestStartedItemSpaceIsLedByTheOwnerWithTheParticipants(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/bots", `{"name":"ann","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPut, env.url+"/work-items/1/participants", `{"ownerBotId":2,"participantBotIds":[1]}`)
 	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
 	env.waitIdle(t, 2)
 
-	if status, body := do(t, http.MethodDelete, env.url+"/work-items/1", ""); status != 204 {
-		t.Fatalf("delete = %d %s, want 204", status, body)
+	_, body := do(t, http.MethodGet, env.url+"/spaces/2", "")
+	if !strings.Contains(body, `"role":"ann"`) {
+		t.Errorf("Space of the item = %s, want ann as its lead", body)
 	}
-
-	if _, body := do(t, http.MethodGet, env.url+"/work-items/2", ""); !strings.Contains(body, `"status":"in_progress"`) {
-		t.Errorf("work item 2 after the delete = %s, want in_progress", body)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/spaces?workItem=2", ""); body == "[]" {
-		t.Error("no Space opened for work item 2 after the delete")
+	var ids string
+	if err := env.st.DB().QueryRow(
+		"SELECT group_concat(bot_id || ':' || lead) FROM (SELECT bot_id, lead FROM space_member WHERE space_id = 2 ORDER BY bot_id)").
+		Scan(&ids); err != nil || ids != "1:0,2:1" {
+		t.Errorf("members of the Space = %q, %v, want 1:0,2:1", ids, err)
 	}
 }
 
-func TestPutKeepsAQueuedItemInItsQueue(t *testing.T) {
+func TestPutCannotChangeTheOwnerOfAStartedItem(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
 	env.waitIdle(t, 2)
 
-	status, body := do(t, http.MethodPut, env.url+"/work-items/2", `{"title":"Logout","teamId":null,"status":"backlog"}`)
-	if want := `{"error":"invalid: work item 2 is queued and keeps its team"}`; status != 400 || body != want {
-		t.Errorf("put without the team = %d %s, want 400 %s", status, body, want)
+	status, body := do(t, http.MethodPut, env.url+"/work-items/1", `{"title":"Login","ownerBotId":null,"participantBotIds":[]}`)
+	if want := `{"error":"invalid: work item 1 keeps its owner and participants"}`; status != 400 || body != want {
+		t.Errorf("put without the owner = %d %s, want 400 %s", status, body, want)
 	}
-	status, body = do(t, http.MethodPut, env.url+"/work-items/2", `{"title":"Sign out","teamId":1,"status":"backlog"}`)
-	if status != 200 || !strings.Contains(body, `"title":"Sign out"`) ||
-		!strings.Contains(body, `"status":"queued"`) || !strings.Contains(body, `"queuePosition":1`) {
-		t.Errorf("put = %d %s, want 200 still queued at 1", status, body)
+	status, body = do(t, http.MethodPut, env.url+"/work-items/1", `{"title":"Sign in"}`)
+	if status != 200 || !strings.Contains(body, `"title":"Sign in"`) || !strings.Contains(body, `"ownerBotId":1`) {
+		t.Errorf("put = %d %s, want 200 with the owner kept", status, body)
 	}
 }
 
-func TestDropFreesTheTeamAndClosesTheSpace(t *testing.T) {
+func TestDropClosesTheSpace(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
 	env.waitIdle(t, 2)
 
 	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"dropped"}`); status != 200 ||
@@ -160,9 +145,6 @@ func TestDropFreesTheTeamAndClosesTheSpace(t *testing.T) {
 
 	if _, body := do(t, http.MethodGet, env.url+"/spaces/2", ""); !strings.Contains(body, `"closedAt":"`) {
 		t.Errorf("Space 2 = %s, want closedAt set", body)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/work-items/2", ""); !strings.Contains(body, `"status":"in_progress"`) {
-		t.Errorf("work item 2 after the drop = %s, want in_progress", body)
 	}
 	if status, _ := do(t, http.MethodPost, env.url+"/spaces/2/reopen", ""); status != 204 {
 		t.Fatalf("reopen = %d, want 204", status)

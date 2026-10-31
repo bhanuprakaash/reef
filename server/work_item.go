@@ -29,6 +29,11 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
 	mux.HandleFunc("PUT /work-items/{id}/queue-position", s.moveInQueue)
 	mux.HandleFunc("/work-items/{id}/queue-position", methodNotAllowed)
+	mux.HandleFunc("PUT /work-items/{id}/participants", s.putParticipants)
+	mux.HandleFunc("/work-items/{id}/participants", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/targets", s.listTargets)
+	mux.HandleFunc("POST /work-items/{id}/targets", s.addTarget)
+	mux.HandleFunc("/work-items/{id}/targets", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/brief", s.getBrief)
 	mux.HandleFunc("PUT /work-items/{id}/brief", s.putBrief)
 	mux.HandleFunc("/work-items/{id}/brief", methodNotAllowed)
@@ -169,7 +174,7 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 
 // decideReview moves the top-level item in review as the user. Done approves the wrap-up the
 // lead proposed when it submitted, or closes the Space when there is none. Queued sends the item
-// back with note, which reaches the lead when the Team restarts the item. A wrap-up still
+// back with note, which reaches the lead when the queue restarts the item. A wrap-up still
 // running is 409, so the user decides on what the lead finished. An item with no proof has no
 // Space to wrap up or wake: it is only moved.
 func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note string) (store.WorkItem, error) {
@@ -216,7 +221,67 @@ func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note
 	return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
 }
 
-// moveInQueue puts the queued work item at a position in its Team's queue; a position outside
+// putParticipants sets the owner and participants of a backlog work item; any other item is 400.
+func (s *server) putParticipants(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		OwnerBotID        *int64  `json:"ownerBotId"`
+		ParticipantBotIDs []int64 `json:"participantBotIds"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.SetWorkItemParticipants(r.Context(), id, in.OwnerBotID, in.ParticipantBotIDs)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
+func (s *server) listTargets(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ts, err := s.st.WorkItemTargets(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ts)
+}
+
+// addTarget lets the user add a Project's repository to a top-level work item. The item's Space
+// gets a message naming it. A sub-item or an unknown Project is 400, a repeated Project 409.
+func (s *server) addTarget(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		ProjectID int64 `json:"projectId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	t, err := s.st.AddWorkItemTarget(r.Context(), id, in.ProjectID, store.ByUser, nil)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+// moveInQueue puts the queued work item at a position in the queue; a position outside
 // the queue, or an item that is not queued, is 400.
 func (s *server) moveInQueue(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -245,7 +310,7 @@ func (s *server) moveInQueue(w http.ResponseWriter, r *http.Request) {
 // turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
 // can refuse or fail, and the next wake makes it again. The memory items are retired before the
 // row goes, so a failure leaves the item to delete again. The refs go last, after the rows that
-// name them. The Team's next queued item starts. A project folder that is gone is not git cleaned up: its worktree folder, if
+// name them. A project folder that is gone is not git cleaned up: its worktree folder, if
 // any, is just removed.
 func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)

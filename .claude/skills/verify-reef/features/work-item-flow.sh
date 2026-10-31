@@ -75,26 +75,25 @@ cat >"$E/pong.json" <<'EOF'
 EOF
 
 section_flow() {
-### Two work items queued on a Team (data folder flow)
+### Two work items owned by the lead of the crew, one queued (data folder flow)
 
 start_server flow
 "$H" team-apply "$E/crew.json" >/dev/null
-api_call GET /teams/crew
-crew=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+lead=$(sql1 "select id from bot where name = 'lead'")
+dev=$(sql1 "select id from bot where name = 'developer'")
+tester=$(sql1 "select id from bot where name = 'tester'")
 api_call POST /projects '{"name":"shop","path":"'"$S"'/cwd"}'
-api_call POST /work-items '{"projectId":1,"title":"Checkout form","description":"a form that takes an email and a password","teamId":'"$crew"',"acceptanceLines":[{"text":"the form has an email and a password field"}]}'
-api_call POST /work-items '{"projectId":1,"title":"Order history","teamId":'"$crew"'}'
+api_call POST /work-items '{"projectId":1,"title":"Checkout form","description":"a form that takes an email and a password","ownerBotId":'"$lead"',"participantBotIds":['"$dev,$tester"'],"acceptanceLines":[{"text":"the form has an email and a password field"}]}'
+api_call POST /work-items '{"projectId":1,"title":"Order history","ownerBotId":'"$lead"',"participantBotIds":['"$dev,$tester"']}'
 api_call PATCH /work-items/1 '{"status":"queued"}'
-patch1=$STATUS
-api_call PATCH /work-items/2 '{"status":"queued"}'
 
 queue_ok=1
-[ "$patch1" = 200 ] || queue_ok=0
 [ "$STATUS" = 200 ] || queue_ok=0
 [ "$(item 1)" = "in_progress:-" ] || queue_ok=0
-[ "$(item 2)" = "queued:1" ] || queue_ok=0
+[ "$(item 2)" = "backlog:-" ] || queue_ok=0
 [ "$(spaces 1)" = 1 ] || queue_ok=0
 [ "$(spaces 2)" = 0 ] || queue_ok=0
+[ "$(sql1 "select group_concat(bot_id || ':' || lead) from (select bot_id, lead from space_member where space_id = 1 order by id)")" = "$lead:1,$dev:0,$tester:0" ] || queue_ok=0
 first=$("$H" sql "select body from message where space_id = 1 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
 [ "$first" = "Work item 1: Checkout form" ] || queue_ok=0
 check flow-queue-starts "$queue_ok" "item 1 $(item 1), item 2 $(item 2), Spaces of item 1: $(spaces 1) and of item 2: $(spaces 2); first prompt: $first"
@@ -134,8 +133,9 @@ wait_for "/spaces/1/proposal" '"kind":"wrap"' || submit_ok=0
 [ "$(sql1 "select status from proposal where space_id = 1 order by id desc limit 1")" = pending ] || submit_ok=0
 check flow-submit-review "$submit_ok" "item 1 $(item 1), sub-items $(sql1 "select group_concat(status) from work_item where parent_id = 1"); proof: $STATUS $(echo "$proof" | cut -c1-200); wrap-up of Space 1: $(sql1 "select status from proposal where space_id = 1 order by id desc limit 1")"
 
-### Review freed the Team: the second item started by itself
+### The second item, queued while the first is in review, starts at once
 
+api_call PATCH /work-items/2 '{"status":"queued"}'
 wait_item 2 "in_progress:-"
 wait_for "/spaces?workItem=2" '"workItemId":2'
 first2=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
@@ -145,18 +145,18 @@ next_ok=1
 [ "$(fyi started 2)" = 1 ] || next_ok=0
 check flow-next-starts "$next_ok" "item 2 $(item 2), Spaces of item 2: $(spaces 2), first prompt: $first2, started FYI items: $(fyi started 2)"
 
-### Send item 1 back: it waits at position 1 while item 2 holds the Team
+### Send item 1 back: it restarts at once, next to item 2
 
 review_patch 1 '{"status":"queued","note":"ADD A PHONE FIELD"}'
 back_ok=1
 [ "$STATUS" = 200 ] || back_ok=0
-[ "$(item 1)" = "queued:1" ] || back_ok=0
+[ "$(sql1 "select status in ('in_progress', 'review') and queue_position is null from work_item where id = 1")" = 1 ] || back_ok=0
 [ "$(item 2)" = "in_progress:-" ] || back_ok=0
 [ "$(sql1 "select status from proposal where space_id = 1 order by id desc limit 1")" = rejected ] || back_ok=0
 [ "$(spaces 1)" = 1 ] || back_ok=0
 check flow-send-back "$back_ok" "PATCH queued with a note: $STATUS; item 1 $(item 1), item 2 $(item 2), wrap-up of Space 1: $(sql1 "select status from proposal where space_id = 1 order by id desc limit 1"), Spaces of item 1: $(spaces 1)"
 
-### Item 2 is dropped: item 1 starts in its own Space, hears the note and submits again
+### Item 2 is dropped; item 1 heard the note in its own Space and submits again
 
 api_call PATCH /work-items/2 '{"status":"dropped"}'
 resubmit_ok=1
@@ -217,19 +217,16 @@ check flow-add-bot "$add_ok" "POST members: $add_status; Space 1 moved to Space 
 
 api_call POST /spaces/2/send '{"text":"@kit PROPOSE THE SLOW SEARCH: call propose_work_item once with type bug, title \"Search results load slowly\", description \"The search page takes ten seconds to show results.\" and the one acceptance line \"Results show within two seconds\", then answer Proposed."}'
 wait_sql "select count(*) from work_item" 1
-api_call GET /teams/crew
-crew=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 api_call GET /work-items/1
 propose_ok=1
 echo "$BODY" | grep -q '"type":"bug","title":"Search results load slowly"' || propose_ok=0
 echo "$BODY" | grep -q '"status":"backlog"' || propose_ok=0
 echo "$BODY" | grep -q '"proposedBy":"kit"' || propose_ok=0
-echo "$BODY" | grep -q '"teamId":null' || propose_ok=0
-echo "$BODY" | grep -q '"suggestedTeamId":'"$crew"',' || propose_ok=0
+echo "$BODY" | grep -q '"ownerBotId":null' || propose_ok=0
 echo "$BODY" | grep -q '"text":"Results show within two seconds"' || propose_ok=0
 [ "$(fyi proposed 1)" = 1 ] || propose_ok=0
 [ "$(replays flow-propose-kit)" = 1 ] || propose_ok=0
-check flow-propose "$propose_ok" "item 1: $(echo "$BODY" | cut -c1-300); crew team id $crew; proposed FYI items: $(fyi proposed 1); flow-propose-kit replays: $(replays flow-propose-kit)"
+check flow-propose "$propose_ok" "item 1: $(echo "$BODY" | cut -c1-300); proposed FYI items: $(fyi proposed 1); flow-propose-kit replays: $(replays flow-propose-kit)"
 }
 
 section_caps() {

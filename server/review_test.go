@@ -20,7 +20,7 @@ import (
 func submittedEnv(t *testing.T) *liveEnv {
 	t.Helper()
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	env.fake.onRun = func(_, text string, _ *int64) {
 		switch {
 		case text == space.WrapCommand:
@@ -105,7 +105,7 @@ func TestSendBackReachesTheLeadWithTheNote(t *testing.T) {
 func submittedUnwrappedEnv(t *testing.T) *liveEnv {
 	t.Helper()
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
 	deadline := time.Now().Add(5 * time.Second)
 	for env.h.s.lookup(2) == nil {
@@ -135,7 +135,7 @@ func TestDeleteSpaceInReviewIsRefused(t *testing.T) {
 
 func TestProofScreenshotsServeOnlyImagesUnderTheDataFolder(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
 	env.waitIdle(t, 2)
 	inside := filepath.Join(env.dir, "shot.png")

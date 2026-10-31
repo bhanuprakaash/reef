@@ -234,8 +234,8 @@ func TestContext_YourItemsAreTheRolesBot(t *testing.T) {
 		Roles: []store.Role{{Name: "developer", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
-	teamID := int64(2)
-	g, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, Title: "Logout", TeamID: &teamID})
+	owner := int64(2)
+	g, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, Title: "Logout", OwnerBotID: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}

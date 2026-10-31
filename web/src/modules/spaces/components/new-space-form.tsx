@@ -13,20 +13,12 @@ const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
 type Props = {
   projectId?: number;
   workItemId: number | null;
-  itemTeam?: string;
   proposal?: SpaceProposal;
   onCreated?: () => void;
   onClose: () => void;
 };
 
-export function NewSpaceForm({
-  projectId,
-  workItemId,
-  itemTeam,
-  proposal,
-  onCreated,
-  onClose,
-}: Props) {
+export function NewSpaceForm({ projectId, workItemId, proposal, onCreated, onClose }: Props) {
   const [picked, setPicked] = useState<string[]>([]);
   const [included, setIncluded] = useState<number[]>(proposal?.botIds ?? []);
   const [chosen, setChosen] = useState<number | null>(proposal?.coordinatorBotId ?? null);
@@ -36,7 +28,7 @@ export function NewSpaceForm({
   const bots = useBots();
   const navigate = useNavigate();
   const nameId = useId();
-  const teamList = (teams.data ?? []).filter((t) => itemTeam === undefined || t.name === itemTeam);
+  const teamList = teams.data ?? [];
 
   const crewBots = (crew: string) =>
     teams.data?.find((t) => t.name === crew)?.roles.map((r) => r.botId) ?? [];

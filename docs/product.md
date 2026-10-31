@@ -49,11 +49,11 @@ Conversations have zero or more Project associations. A Project filter organizes
 
 Only you set a top-level item Done. A parent goes to Review only when every sub-item is Done or Dropped.
 
-**Starting work.** You create an item on the board, from the "+" menu or with capture, or a Bot proposes one (`propose_work_item`): it lands in Backlog marked "proposed by X" with a Team suggested from the Teams' responsibility texts, and an FYI tells you. Nothing runs until you queue it on a Team.
+**Starting work.** You create an item on the board, from the "+" menu or with capture, or a Bot proposes one (`propose_work_item`): it lands in Backlog marked "proposed by X" and an FYI tells you. Nothing runs until you give it an owner and queue it.
 
-**Team queue.** A Team works one item at a time: one In progress or Needs you. The first Queued item starts by itself when the Team is free. The server opens the item's Space with the Team's lead and sends it the item. Review frees the Team and the next item starts. Needs you does not, because the item still holds the worktree. An item you send back from Review goes to the top of the queue.
+**Queue.** An item with an owner starts as soon as you queue it: nothing limits how many items run at once. The server opens the item's Space led by its owner, with the other participants as members, and sends it the item. An item with no owner cannot be queued. An item you send back from Review starts again in its Space.
 
-**Sub-items.** Any Bot can create a sub-item without asking. It stays with the same Team, shares the parent's Space and worktree, and shows as an FYI. Sub-items run one turn at a time; subagents inside one turn are fine. True parallel work is a later slice.
+**Sub-items.** Any Bot can create a sub-item without asking. It shares its parent's owner, participants and repositories, shares the parent's Space and worktree, and shows as an FYI. Sub-items run one turn at a time; subagents inside one turn are fine. True parallel work is a later slice.
 
 **Review.** The lead submits an item with the proof: the PR (found from the branch), each acceptance line ticked with a note, test commands with their output, and screenshots. Submitting also starts the wrap-up, so the brief and memory items wait for you next to the proof. Setting Done approves the wrap-up. Sending back needs a note, which rejects the wrap-up and goes to the lead.
 

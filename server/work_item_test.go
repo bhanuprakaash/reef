@@ -43,9 +43,9 @@ func TestWorkItemStatus(t *testing.T) {
 			name:       "queued status on create",
 			method:     http.MethodPost,
 			path:       "/work-items",
-			give:       `{"projectId":1,"title":"A","teamId":1,"status":"queued","queuePosition":3}`,
+			give:       `{"projectId":1,"title":"A","ownerBotId":1,"status":"queued","queuePosition":3}`,
 			wantStatus: 201,
-			wantBody:   `"status":"backlog","teamId":1,"proposedBy":"","suggestedTeamId":null,"queuePosition":null`,
+			wantBody:   `"status":"backlog","proposedBy":"","queuePosition":null`,
 		},
 		{
 			name:       "review status on create",
@@ -183,12 +183,13 @@ func TestWorkItemBugWithLinesAndSubItems(t *testing.T) {
 			`"acceptanceLines":[{"text":"no 500"},{"text":"error shown"},{"text":"test added"}]}`)
 	if status != 201 || !strings.HasPrefix(body,
 		`{"id":1,"projectId":1,"parentId":null,"type":"bug","title":"Sign-in fails",`+
-			`"description":"500 on submit","status":"backlog","teamId":null,"proposedBy":"",`+
-			`"suggestedTeamId":null,"queuePosition":null,"tokenBudget":1000000,"createdAt":"`) ||
-		!strings.HasSuffix(body, `"closedAt":null,"acceptanceLines":[`+
+			`"description":"500 on submit","status":"backlog","proposedBy":"",`+
+			`"queuePosition":null,"tokenBudget":1000000,"createdAt":"`) ||
+		!strings.Contains(body, `"closedAt":null,"acceptanceLines":[`+
 			`{"position":1,"text":"no 500","checked":false,"note":""},`+
 			`{"position":2,"text":"error shown","checked":false,"note":""},`+
-			`{"position":3,"text":"test added","checked":false,"note":""}]}`) {
+			`{"position":3,"text":"test added","checked":false,"note":""}],`+
+			`"ownerBotId":null,"participantBotIds":[],"targets":[{"projectId":1,"projectName":"reef","authorizedBy":"user",`) {
 		t.Fatalf("create bug = %d %s", status, body)
 	}
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"type":"task","title":"Reproduce"}`)
@@ -235,15 +236,15 @@ func TestWorkItemRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodPut, ts.URL+"/work-items/1",
 		`{"title":"Auth","description":"sign in","status":"queued","acceptanceLines":[{"text":"works","checked":true,"note":"ran it"}]}`)
 	if status != 200 || !strings.Contains(body, `"description":"sign in","status":"backlog"`) ||
-		!strings.HasSuffix(body, `"acceptanceLines":[{"position":1,"text":"works","checked":true,"note":"ran it"}]}`) {
+		!strings.Contains(body, `"acceptanceLines":[{"position":1,"text":"works","checked":true,"note":"ran it"}]`) {
 		t.Fatalf("update = %d %s, want the status in the body ignored", status, body)
 	}
 	status, body = do(t, http.MethodPatch, ts.URL+"/work-items/1", `{"status":"queued"}`)
-	if status != 200 || !strings.Contains(body, `"status":"queued"`) {
-		t.Fatalf("patch to queued = %d %s", status, body)
+	if status != 400 || body != `{"error":"invalid: work item 1 needs an owner before it is queued"}` {
+		t.Fatalf("patch to queued = %d %s, want 400 invalid", status, body)
 	}
 	status, body = do(t, http.MethodPatch, ts.URL+"/work-items/1", `{"status":"in_progress"}`)
-	if status != 400 || body != `{"error":"invalid: work item 1: user cannot move an item from queued to in_progress"}` {
+	if status != 400 || body != `{"error":"invalid: work item 1: user cannot move an item from backlog to in_progress"}` {
 		t.Fatalf("patch to in_progress = %d %s, want 400 invalid", status, body)
 	}
 	status, body = do(t, http.MethodPatch, ts.URL+"/work-items/1", `{"status":"open"}`)
@@ -251,7 +252,7 @@ func TestWorkItemRoundTrip(t *testing.T) {
 		t.Fatalf("patch to open = %d %s, want 400 invalid", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/work-items/1", `{"title":"Auth","type":"improvement"}`)
-	if status != 200 || !strings.Contains(body, `"type":"improvement"`) || !strings.Contains(body, `"status":"queued"`) ||
+	if status != 200 || !strings.Contains(body, `"type":"improvement"`) || !strings.Contains(body, `"status":"backlog"`) ||
 		!strings.Contains(body, `"checked":true`) {
 		t.Fatalf("update type = %d %s, want type kept status and lines", status, body)
 	}

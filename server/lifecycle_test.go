@@ -460,8 +460,7 @@ func TestSend_TokenCapMovesWorkItemToNeedsYouAndContinueBack(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	id := env.workItemSpace(t)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	if _, err := env.st.MoveWorkItem(ctx, 1, "in_progress", store.ByQueue); err != nil {
+	if _, err := env.st.DB().ExecContext(ctx, "UPDATE work_item SET status = 'in_progress' WHERE id = 1"); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: int64(id), Role: "lead", Backend: "claude"})

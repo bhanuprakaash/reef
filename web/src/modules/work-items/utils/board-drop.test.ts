@@ -10,14 +10,15 @@ const item = (over: Partial<WorkItem>): WorkItem => ({
   title: 'item',
   description: '',
   status: 'backlog',
-  teamId: 1,
   proposedBy: '',
-  suggestedTeamId: null,
   queuePosition: null,
   tokenBudget: 1000000,
   createdAt: '2026-10-27T10:00:00Z',
   closedAt: null,
   acceptanceLines: [],
+  ownerBotId: 1,
+  participantBotIds: [1],
+  targets: [],
   ...over,
 });
 
@@ -33,18 +34,18 @@ describe('dropAction', () => {
     });
   });
 
-  it('refuses Queued for an item with no Crew', () => {
-    expect(dropAction(item({ teamId: null }), 'queued')).toEqual({
+  it('refuses Queued for an item with no owner', () => {
+    expect(dropAction(item({ ownerBotId: null }), 'queued')).toEqual({
       kind: 'refuse',
-      reason: 'Set a Crew on this item before queuing it.',
+      reason: 'Set an owner on this item before queuing it.',
     });
   });
 
-  it('takes the position of the queued item it lands on, in the same Crew', () => {
+  it('takes the position of the queued item it lands on', () => {
     const dragged = item({ id: 1, status: 'queued', queuePosition: 1 });
     const onto = item({ id: 2, status: 'queued', queuePosition: 3 });
     expect(dropAction(dragged, 'queued', onto)).toEqual({ kind: 'reorder', position: 3 });
-    expect(dropAction(dragged, 'queued', { ...onto, teamId: 2 })).toMatchObject({
+    expect(dropAction(dragged, 'queued', { ...onto, queuePosition: null })).toMatchObject({
       kind: 'refuse',
     });
     expect(dropAction(dragged, 'queued')).toBeNull();

@@ -119,7 +119,7 @@ logged in and on `PATH`.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
   page (`/projects/{id}`) with its work items. A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the lead submits; the PR of the item's branch and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the lead, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
-- Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, Team and project are in the URL. Dragging a card between Backlog and Queued is `PATCH /work-items/{id}`; dropping a queued card on another card of the same Team is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
+- Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, owner and project are in the URL. Dragging a card between Backlog and Queued is `PATCH /work-items/{id}`; dropping a queued card on another queued card is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
 - Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in three groups, Needs you,
   Review and FYI, with a count and the action of each item (Continue, Retry, Review, Open,
   Dismiss on FYI). The window asks once, on a click, to show desktop notifications and then
@@ -191,7 +191,7 @@ migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.s
 migration 39 [`039_turn_compacted.sql`](../store/migrations/039_turn_compacted.sql) (`turn.compacted`) and
 migration 43 [`043_drop_gates.sql`](../store/migrations/043_drop_gates.sql) (drops `gate`; deletes the `approval` rows of kind `gate`) and
 migration 47 [`047_space_member.sql`](../store/migrations/047_space_member.sql) (`space_member`, `space.kind`) and
-migration 50 [`050_team_queue.sql`](../store/migrations/050_team_queue.sql) (one busy work item per team) and
+migration 50 [`050_team_queue.sql`](../store/migrations/050_team_queue.sql) (one busy work item per team; dropped by migration 103) and
 migration 52 [`052_team_responsibility.sql`](../store/migrations/052_team_responsibility.sql) (`team.responsibility`) and
 migration 59 [`059_team_fts.sql`](../store/migrations/059_team_fts.sql) (`team_fts`) and
 migration 65 [`065_send_back_note.sql`](../store/migrations/065_send_back_note.sql) (`proof.send_back_note`) and
@@ -202,7 +202,8 @@ migration 69 [`069_space_moved.sql`](../store/migrations/069_space_moved.sql) (`
 migration 71 [`071_turn_wake_message.sql`](../store/migrations/071_turn_wake_message.sql) (`turn.wake_message_id`) and
 migration 76 [`076_bot.sql`](../store/migrations/076_bot.sql) (renames `teammate` to `bot`, `teammate_id` to `bot_id` and `persona` to `description`) and
 migration 77 [`077_member_bot_only.sql`](../store/migrations/077_member_bot_only.sql) (`team_member` and `space_member` keep only the Bot id and `lead`) and
-migration 78 [`078_space_drop_agent_settings.sql`](../store/migrations/078_space_drop_agent_settings.sql) (drops `space.backend` and `space.permission_mode`).
+migration 78 [`078_space_drop_agent_settings.sql`](../store/migrations/078_space_drop_agent_settings.sql) (drops `space.backend` and `space.permission_mode`) and
+migration 103 [`103_assignment.sql`](../store/migrations/103_assignment.sql) (`work_item` loses `team_id` and `suggested_team_id`, gains `owner_bot_id`, `approved_at` and `approval_key`; adds `work_item_participant` and `work_item_target`).
 Migrations 4 and 5 add columns to `space` (see [Space](#space)); migration 40
 [`040_space.sql`](../store/migrations/040_space.sql) renames the `channel` table and its columns to `space`.
 Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described with their tables below.
@@ -256,22 +257,23 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `title` | string | required |
 | `description` | string | default `""` |
 | `status` | string | `backlog` (default), `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`, else `invalid`. `PATCH` moves it by the rules in `PATCH /work-items/{id}`. A `PUT` without `status` keeps the old one |
-| `teamId` | number? | the Team that works on it |
+| `ownerBotId` | number? | the Bot that owns the top-level item and leads its Space; `null` while the item has none. A sub-item reads its parent's |
 | `proposedBy` | string | default `""`; set on create only |
-| `suggestedTeamId` | number? | set by the `propose_work_item` MCP tool to the Team whose `responsibility` best matches the proposal (`team_fts`, SQLite full-text search over the texts, kept in step by triggers; the `solo` team when none matches). It only suggests: the user picks `teamId` |
+| `participantBotIds` | array | ids of the Bots that take part, the owner first (the owner is always one); `[]` with no owner. They become the members of the item's Space when it starts. A sub-item reads its parent's |
 | `queuePosition` | number? | `null` when not queued |
+| `targets` | array | the repositories the top-level item may change, each `{projectId, projectName, authorizedBy, originMessageId, createdAt}`, the item's own Project first. One Project is one repository. A Space's association with a Project (`space_project`) is not a target and gives no write permission. A sub-item reads its parent's |
 | `tokenBudget` | number | default 1,000,000; a `PUT` with 0 keeps the old one |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the item is open. Set when a top-level item is dropped; never set by a client |
 | `acceptanceLines` | array | `{position, text, checked, note}` in order, `position` counting from 1. On create and `PUT`, the array replaces all lines (`position` is the index in it); a `PUT` without `acceptanceLines` keeps them. A line with no `text` is `invalid` |
 
-A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `teamId`, `suggestedTeamId`, `tokenBudget`, `acceptanceLines`. A field left out clears `teamId` and `suggestedTeamId`, so send the whole item back. `queuePosition` is the queue's: a `PUT` keeps it. A `PUT` that changes `teamId` is `400` unless the item is in `backlog`, `done` or `dropped`.
+A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `tokenBudget`, `acceptanceLines`, and, while the item is in `backlog`, `ownerBotId` and `participantBotIds`. A `PUT` that sends neither `ownerBotId` nor `participantBotIds` keeps them; one that changes them is `400` unless the item is a top-level item in `backlog`. `queuePosition` is the queue's: a `PUT` keeps it. `targets` are read-only here: `POST /work-items/{id}/targets` adds one.
 
-#### Team queue
+#### Queue
 
-A Team works one top-level item at a time: one with status `in_progress` or `needs_you` (a unique index on `team_id` holds this). Moving an item to `queued` puts it last in its Team's queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. When the Team has no item in progress or needing the user, its first queued item moves to `in_progress` by itself: at once on a queue, after a move that frees the Team (to `review`, `done` or `dropped`), and at boot for a queued item of a free Team. The server then opens an active Space for a started item that has none, with the Team's lead, and sends the lead one message: `Work item N: <title>`, `Description:` and `Brief:`, each `none` when empty, one line each; the acceptance lines are in the lead's first prompt (see [memory.md](memory.md#the-context-prompt)). An inbox `started` FYI says the item started (see [Inbox](#inbox)). A sent-back item keeps its Space and gets no new prompt. A started item whose active Space was made by hand (`reef token`, or `POST /spaces` with the item) and has no message yet gets that one message in it, once. A first turn that cannot run leaves a `reef` note saying so.
+A top-level item needs an owner to be queued (`400` otherwise). Moving an item to `queued` puts it last in the queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. Nothing limits how many items run at once: a queued item with an owner moves to `in_progress` by itself, at once on a queue and at boot for a queued item left behind. The server then opens an active Space for a started item that has none, led by the owner with every participant a member, and sends the lead one message: `Work item N: <title>`, `Description:` and `Brief:`, each `none` when empty, one line each; the acceptance lines are in the lead's first prompt (see [memory.md](memory.md#the-context-prompt)). An inbox `started` FYI says the item started (see [Inbox](#inbox)). A sent-back item keeps its Space and gets no new prompt. A started item whose active Space was made by hand (`reef token`, or `POST /spaces` with the item) and has no message yet gets that one message in it, once. A first turn that cannot run leaves a `reef` note saying so.
 
-The lead's `submit_for_review` runs in the `reef mcp` process, which the server cannot hear, so the server learns of a submit when the chain of turns of the submitting Space ends. It then opens the Space of the item the move started, the same way as after a `PATCH`, and runs a wrap-up turn for the lead (the same turn as `POST /spaces/{id}/wrap`), once per submit. A wrap-up that cannot start leaves a `reef` note in the Space: `Submitted for review, but the wrap-up did not start: <why>. Send /wrap to run it.` A submit that happens while the server is down, or a quit before the wrap-up started, starts its next item and its wrap-up at the next boot: the wrap-up runs for each item in review whose Space is open and has not had one.
+The lead's `submit_for_review` runs in the `reef mcp` process, which the server cannot hear, so the server learns of a submit when the chain of turns of the submitting Space ends. It then opens the Space of any item the queue started meanwhile, the same way as after a `PATCH`, and runs a wrap-up turn for the lead (the same turn as `POST /spaces/{id}/wrap`), once per submit. A wrap-up that cannot start leaves a `reef` note in the Space: `Submitted for review, but the wrap-up did not start: <why>. Send /wrap to run it.` A submit that happens while the server is down, or a quit before the wrap-up started, starts its wrap-up at the next boot: the wrap-up runs for each item in review whose Space is open and has not had one.
 
 #### proof
 
@@ -461,12 +463,12 @@ seed team `solo` has one member, the Bot `lead`; it cannot be deleted or have me
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `id` | number | the `teamId` of the team's Work items |
+| `id` | number | |
 | `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's members in one transaction |
-| `responsibility` | string | default `""`; what the team is for. `propose_work_item` suggests the team whose text best matches the proposal (`team_fts`); nothing else reads it |
+| `responsibility` | string | default `""`; what the team is for. Nothing else reads it |
 | `roles` | array | the members, the lead first, then the others in the order given. A request sends `{"botId", "lead"}` for each, nothing else; a response shows each as a [role](#role) read from its Bot |
 
-Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo`. Its Bots, its Spaces and their members stay; its Work items and Spaces lose the team link, and its queued Work items return to backlog.
+Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo`. Its Bots, its Spaces and their members stay; its Spaces lose the team link.
 
 ### bot
 
@@ -632,12 +634,15 @@ tool calls.
 | `GET /profile` | | 200 | 404 no name set yet |
 | `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /work-items` | `?project=ID`, `?parent=ID`, `?status=S`, `?type=T` | 200, with each item's `acceptanceLines` | 400 bad id, status or type |
-| `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `acceptanceLines` and the other fields above; `status` and `queuePosition` are ignored: a new item is in `backlog`, `PATCH` moves it | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type |
+| `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `acceptanceLines`, `ownerBotId`, `participantBotIds` and the other fields above; `status` and `queuePosition` are ignored: a new item is in `backlog`, `PATCH` moves it | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type, unknown Bot, an owner or participants on a sub-item |
 | `GET /work-items/{id}` | | 200 | 404 |
-| `PUT /work-items/{id}` | the editable fields above; `status` is ignored, `PATCH` moves it | 200 | 400 (`teamId` changed while the item is queued, in progress, needing you or in review), 404 |
-| `PATCH /work-items/{id}` | `status`, and `note` to send back; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped (a top-level item that drops stops its running turns, closes its Spaces and sets its `closedAt`; a closed Space or one of a dropped item takes no turn, 409). Review to done approves the Space's pending wrap proposal first (R44), never another kind; with none it closes the Space. An item in review with no proof is only moved. Review to queued needs a `note`: it rejects that wrap-up, and the lead gets the note as a user message when the Team restarts the item. Either is 409 while a turn runs in the Space. The Team queue starts the next queued item when the Team is free (see Team queue). The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
-| `PUT /work-items/{id}/queue-position` | `position`, 1 to the number of items queued for its Team; the item takes that position and the items between shift by one | 200 the item | 400 the item is a sub-item or not queued, has no Team, or `position` is outside the queue; 404 |
-| `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept; a Team the item held is freed and starts its next queued item | 404, 409 the worktree has uncommitted changes (nothing is removed) |
+| `PUT /work-items/{id}` | the editable fields above; `status` is ignored, `PATCH` moves it | 200 | 400 (owner or participants changed while the item is not in backlog, or on a sub-item), 404 |
+| `PATCH /work-items/{id}` | `status`, and `note` to send back; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped (a top-level item that drops stops its running turns, closes its Spaces and sets its `closedAt`; a closed Space or one of a dropped item takes no turn, 409). Review to done approves the Space's pending wrap proposal first (R44), never another kind; with none it closes the Space. An item in review with no proof is only moved. Review to queued needs a `note`: it rejects that wrap-up, and the lead gets the note as a user message when the queue restarts the item. Either is 409 while a turn runs in the Space. A top-level item with an owner that moves to `queued` starts at once (see Queue); one without an owner is `400`. The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
+| `PUT /work-items/{id}/queue-position` | `position`, 1 to the number of queued items; the item takes that position and the items between shift by one | 200 the item | 400 the item is a sub-item or not queued, or `position` is outside the queue; 404 |
+| `PUT /work-items/{id}/participants` | `ownerBotId` (number or `null`), `participantBotIds`; the owner is added to the participants when missing. Only a top-level item in `backlog` | 200 the item | 400 unknown Bot, participants with no owner, a sub-item, an item not in backlog; 404 |
+| `GET /work-items/{id}/targets` | | 200 the item's targets (its parent's for a sub-item) | 404 |
+| `POST /work-items/{id}/targets` | `projectId`; the user adds the Project's repository to a top-level item. The row records `authorizedBy` `user` and, when set, `originMessageId`. If the item has an active Space it gets a `reef` message `Added repository <project> to this Work item, authorized by user.` | 201 the target | 400 unknown project, a sub-item; 404; 409 the Project is already a target |
+| `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
 | `GET /work-items/{id}/brief` | | 200 latest version | 404 no work item, or no brief yet |
 | `PUT /work-items/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
 | `GET /work-items/{id}/brief/versions` | | 200 oldest first | 404 |
@@ -668,11 +673,11 @@ tool calls.
 | `POST /connections` | `name`, and `command` with optional `args` and `env`, or `url` (`http` or `https`) | 201 the connection | 400 neither or both of `command` and `url`, a bad name or url; 409 name taken |
 | `PUT /connections/{id}` | every field | 200 | 400, 404, 409 name taken |
 | `DELETE /connections/{id}` | | 204; it leaves every Bot's selection, and the sessions that already have it keep it | 404 |
-| `GET /teams` | | 200 all teams by name, each with its `id` (the `teamId` of its Work items) and its roles, read from their Bots; a role has `connections`, the ids the Bot selected | |
+| `GET /teams` | | 200 all teams by name, each with its `id` and its roles, read from their Bots; a role has `connections`, the ids the Bot selected | |
 | `POST /teams` | `name`, `responsibility`, `roles`: each member is `{"botId", "lead"}` and nothing else; a Bot is never created here. `?from=<source>` only requires that `source` exists | 201 the team as `GET /teams/{name}` shows it | 400 a member with no `botId`, an unknown Bot, a field other than `botId` and `lead`, or the usual `invalid: ...` team rules; 404 `?from=` names no team; 409 the name exists |
 | `GET /teams/{name}` | | 200; each role shows `write` and `connections` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; `roles` are `{"botId", "lead"}`); replaces the team's members with the same validation. `?from=<source>` instead requires `source` to exist and `name` not to, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
-| `DELETE /teams/{name}` | | 204; the Crew's Spaces stay, with no team, its queued Work items go back to backlog and its in-progress ones keep running | 400 `solo`, 404 |
+| `DELETE /teams/{name}` | | 204; the Crew's Spaces stay, with no team | 400 `solo`, 404 |
 | `GET /bots` | | 200 every bot by name, each `{id, name, description, skills, backend, model, provider, face, colour, tools, connections, write, permissionMode}` | |
 | `POST /bots` | the bot fields above | 201 the bot | 400 the same `invalid: ...` text a role gets, 409 name taken |
 | `GET /bots/{id}` | | 200 | 404 |
@@ -1245,7 +1250,7 @@ restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each it
 | `needs_you` | `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
 | `review` | `review` | a top-level Work item is in review | the item's title | `workItemId` | the user sets Done or sends it back |
 | `fyi` | `sub_item` | a Bot made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
-| `fyi` | `proposed` | a Bot proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it, and the suggested Team | `id` | `POST /inbox/dismiss` |
+| `fyi` | `proposed` | a Bot proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it | `id` | `POST /inbox/dismiss` |
 | `fyi` | `started` | the queue moved an item to in progress, including one sent back from review | `Started from the queue: ` and its title | `id` | `POST /inbox/dismiss` |
 | `fyi` | `space_proposed` | a Bot proposed a Space with `propose_space`; `workItemId` is null, `proposal` has `id`, `proposedBy`, `name`, `botIds` and `coordinatorBotId` | who proposed it, and its name | `id` | `POST /inbox/dismiss`; the window opens the new Space form with the proposal filled in, and dismisses it when the Space is created |
 | `fyi` | `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
@@ -1455,10 +1460,10 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d
 {"id":1,"name":"shop","path":"/tmp","baseBranch":"","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/work-items -d '{"projectId":1,"type":"bug","title":"Login fails","acceptanceLines":[{"text":"no 500"}]}'
-{"id":1,"projectId":1,"parentId":null,"type":"bug","title":"Login fails","description":"","status":"backlog","teamId":null,"proposedBy":"","suggestedTeamId":null,"queuePosition":null,"tokenBudget":1000000,"createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null,"acceptanceLines":[{"position":1,"text":"no 500","checked":false,"note":""}]}
+{"id":1,"projectId":1,"parentId":null,"type":"bug","title":"Login fails","description":"","status":"backlog","proposedBy":"","queuePosition":null,"tokenBudget":1000000,"createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null,"acceptanceLines":[{"position":1,"text":"no 500","checked":false,"note":""}],"ownerBotId":null,"participantBotIds":[],"targets":[{"projectId":1,"projectName":"reef","authorizedBy":"user","originMessageId":null,"createdAt":"2026-10-13T09:00:01.123456Z"}]}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/work-items -d '{"projectId":1,"parentId":1,"type":"task","title":"Reproduce"}'
-{"id":2,"projectId":1,"parentId":1,"type":"task","title":"Reproduce","description":"","status":"backlog","teamId":null,"proposedBy":"","suggestedTeamId":null,"queuePosition":null,"tokenBudget":1000000,"createdAt":"2026-10-13T09:00:01.223456Z","closedAt":null,"acceptanceLines":[]}
+{"id":2,"projectId":1,"parentId":1,"type":"task","title":"Reproduce","description":"","status":"backlog","proposedBy":"","queuePosition":null,"tokenBudget":1000000,"createdAt":"2026-10-13T09:00:01.223456Z","closedAt":null,"acceptanceLines":[],"ownerBotId":null,"participantBotIds":[],"targets":[{"projectId":1,"projectName":"reef","authorizedBy":"user","originMessageId":null,"createdAt":"2026-10-13T09:00:01.123456Z"}]}
 
 $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/work-items/1/brief -d '{"body":"Email and password login","author":"user"}'
 {"id":1,"workItemId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}

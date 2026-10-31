@@ -1004,7 +1004,7 @@ func TestMCPProposeWorkItem(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"id":3`, `"type":"incident"`, `"status":"backlog"`, `"proposedBy":"lead"`,
-		`"suggestedTeamId":2`, `"teamId":null`, `"queuePosition":null`,
+		`"ownerBotId":null`, `"queuePosition":null`,
 		`"acceptanceLines":[{"checked":false,"note":"","position":1,"text":"Deploy passes on main"}]`,
 	} {
 		if !strings.Contains(got, want) {
@@ -1015,14 +1015,14 @@ func TestMCPProposeWorkItem(t *testing.T) {
 	got, isErr = call("propose_work_item", map[string]any{
 		"type": "task", "title": "Rename the export", "description": "Call it archive.",
 	})
-	if !strings.Contains(got, `"suggestedTeamId":1`) || isErr {
-		t.Errorf("a proposal no team claims = %q (error %v), want the solo team 1", got, isErr)
+	if isErr {
+		t.Errorf("second proposal = %q, want a work item", got)
 	}
 
 	items, err := st.Inbox(ctx)
 	if err != nil || len(items) != 2 || items[1].Kind != "proposed" ||
 		items[1].Text != `lead proposed work item 3: Production deploy fails. `+
-			`It is in the Backlog until you queue it. Suggested team: infra.` {
+			`It is in the Backlog until you queue it.` {
 		t.Errorf("inbox = %+v, %v, want the proposed FYI of item 3 second", items, err)
 	}
 	if msgs, err := st.Messages(ctx, chat.ID, 0); err != nil || len(msgs) != 0 {

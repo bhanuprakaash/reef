@@ -9,7 +9,6 @@ import { useSpaces } from '@/lib/api/get-spaces';
 import { useMemory } from '@/lib/api/get-memory';
 import { useRetireMemory } from '@/lib/api/retire-memory';
 import { useBots } from '@/lib/api/get-bots';
-import { useTeams } from '@/lib/api/get-teams';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useBriefVersions } from '@/modules/work-items/api/get-brief-versions';
 import { useDiff } from '@/modules/work-items/api/get-diff';
@@ -20,6 +19,7 @@ import { BriefPanel } from '@/modules/work-items/components/brief-panel';
 import { MemoryList } from '@/modules/work-items/components/memory-list';
 import { WorkItemForm } from '@/modules/work-items/components/work-item-form';
 import { SubItems } from '@/modules/work-items/components/sub-items';
+import { TargetsCard } from '@/modules/work-items/components/targets-card';
 import { diffCounts } from '@/modules/work-items/utils/diff-counts';
 import { statusLabel } from '@/modules/work-items/utils/status-label';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -49,7 +49,6 @@ export function WorkItemPage() {
   const retire = useRetireMemory(scope);
   const diff = useDiff(id);
   const spaces = useSpaces();
-  const teams = useTeams();
   const bots = useBots();
   const terminal = useTerminal(true);
   const move = useMoveWorkItem();
@@ -63,11 +62,14 @@ export function WorkItemPage() {
   const treeId = f.parentId ?? id;
   const workItemSpaces = spaces.data?.filter((c) => c.workItemId === treeId) ?? [];
   const latestSpace = workItemSpaces[workItemSpaces.length - 1];
-  const team = teams.data?.find((t) => t.id === f.teamId);
-  const suggested = teams.data?.find((t) => t.id === f.suggestedTeamId);
+  const owner = bots.data?.find((b) => b.id === f.ownerBotId);
+  const others = (bots.data ?? []).filter(
+    (b) => f.participantBotIds.includes(b.id) && b.id !== f.ownerBotId,
+  );
   const proposal = [
     f.proposedBy && `proposed by ${f.proposedBy}`,
-    suggested && `suggested Crew ${suggested.name}`,
+    owner && `owner ${owner.name}`,
+    others.length > 0 && `with ${others.map((b) => b.name).join(', ')}`,
   ].filter(Boolean);
   const reviewing = f.parentId === null && f.status === 'review';
 
@@ -88,7 +90,6 @@ export function WorkItemPage() {
           <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
             <Chip>{f.type}</Chip>
             <Chip>{statusLabel(f.status)}</Chip>
-            {team && <Chip>{team.name}</Chip>}
             <span className="font-mono whitespace-nowrap">work-item/{treeId}</span>
             {diff.isError ? (
               <span className="whitespace-nowrap text-danger">· {diff.error.message}</span>
@@ -152,6 +153,7 @@ export function WorkItemPage() {
           {retire.isError && <p className="text-sm text-danger">{retire.error.message}</p>}
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
+          {f.parentId === null && <TargetsCard item={f} projects={projects.data ?? []} />}
           <Card title="Spaces">
             {spaces.isError ? (
               <p className="text-sm text-danger">{spaces.error.message}</p>
@@ -171,18 +173,12 @@ export function WorkItemPage() {
       </Dialog>
       <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New Space">
         {dialog === 'space' && (
-          <NewSpaceForm
-            projectId={f.projectId}
-            workItemId={id}
-            itemTeam={team?.name}
-            onClose={() => setDialog(null)}
-          />
+          <NewSpaceForm projectId={f.projectId} workItemId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
       <Dialog open={dialog === 'drop'} onClose={() => setDialog(null)} title="Drop Work item">
         <p className="mb-5 text-sm text-muted">
-          Drop {f.title}? Its Spaces close and their agents stop, and its Crew starts the next
-          queued item. This cannot be undone.
+          Drop {f.title}? Its Spaces close and their agents stop. This cannot be undone.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={() => setDialog(null)}>

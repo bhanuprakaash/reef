@@ -16,8 +16,8 @@ import (
 func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items",
-		`{"projectId":1,"title":"Login","teamId":1,"acceptanceLines":[{"text":"wrong password is refused"}]}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
+		`{"projectId":1,"title":"Login","ownerBotId":1,"acceptanceLines":[{"text":"wrong password is refused"}]}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","ownerBotId":1}`)
 	queued := make(chan struct{})
 	var wraps atomic.Int32
 	env.fake.onRun = func(_, text string, _ *int64) {

@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router';
 import { Button } from '@/components/button';
 import { Dialog } from '@/components/dialog';
 import { Select } from '@/components/select';
-import { useTeams } from '@/lib/api/get-teams';
+import { useBots } from '@/lib/api/get-bots';
 import { useCurrentProject } from '@/lib/current-project';
 import { workItemsQuery } from '@/modules/work-items/api/get-work-items';
 import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
@@ -23,14 +23,14 @@ const TYPES: WorkItemType[] = [
 
 export function BoardPage() {
   const workItems = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
-  const teams = useTeams();
+  const bots = useBots();
   const projects = useProjects();
   const [current] = useCurrentProject(projects.data);
   const [params, setParams] = useSearchParams();
   const [adding, setAdding] = useState(false);
 
   const type = params.get('type') ?? 'all';
-  const team = params.get('team') ?? 'all';
+  const owner = params.get('owner') ?? 'all';
   const project = params.get('project') ?? String(current?.id ?? 'all');
   const filter = (key: string) => (value: string) =>
     setParams((p) => (p.set(key, value), p), { replace: true });
@@ -38,11 +38,11 @@ export function BoardPage() {
   const items = (workItems.data ?? []).filter(
     (i) =>
       (type === 'all' || i.type === type) &&
-      (team === 'all' || String(i.teamId) === team) &&
+      (owner === 'all' || String(i.ownerBotId) === owner) &&
       (project === 'all' || String(i.projectId) === project),
   );
   const addTo = projects.data?.find((p) => String(p.id) === project) ?? current;
-  const error = workItems.error ?? teams.error ?? projects.error;
+  const error = workItems.error ?? bots.error ?? projects.error;
 
   return (
     <div className="flex flex-col gap-4 py-2">
@@ -60,12 +60,12 @@ export function BoardPage() {
         />
         <Select
           variant="pill"
-          aria-label="Crew"
-          value={team}
-          onChange={filter('team')}
+          aria-label="Owner"
+          value={owner}
+          onChange={filter('owner')}
           options={[
-            { value: 'all', label: 'All Crews' },
-            ...(teams.data ?? []).map((t) => ({ value: String(t.id), label: t.name })),
+            { value: 'all', label: 'All owners' },
+            ...(bots.data ?? []).map((b) => ({ value: String(b.id), label: b.name })),
           ]}
         />
         <Select
@@ -83,7 +83,7 @@ export function BoardPage() {
         </Button>
       </header>
       {error && <p className="text-sm text-danger">{error.message}</p>}
-      <Board items={items} teams={teams.data ?? []} />
+      <Board items={items} bots={bots.data ?? []} />
       <Dialog open={adding} onClose={() => setAdding(false)} title="New Work item">
         {adding && addTo && (
           <AddWorkItemForm projectId={addTo.id} onClose={() => setAdding(false)} />

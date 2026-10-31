@@ -16,7 +16,7 @@ its work items.
 - `role-notes` `PUT .../notes/{role}` creates or replaces one note per work item and role; it can be deleted.
 - `project-cascade` deleting a project deletes its work items; ids are never reused.
 - `flow-sub-items` the lead of a work item's Team makes two sub-items with `create_sub_item`: both are top-level item 1's children (`parentId` 1, type `task`, status `backlog`), have no Space of their own, and the inbox has one `sub_item` FYI item for each (`$H feature work-item-flow flow`).
-- `flow-propose` a Bot's `propose_work_item` in a Space of the project adds a top-level `backlog` item with `proposedBy` the Bot, no Team, `suggestedTeamId` the Team whose responsibility text matches, its acceptance lines, and a `proposed` FYI item in the inbox (`$H feature work-item-flow conv`).
+- `flow-propose` a Bot's `propose_work_item` in a Space of the project adds a top-level `backlog` item with `proposedBy` the Bot, no owner (`ownerBotId` null), its acceptance lines, and a `proposed` FYI item in the inbox (`$H feature work-item-flow conv`).
 - `decision-create` `POST /decisions` needs `workItemId`, `body` and `author`; `why` defaults to empty; `messageId` is optional.
 - `decision-message` a `messageId` must be a message in a Space of the same work item, else 400.
 - `decision-read` `GET /decisions?workItem=ID` lists a work item's decisions, oldest first; `GET /decisions/{id}` gets one.

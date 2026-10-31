@@ -37,19 +37,13 @@ func TestGetSpaceTokensUsed(t *testing.T) {
 	}
 }
 
-func TestCreateSpaceOfWorkItemUsesItsTeam(t *testing.T) {
-	ts, st := newEmbedServer(t, nil)
-	if _, err := testServerCreateTeam(t, st, context.Background(), store.Team{Name: "release", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
+func TestCreateSpaceOfWorkItemRefusesABotAndASubItem(t *testing.T) {
+	ts := newTestServer(t)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","teamId":1}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Form"}`)
 
 	for _, c := range []struct{ name, body string }{
-		{"another Team", `{"projectId":1,"workItemId":1,"name":"a","team":"release"}`},
 		{"a Bot", `{"projectId":1,"workItemId":1,"name":"a","botId":1}`},
 		{"a sub-item", `{"projectId":1,"workItemId":2,"name":"a"}`},
 	} {
@@ -58,8 +52,8 @@ func TestCreateSpaceOfWorkItemUsesItsTeam(t *testing.T) {
 		}
 	}
 	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"a"}`)
-	if status != 201 || !strings.Contains(body, `"team":"solo"`) {
-		t.Errorf("Space with no team = %d %s, want 201 in the item's Team solo", status, body)
+	if status != 201 || !strings.Contains(body, `"workItemId":1`) {
+		t.Errorf("Space of the item = %d %s, want 201", status, body)
 	}
 }
 

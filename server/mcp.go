@@ -903,22 +903,12 @@ func (m *mcpServer) proposeWorkItem(
 	for _, text := range in.Acceptance {
 		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
 	}
-	team, err := m.st.SuggestTeam(ctx, in.Title+" "+in.Description)
-	switch {
-	case err == nil:
-		w.SuggestedTeamID = &team.ID
-	case !errors.Is(err, store.ErrNotFound):
-		return nil, store.WorkItem{}, err
-	}
 	w, err = m.st.CreateWorkItem(ctx, w)
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
 	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
 		name, w.ID, w.Title)
-	if team.Name != "" {
-		text += fmt.Sprintf(" Suggested team: %s.", team.Name)
-	}
 	if err := m.st.AddFYI(ctx, store.KindProposed, w.ID, text); err != nil {
 		return nil, store.WorkItem{}, err
 	}

@@ -45,6 +45,14 @@ export type AcceptanceLine = {
   note: string;
 };
 
+export type Target = {
+  projectId: number;
+  projectName: string;
+  authorizedBy: string;
+  originMessageId: number | null;
+  createdAt: string;
+};
+
 export type WorkItem = {
   id: number;
   projectId: number;
@@ -53,14 +61,15 @@ export type WorkItem = {
   title: string;
   description: string;
   status: WorkItemStatus;
-  teamId: number | null;
   proposedBy: string;
-  suggestedTeamId: number | null;
   queuePosition: number | null;
   tokenBudget: number;
   createdAt: string;
   closedAt: string | null;
   acceptanceLines: AcceptanceLine[];
+  ownerBotId: number | null;
+  participantBotIds: number[];
+  targets: Target[];
 };
 
 export type ProofCommand = { command: string; output: string };
