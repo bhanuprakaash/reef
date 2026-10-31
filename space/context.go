@@ -246,6 +246,11 @@ func firstPrompt(
 		if ch.Kind == store.KindConversation {
 			kind, scope = "a direct conversation with the user", "conversation"
 		}
+		if ch.Kind == store.KindConsultation {
+			kind = "a consultation: another Bot asked you from its direct conversation with the user, " +
+				"and its request arrives as a direct message. Your plain reply is the answer it gets. " +
+				"You cannot consult another Bot: if you need a specialist, say so in your reply"
+		}
 		fmt.Fprintf(&b, "You are %s.\n"+
 			"This is %s: it has no work item, so there is no brief or work item items.\n",
 			r.Name, kind)

@@ -61,7 +61,7 @@ export function SpacePage() {
       <span className="truncate">{workItem.title}</span>
     ) : (
       [
-        space.data.kind === 'conversation' ? 'conversation' : 'free Space',
+        space.data.kind === 'free' ? 'free Space' : space.data.kind,
         ...(spaceProjects.data ?? []).map((p) => p.name),
       ].join(' · ')
     ),

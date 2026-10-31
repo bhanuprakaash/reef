@@ -83,7 +83,7 @@ export type Brief = {
 
 export type Space = {
   id: number;
-  kind: 'work_item' | 'free' | 'conversation';
+  kind: 'work_item' | 'free' | 'conversation' | 'consultation';
   projectId: number;
   workItemId: number | null;
   name: string;
@@ -154,6 +154,12 @@ export type Message = {
   botId?: number | null;
   body: string;
   createdAt: string;
+  exchangeId?: number | null;
+};
+
+export type Exchange = {
+  request: DirectMessage;
+  response: DirectMessage | null;
 };
 
 export type Turn = {

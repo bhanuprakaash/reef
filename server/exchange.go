@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"slices"
 
@@ -96,7 +97,12 @@ func (s *server) deliverExchange(ctx context.Context, spaceID, id int64) error {
 	if ch.Paused != "" {
 		return nil
 	}
-	w := directWake(&dm)
+	return s.runWake(ctx, spaceID, directWake(&dm))
+}
+
+// runWake queues w behind the turn a running chain of Space spaceID is on, or starts a chain
+// for it when the Space is idle.
+func (s *server) runWake(ctx context.Context, spaceID int64, w wake) error {
 	for range 3 {
 		if queued, err := s.queueWake(ctx, spaceID, w); queued || err != nil {
 			return err
@@ -110,7 +116,49 @@ func (s *server) deliverExchange(ctx context.Context, spaceID, id int64) error {
 		}
 		return c.resume(ctx, ch, []wake{w})
 	}
-	return fmt.Errorf("space %d has a turn running that cannot take the exchange: %w", spaceID, store.ErrConflict)
+	return fmt.Errorf("space %d has a turn running that cannot take the wake: %w", spaceID, store.ErrConflict)
+}
+
+// deliverAsked delivers the exchanges that Bot botID asked for in its turn in Space spaceID:
+// those the tool call made and left waiting.
+func (s *server) deliverAsked(ctx context.Context, spaceID int64, botID *int64) {
+	exs, err := s.st.SpaceExchanges(ctx, spaceID)
+	if err != nil {
+		log.Printf("list exchanges of Space %d: %v", spaceID, err)
+		return
+	}
+	for _, ex := range exs {
+		if ex.State != store.DirectWaiting || ex.SpaceID == spaceID || botID == nil ||
+			ex.FromBotID == nil || *ex.FromBotID != *botID {
+			continue
+		}
+		if err := s.deliverExchange(ctx, ex.SpaceID, ex.ID); err != nil {
+			log.Printf("deliver exchange %d: %v", ex.ID, err)
+		}
+	}
+}
+
+// wakeAsker wakes the Bot that asked exchange id in its origin conversation once the exchange
+// has a reply, which is already posted there.
+func (s *server) wakeAsker(ctx context.Context, id int64) {
+	ex, err := s.st.Exchange(ctx, id)
+	if err != nil || ex.Response == nil || ex.Response.Status != store.DirectDone ||
+		ex.Request.OriginSpaceID == nil || ex.Request.FromBotID == nil {
+		if err != nil {
+			log.Printf("read exchange %d: %v", id, err)
+		}
+		return
+	}
+	req, resp := ex.Request, ex.Response
+	w := wake{
+		from: resp.From, fromBotID: resp.FromBotID, botID: req.FromBotID, role: req.From,
+		text: fmt.Sprintf("[Space %d, consultation %d, exchange %d]\n%s replied: %s",
+			*req.OriginSpaceID, req.SpaceID, req.ID, resp.From, resp.Body),
+		stored: resp.CreatedAt,
+	}
+	if err := s.runWake(ctx, *req.OriginSpaceID, w); err != nil {
+		log.Printf("wake %s for the reply to exchange %d: %v", req.From, id, err)
+	}
 }
 
 // undeliverable returns why Space ch cannot run exchange dm, or "".
@@ -143,7 +191,7 @@ func (s *server) queueWake(ctx context.Context, id int64, w wake) (bool, error) 
 	if !l.messagingLocked() {
 		return false, nil
 	}
-	if slices.ContainsFunc(l.queued, func(q wake) bool { return q.direct != nil && q.direct.ID == w.direct.ID }) {
+	if w.direct != nil && slices.ContainsFunc(l.queued, func(q wake) bool { return q.direct != nil && q.direct.ID == w.direct.ID }) {
 		return true, nil
 	}
 	l.queued = append(l.queued, w)

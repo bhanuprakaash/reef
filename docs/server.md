@@ -322,7 +322,7 @@ scope `bot`. Their routes still read and write them.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item) or `conversation` (a direct conversation with one Bot). Set by the server |
+| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item), `conversation` (a direct conversation with one Bot) or `consultation` (one Bot asked by another Bot's conversation, see [Consultations](#consultations)). Set by the server |
 | `projectId` | number | the work item's project for a Space of a work item, and then it never changes. For a free Space or a conversation it is the Space's lowest-id associated project, `0` when it has none: it is optional on create and the association is kept in `space_project` (see [Space projects](#space-projects)) |
 | `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the project given with it, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
 | `name` | string | required |
@@ -1041,6 +1041,31 @@ at start, every open Space holding one is paused (`app restarted: wakes were wai
 response `interrupted while running; check its activity before retrying`: what the turn did is
 unknown, so it is never replayed, and the user retries it on purpose. An exchange that already has a
 `done` response cannot be retried.
+
+### Consultations
+
+A Bot in a direct conversation asks another Bot with the `consult` MCP tool. The question runs in a
+Space of kind `consultation`, titled `Consultation from <asker>`: one member, the consulted Bot,
+leading it, no work item and no Team. It takes the Bot's own profile and permissions as a
+direct conversation does, runs in its own chat folder, and refuses `POST /spaces/{id}/members`
+(`400`). The consulted Bot has no `consult` tool, so consultations do not nest; its prompt tells it
+to name another specialist it needs in its reply. The asker's conversation stays a conversation: it
+is not moved and gains no member, and nothing is written into the consulted Bot's own
+conversations.
+
+Each question is an exchange of kind `request` in the consultation, with the asker's conversation
+as `originSpaceId`. The tool stores it, with the note `Asked <Bot>: <question>` in the origin, and
+the server delivers it when the asker's turn ends. The reply is the response row, posted in the
+origin as a message from the consulted Bot, and it wakes the asker there with `[Space N,
+consultation N, exchange N]` and the reply. A related follow-up passes the same `consultation` id
+and adds another exchange to it; a question without one makes a new consultation. The key of a
+tool call is its turn, Bot, consultation and question, so repeating a call in a turn returns the
+same exchange. Messages that stand for an exchange carry its id, so the window links the origin
+chat to the consultation and each question and reply has its own link.
+
+The consultation is an ordinary Space for the rest: its history stays readable, its Bot's session
+is refreshed and revoked with the Bot's others, and a restart fails a cut consultation turn with
+the interruption note and does not replay it.
 
 ### Space names
 

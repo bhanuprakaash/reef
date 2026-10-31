@@ -1452,6 +1452,14 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		} else if w.botID != nil {
 			s.reviewMemory(c.id, *w.botID)
 		}
+		if ok && c.ctx.Err() == nil {
+			if kind == _message {
+				s.deliverAsked(c.ctx, c.id, w.botID)
+			}
+			if d := w.direct; d != nil && d.ReplyToID == nil && d.OriginSpaceID != nil && *d.OriginSpaceID != c.id {
+				s.wakeAsker(c.ctx, d.ID)
+			}
+		}
 		if revoked && !closed && c.ctx.Err() == nil {
 			ok = true
 			if err := sess.Drop(*w.botID); err != nil {

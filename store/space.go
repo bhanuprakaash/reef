@@ -35,12 +35,13 @@ func validActiveTurn(kind string) bool {
 	return false
 }
 
-// Space kinds: a Work item's Space, a free Space with no Work item, and a direct conversation
-// with one Bot.
+// Space kinds: a Work item's Space, a free Space with no Work item, a direct conversation
+// with one Bot, and a consultation: one Bot asked by another Bot's direct conversation.
 const (
 	KindWorkItem     = "work_item"
 	KindFree         = "free"
 	KindConversation = "conversation"
+	KindConsultation = "consultation"
 )
 
 // A Space's project is its work item's project, or its first associated project, or 0.
@@ -187,11 +188,11 @@ func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space
 		return Space{}, err
 	}
 	switch {
-	case c.Kind == KindConversation && c.WorkItemID != nil:
-		return Space{}, fmt.Errorf("%w: a direct conversation has no work item", ErrInvalid)
-	case c.Kind != KindConversation && c.WorkItemID != nil:
+	case (c.Kind == KindConversation || c.Kind == KindConsultation) && c.WorkItemID != nil:
+		return Space{}, fmt.Errorf("%w: a direct conversation or consultation has no work item", ErrInvalid)
+	case c.Kind != KindConversation && c.Kind != KindConsultation && c.WorkItemID != nil:
 		c.Kind = KindWorkItem
-	case c.Kind != KindConversation:
+	case c.Kind != KindConversation && c.Kind != KindConsultation:
 		c.Kind = KindFree
 	}
 	return s.insertSpace(ctx, c, nil, func(tx *sql.Tx, id int64) error {
