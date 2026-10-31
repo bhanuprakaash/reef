@@ -32,8 +32,14 @@ type Exchange struct {
 	Response *DirectMessage `json:"response"`
 }
 
+// IsUserGuidance reports whether m is guidance the user wrote, which runs ahead of the Bot
+// handoffs waiting in its Space.
+func (m DirectMessage) IsUserGuidance() bool {
+	return m.Kind == ExchangeGuidance && m.FromBotID == nil && m.OriginMessageID != nil
+}
+
 // CreateExchange stores request m in its destination Space m.SpaceID, with the conversation
-// m.OriginSpaceID it came from, and posts originNote there as a message linked to it. A key
+// m.OriginSpaceID it came from, and posts originNote there as a message linked to it, written by the sender, or by Reef for a Bot. A key
 // already stored returns the first row and false, and starts nothing. The sender may be nil
 // for a request from the user.
 func (s *Store) CreateExchange(
@@ -87,8 +93,12 @@ func (s *Store) CreateExchange(
 		return DirectMessage{}, false, fmt.Errorf("set exchange chain: %w", err)
 	}
 	if originNote != "" {
+		author := ReefAuthor
+		if m.FromBotID == nil {
+			author = m.From
+		}
 		note, err := s.insertMessage(ctx, tx, Message{
-			SpaceID: *m.OriginSpaceID, Author: ReefAuthor, Body: originNote, ExchangeID: &id}, now)
+			SpaceID: *m.OriginSpaceID, Author: author, Body: originNote, ExchangeID: &id}, now)
 		if err != nil {
 			return DirectMessage{}, false, err
 		}

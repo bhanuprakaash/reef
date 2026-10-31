@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strconv"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -18,6 +19,8 @@ func (s *server) exchangeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/exchanges/{id}/retry", methodNotAllowed)
 	mux.HandleFunc("POST /exchanges/{id}/cancel", s.cancelExchange)
 	mux.HandleFunc("/exchanges/{id}/cancel", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/bots/{botId}/guidance", s.guideBot)
+	mux.HandleFunc("/spaces/{id}/bots/{botId}/guidance", methodNotAllowed)
 }
 
 func (s *server) getExchange(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +68,71 @@ func (s *server) cancelExchange(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notify(dm.SpaceID, "direct")
 	s.getExchange(w, r)
+}
+
+// guideBot records what the user tells a member Bot of Space id, as a message in the Space that
+// links the guidance exchange, and delivers it at the next turn boundary of the Space. A paused
+// Space keeps it waiting. The same key sent twice makes one exchange.
+func (s *server) guideBot(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	botID, err := strconv.ParseInt(r.PathValue("botId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: bot id %q is not a number", store.ErrInvalid, r.PathValue("botId")))
+		return
+	}
+	var in struct {
+		Body string `json:"body"`
+		Key  string `json:"key"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if in.Key == "" {
+		writeError(w, fmt.Errorf("%w: key is required", store.ErrInvalid))
+		return
+	}
+	ctx := r.Context()
+	ch, err := s.st.Space(ctx, id)
+	if err == nil {
+		err = ch.Writable()
+	}
+	var team store.Team
+	if err == nil {
+		team, err = s.st.SpaceTeam(ctx, id)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	i := slices.IndexFunc(team.Roles, func(m store.Role) bool { return m.BotID == botID })
+	if i < 0 {
+		writeError(w, fmt.Errorf("%w: Bot %d is not a member of Space %d", store.ErrNotFound, botID, id))
+		return
+	}
+	key := "guidance:" + in.Key
+	dm, created, err := s.st.CreateExchange(ctx, store.DirectMessage{
+		SpaceID: id, OriginSpaceID: &id, From: _userAuthor, To: team.Roles[i].Name,
+		ToBotID: &botID, Body: in.Body, Kind: store.ExchangeGuidance, RequestKey: &key,
+	}, "To "+team.Roles[i].Name+": "+in.Body)
+	if err == nil && created {
+		s.notify(id, "note")
+		err = s.deliverExchange(ctx, id, dm.ID)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ex, err := s.st.Exchange(ctx, dm.ID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, ex)
 }
 
 // deliverExchange runs waiting exchange id for its recipient in Space spaceID: queued behind the

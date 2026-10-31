@@ -20,20 +20,23 @@ export function ExchangeLink({ exchangeId, spaceId }: Props) {
   );
 }
 
-function Receipt({ request }: { request: DirectMessage }) {
-  const { data: space } = useSpace(request.spaceId);
-  const waiting = space?.paused ? 'Waiting for Space to resume' : 'Queued';
+export function exchangeState(request: DirectMessage, paused: boolean) {
   const state: Record<NonNullable<DirectMessage['state']>, string> = {
-    waiting,
+    waiting: paused ? 'Waiting for Space to resume' : 'Queued — after the current turn',
     delivered: 'Delivered',
     answered: request.kind === 'question' ? 'Answered' : 'Delivered',
     failed: 'Failed',
     stopped: 'Stopped',
     cancelled: 'Cancelled',
   };
+  return state[request.state ?? 'waiting'];
+}
+
+function Receipt({ request }: { request: DirectMessage }) {
+  const { data: space } = useSpace(request.spaceId);
   return (
     <span className="px-1 text-[13px] text-soft">
-      {state[request.state ?? 'waiting']} ·{' '}
+      {exchangeState(request, !!space?.paused)} ·{' '}
       <Link to={`/spaces/${request.spaceId}`} className="underline">
         Open Space
       </Link>{' '}

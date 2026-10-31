@@ -17,6 +17,7 @@ import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
 import { Composer } from '@/modules/spaces/components/composer';
+import { GuidanceInput } from '@/modules/spaces/components/guidance-input';
 import { CoordinationPanel } from '@/modules/spaces/components/coordination-panel';
 import { DeniedToolRows } from '@/modules/spaces/components/denied-tool-rows';
 import { FailedTurnRows } from '@/modules/spaces/components/failed-turn-rows';
@@ -308,6 +309,14 @@ export function SpaceView({
                     Reopen
                   </Button>
                 </div>
+              ) : space.kind === 'consultation' && roles.length > 0 ? (
+                <GuidanceInput
+                  spaceId={space.id}
+                  botId={roles[0].botId}
+                  botName={roles[0].name}
+                  paused={space.paused !== ''}
+                  running={running}
+                />
               ) : (
                 <Composer
                   spaceId={space.id}

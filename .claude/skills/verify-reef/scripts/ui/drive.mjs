@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate, guidance };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -4487,6 +4487,32 @@ async function navigate() {
   check(set.status === 200 && (await members()) === `${kit.name}*,${sam.name}`, 'PUT /spaces/{id}/coordinator moves the coordinator and keeps both members', `${set.status} ${await members()}`);
   const outsider = await make('/bots', { name: `out-${suffix}`, backend: 'claude' });
   check((await sendJson('PUT', `/spaces/${room.id}/coordinator`, { botId: outsider.id })).status === 400, 'a Bot that is not a member cannot be made coordinator');
+}
+
+async function guidance() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  await addProject();
+  const project = (await getJson('/projects')).at(-1);
+  const bot = (await sendJson('POST', '/bots', { name: `guide-${suffix}`, backend: 'claude' })).body;
+  const room = (await sendJson('POST', '/spaces', { projectId: project.id, name: `room-${suffix}`, botIds: [bot.id], coordinatorBotId: bot.id })).body;
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: 'Output the numbers from 1 to 600, one per line, no tools.' });
+  await page.goto(`${base}/spaces/${room.id}/bots/${bot.id}`);
+  const input = main.getByRole('textbox', { name: new RegExp(`^Message ${bot.name} · room-${suffix}`) });
+  await input.waitFor();
+  check(true, 'the activity view input names its destination', await input.getAttribute('aria-label'));
+  await input.fill('Reply with one word.');
+  await main.getByRole('button', { name: 'Send', exact: true }).click();
+  await main.getByText('Queued — after the current turn').waitFor();
+  const waiting = sql(`select state from direct_message where space_id=${room.id} and kind='guidance'`);
+  check(waiting === 'waiting', 'guidance sent mid-turn shows Queued and is waiting in the store', waiting);
+  await shot('guidance-queued');
+  await main.getByText('Delivered', { exact: true }).waitFor({ timeout: 60000 });
+  const turnsOf = () => sql(`select count(*), group_concat(coalesce(direct_message_id, 0)) from turn where space_id=${room.id} and status='done'`);
+  for (let i = 0; i < 40 && !turnsOf().startsWith('2|'); i++) await page.waitForTimeout(250);
+  const turns = turnsOf();
+  check(turns === '2|0,1' || turns === '2|0,2', 'the guidance ran as its own turn after the first one', turns);
+  await shot('guidance-delivered');
 }
 
 try {

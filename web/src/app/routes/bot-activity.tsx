@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router';
 import { useBots } from '@/lib/api/get-bots';
 import { useBotActivity } from '@/modules/spaces/api/get-bot-activity';
 import { Author } from '@/modules/spaces/components/author';
+import { GuidanceInput } from '@/modules/spaces/components/guidance-input';
 import { Bubble } from '@/modules/spaces/components/bubble';
 import { rowTime } from '@/utils/row-time';
 import { summarizeInput } from '@/modules/spaces/utils/summarize-input';
@@ -79,6 +80,15 @@ export function BotActivityPage() {
           ))}
         </ul>
       </Card>
+
+      {!space.closedAt && (
+        <GuidanceInput
+          spaceId={spaceId}
+          botId={botId}
+          botName={look(botId)?.name ?? 'Bot'}
+          paused={space.paused !== ''}
+        />
+      )}
 
       <Card title="Turns" flush>
         {turns.length === 0 && (

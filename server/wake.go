@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -78,10 +79,29 @@ func directWake(m *store.DirectMessage) wake {
 	}
 	text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
 		m.SpaceID, m.ID, m.ChainID, source, m.From, m.Body)
+	if m.IsUserGuidance() {
+		text = fmt.Sprintf("Guidance from the user (sent at %s, message %d): %s",
+			m.CreatedAt.Format(time.RFC3339), *m.OriginMessageID, m.Body)
+	}
 	return wake{
 		from: m.From, fromBotID: m.FromBotID, botID: m.ToBotID, messageID: m.ID,
 		role: m.To, text: text, direct: m, stored: m.CreatedAt,
 	}
+}
+
+// guidanceFirst moves the wakes of user guidance ahead of the others, each group keeping its order.
+func guidanceFirst(ws []wake) []wake {
+	slices.SortStableFunc(ws, func(a, b wake) int {
+		return cmp.Compare(guidanceRank(a), guidanceRank(b))
+	})
+	return ws
+}
+
+func guidanceRank(w wake) int {
+	if w.direct != nil && w.direct.IsUserGuidance() {
+		return 0
+	}
+	return 1
 }
 
 // inStoredOrder is the wakes of one routing read, the public ones and the direct ones, in the

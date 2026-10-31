@@ -1100,6 +1100,24 @@ on the linked message with links to the Space and the Bot's activity:
 
 Every outcome keeps the origin and destination links of the exchange.
 
+### Guiding a Bot
+
+The user guides a member Bot from its activity view (`/spaces/{id}/bots/{botId}`) or from a
+consultation Space, with `POST /spaces/{id}/bots/{botId}/guidance {"body", "key"}`. It makes an
+exchange of kind `guidance` from the user, with the Space as its origin and destination, and
+stores `To <Bot>: <text>` there as a user message linked to it; the response is 201 with the
+exchange (`{request, response}`). `key` is the client's own id: sending it twice makes one
+exchange. A closed Space is 409, a Bot that is not a member 404, an empty `body` or `key` 400.
+
+The Bot receives `Guidance from the user (sent at <time>, message <id>): <text>` as a direct wake
+in its existing session. The Space's live chain runs guidance at the next turn boundary, after the
+whole running turn, ahead of any Bot handoff waiting behind it (guidance among themselves in the
+order sent). The end of a tool call is not a boundary, so guidance stays `waiting` until its own
+turn starts. Ordinary user messages keep their order. A paused Space keeps guidance `waiting`
+("Waiting for Space to resume"), sending never resumes it, and `POST /spaces/{id}/continue` runs
+it first. `POST /spaces/{id}/stop` is separate: it stops the running turn and fails waiting
+exchanges as it does for any.
+
 ### Space references
 
 A user message can refer to a Space with the token `#[Name](space:ID)`. The composer writes it

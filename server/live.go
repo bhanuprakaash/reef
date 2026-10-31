@@ -756,7 +756,7 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		err = c.release(berr)
 	} else {
 		c.lift(&ch, budget)
-		err = c.resume(r.Context(), ch, held)
+		err = c.resume(r.Context(), ch, guidanceFirst(held))
 	}
 	if err != nil {
 		for _, h := range holds {
@@ -1526,7 +1526,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			finish(queue)
 			return
 		}
-		queue, l.queued = append(queue, l.queued...), nil
+		queue, l.queued = guidanceFirst(append(queue, l.queued...)), nil
 		l.mu.Unlock()
 		kind = _message
 		ch, err := s.st.Space(c.ctx, c.id)
