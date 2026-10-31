@@ -794,6 +794,7 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.openStarted(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

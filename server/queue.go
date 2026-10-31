@@ -6,9 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
+)
+
+const (
+	_noRepositoryReason = "no repository of this Work item is ready"
+	_firstTurnReason    = "the first turn did not start"
 )
 
 // startQueue starts every queued item that has an owner and opens what it started, in the
@@ -66,6 +73,8 @@ func (s *server) startSubmitted(id int64) {
 // sent-back item already has a Space: its lead is woken with the note. A Space made by hand
 // that has no message yet is started with the item.
 func (s *server) openStarted(ctx context.Context) {
+	s.admitMu.Lock()
+	defer s.admitMu.Unlock()
 	items, err := s.st.WorkItems(ctx, store.WorkItemFilter{Status: "in_progress"})
 	if err != nil {
 		log.Printf("list started work items: %v", err)
@@ -105,34 +114,67 @@ func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
 }
 
 // startLead tells the lead of Space id the item the queue started, in a user message that
-// starts its turn. A turn that cannot start is noted in the Space.
+// starts its turn. A turn that cannot start is noted in the Space and pauses it, which puts the
+// item in Needs you; the other started items go on. Continue, once the cause is fixed, starts
+// the lead.
 func (s *server) startLead(ctx context.Context, id int64, w store.WorkItem) error {
 	brief, err := s.st.Brief(ctx, w.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
+	}
+	if s.ensure != nil {
+		ws, err := s.ensure(ctx, w)
+		if err != nil {
+			return err
+		}
+		if !slices.ContainsFunc(ws, func(x store.Workspace) bool { return x.State == store.WorkspaceReady }) {
+			lines := []string{"Not started: no repository of this Work item is ready."}
+			for _, x := range ws {
+				p, err := s.st.Project(ctx, x.ProjectID)
+				if err != nil {
+					return err
+				}
+				lines = append(lines, fmt.Sprintf("%s: %s", p.Name, x.Note))
+			}
+			return s.pauseWithNote(ctx, id, _noRepositoryReason, strings.Join(lines, "\n")+"\nFix it, then continue the Space.")
+		}
 	}
 	err = s.startUserTurn(ctx, id, userTurn{kind: _message, text: queuePrompt(w, brief.Body)})
 	if err == nil {
 		return nil
 	}
 	note := fmt.Sprintf("Started from the queue, but the first turn did not run: %v. "+
-		"Send the lead a message to run it.", err)
-	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: id, Author: store.ReefAuthor, Body: note})
-	return err
+		"Fix it, then continue the Space.", err)
+	if errors.Is(err, store.ErrConflict) {
+		_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: id, Author: store.ReefAuthor, Body: note})
+		return err
+	}
+	return s.pauseWithNote(ctx, id, _firstTurnReason, note)
 }
 
-// wakeAttached wakes the Space the item already has: with the user's note when the item was
-// sent back, and with the item when the Space has no message yet.
+// pauseWithNote says why in Space id, from reef, and pauses it, which puts its item in Needs you.
+func (s *server) pauseWithNote(ctx context.Context, id int64, reason, note string) error {
+	if _, err := s.st.CreateMessage(ctx, store.Message{SpaceID: id, Author: store.ReefAuthor, Body: note}); err != nil {
+		return err
+	}
+	return s.st.PauseSpace(ctx, id, reason)
+}
+
+// wakeAttached wakes the Space the item already has, unless it is paused: with the user's note
+// when the item was sent back, and with the item when the Space has had no first turn yet.
 func (s *server) wakeAttached(ctx context.Context, w store.WorkItem, sp store.Space) {
+	if sp.Paused != "" {
+		return
+	}
 	if s.wakeSentBack(ctx, w.ID) {
 		return
 	}
-	n, err := s.st.CountMessages(ctx, sp.ID)
+	pending, err := s.st.FirstTurnPending(ctx, sp.ID)
 	if err != nil {
-		log.Printf("count messages of Space %d: %v", sp.ID, err)
+		log.Printf("%v", err)
 		return
 	}
-	if n > 0 {
+	if !pending {
 		return
 	}
 	if err := s.startLead(ctx, sp.ID, w); err != nil {

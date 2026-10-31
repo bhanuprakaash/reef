@@ -17,6 +17,7 @@ const item = (over: Partial<WorkItem>): WorkItem => ({
   closedAt: null,
   approvedAt: null,
   approvalKey: null,
+  sentBack: false,
   acceptanceLines: [],
   ownerBotId: 1,
   participantBotIds: [1],

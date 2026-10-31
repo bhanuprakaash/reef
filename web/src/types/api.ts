@@ -68,6 +68,7 @@ export type WorkItem = {
   closedAt: string | null;
   approvedAt: string | null;
   approvalKey: string | null;
+  sentBack: boolean;
   acceptanceLines: AcceptanceLine[];
   ownerBotId: number | null;
   participantBotIds: number[];

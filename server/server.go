@@ -29,6 +29,9 @@ type server struct {
 	dataDir string
 	trees   *space.Trees
 	open    func(ctx context.Context, spaceID int64) (session, error)
+	// ensure makes the workspaces of a started item before its first turn; with none set the item
+	// is started without the check.
+	ensure func(ctx context.Context, w store.WorkItem) ([]store.Workspace, error)
 	// name proposes a Space name from its first message, with the Space's backend.
 	name func(ctx context.Context, backend, message string) (string, error)
 	// now is the clock of the memory review. maintain runs that review for a Bot in a Space; with
@@ -49,6 +52,9 @@ type server struct {
 	reviews map[int64]context.CancelFunc
 
 	approveMu sync.Mutex
+	// admitMu makes one scan of the started items at a time, so an item gets its Space and its
+	// first turn once.
+	admitMu sync.Mutex
 
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
@@ -80,6 +86,9 @@ func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
 		}
 		return sess, nil
 	}, func(s *server) {
+		s.ensure = func(ctx context.Context, w store.WorkItem) ([]store.Workspace, error) {
+			return space.EnsureWorkspaces(ctx, st, trees, dataDir, w)
+		}
 		s.maintain = func(ctx context.Context, spaceID, botID int64, onEvent func(agent.Event)) error {
 			return space.Maintain(ctx, st, dataDir, exe, spaceID, botID, space.NewAgent, onEvent)
 		}

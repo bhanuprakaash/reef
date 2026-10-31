@@ -185,7 +185,7 @@ func TestWorkItemBugWithLinesAndSubItems(t *testing.T) {
 		`{"id":1,"projectId":1,"parentId":null,"type":"bug","title":"Sign-in fails",`+
 			`"description":"500 on submit","status":"backlog","proposedBy":"",`+
 			`"queuePosition":null,"tokenBudget":1000000,"createdAt":"`) ||
-		!strings.Contains(body, `"closedAt":null,"approvedAt":null,"approvalKey":null,"acceptanceLines":[`+
+		!strings.Contains(body, `"closedAt":null,"approvedAt":null,"approvalKey":null,"sentBack":false,"acceptanceLines":[`+
 			`{"position":1,"text":"no 500","checked":false,"note":""},`+
 			`{"position":2,"text":"error shown","checked":false,"note":""},`+
 			`{"position":3,"text":"test added","checked":false,"note":""}],`+

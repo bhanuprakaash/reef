@@ -21,6 +21,7 @@ const workItem: WorkItem = {
   closedAt: null,
   approvedAt: null,
   approvalKey: null,
+  sentBack: false,
   acceptanceLines: [],
   ownerBotId: null,
   participantBotIds: [],

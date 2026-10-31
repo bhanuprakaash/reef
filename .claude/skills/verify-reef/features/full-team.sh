@@ -35,6 +35,7 @@ api_call() {
 session_file() { ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1; }
 
 turn_col() { "$H" sql "select $2 from turn where id = $1" | sed 1d | tail -1; } # turn_col ID COLUMN(S)
+ckpt() { "$H" sql "select ref from turn_checkpoint where turn_id = $1 order by workspace_id limit 1" | sed 1d | tail -1; } # ckpt ID: the turn's first checkpoint ref
 
 run_ui() { # run_ui ID SCENARIO
 	local id=$1 scenario=$2 out rc
@@ -131,7 +132,7 @@ api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"b1","team":"crew"}'
 api_call POST /spaces '{"projectId":1,"name":"quick","team":"crew"}'
 api_call POST /spaces '{"projectId":2,"workItemId":3,"name":"nogit"}'
 
-T="$S/full/worktrees/1/1"
+T="$S/full/worktrees/item-1/1-full"
 
 ### Worktrees and writers
 
@@ -146,17 +147,17 @@ wt_list=$(git -C "$S/cwd" worktree list)
 two_ok=1
 [ "$send1" = 202 ] && [ "$send3" = 202 ] || two_ok=0
 echo "$wt_list" | grep -q "^$S/cwd .*\[main\]" || two_ok=0
-echo "$wt_list" | grep -q "^$S/full/worktrees/1/1 .*\[work-item/1\]" || two_ok=0
-echo "$wt_list" | grep -q "^$S/full/worktrees/1/2 .*\[work-item/2\]" || two_ok=0
+echo "$wt_list" | grep -q "^$S/full/worktrees/item-1/1-full .*\[work-item/1\]" || two_ok=0
+echo "$wt_list" | grep -q "^$S/full/worktrees/item-2/1-full .*\[work-item/2\]" || two_ok=0
 [ -z "$(git -C "$S/cwd" status --porcelain)" ] || two_ok=0
 [ "$(turn_col 1 role)" = developer ] && [ "$(turn_col 1 space_id)" = 1 ] || two_ok=0
 [ "$(turn_col 2 role)" = developer ] && [ "$(turn_col 2 space_id)" = 3 ] || two_ok=0
-[[ "$(turn_col 1 checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/1$ ]] || two_ok=0
-[[ "$(turn_col 2 checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/2$ ]] || two_ok=0
+[[ "$(ckpt 1)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/1$ ]] || two_ok=0
+[[ "$(ckpt 2)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/2$ ]] || two_ok=0
 sess1=$(turn_col 1 session_id) sess2=$(turn_col 2 session_id)
 f1=$(session_file "$sess1") f2=$(session_file "$sess2")
-[ "$(grep -ho '"cwd":"[^"]*"' "$f1" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/1/1\"" ] || two_ok=0
-[ "$(grep -ho '"cwd":"[^"]*"' "$f2" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/1/2\"" ] || two_ok=0
+[ "$(grep -ho '"cwd":"[^"]*"' "$f1" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/item-1\"" ] || two_ok=0
+[ "$(grep -ho '"cwd":"[^"]*"' "$f2" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/item-2\"" ] || two_ok=0
 check tree-two-work-items "$two_ok" "worktree list: $(echo "$wt_list" | tr '\n' ' '); status clean; each session's cwd is its own tree"
 
 s1=$(turn_col 1 started_at) e1=$(turn_col 1 ended_at)
@@ -218,7 +219,7 @@ check write-claude-refused "$refused_ok" "dev=[$dev_line] tester=[$tester_line] 
 
 api_call GET "/turns/$t_turn"
 cr_ok=1
-echo "$BODY" | grep -q '"checkpoint":null' || cr_ok=0
+echo "$BODY" | grep -q '"checkpoints":\[\]' || cr_ok=0
 check checkpoint-reader "$cr_ok" "turn $t_turn: $BODY"
 
 echo before >"$T/pre.txt"
@@ -233,7 +234,7 @@ wait_done 1 5
 N=$("$H" sql "select max(id) from turn where space_id = 1" | tail -1)
 api_call GET "/turns/$N"
 cp_ok=1
-echo "$BODY" | grep -Eq "\"checkpoint\":\"refs/reef/checkpoints/[0-9a-f]{12}/$N\"" || cp_ok=0
+echo "$BODY" | grep -Eq "\"ref\":\"refs/reef/checkpoints/[0-9a-f]{12}/$N\"" || cp_ok=0
 {
 	git -C "$T" rev-parse HEAD
 	git -C "$T" status --porcelain
@@ -243,8 +244,8 @@ diff "$E/a-before.txt" "$E/a-after.txt" >/dev/null || cp_ok=0
 check checkpoint-untouched "$cp_ok" "turn $N checkpoint set; HEAD/status/index unchanged across the no-tool turn"
 
 untracked_ok=1
-[ "$(git -C "$T" show "$(turn_col "$N" checkpoint):pre.txt")" = before ] || untracked_ok=0
-[ "$(git -C "$T" show "$(turn_col "$N" checkpoint)^2:st.txt")" = staged ] || untracked_ok=0
+[ "$(git -C "$T" show "$(ckpt "$N"):pre.txt")" = before ] || untracked_ok=0
+[ "$(git -C "$T" show "$(ckpt "$N")^2:st.txt")" = staged ] || untracked_ok=0
 check checkpoint-untracked "$untracked_ok" "checkpoint $N holds pre.txt (untracked) and ^2 holds st.txt (staged)"
 
 api_call POST /spaces/1/send '{"text":"@developer Use the Write tool to create the file d.txt containing the word yes."}'
@@ -329,11 +330,11 @@ quick_ok=1
 check tree-quick "$quick_ok" "quick session's tester session ran with cwd $S/full/chats/4 only, never the project folder"
 
 iso_ok=1
-[ -e "$S/full/worktrees/1/1/d.txt" ] || iso_ok=0
-[ ! -e "$S/full/worktrees/1/2/d.txt" ] || iso_ok=0
+[ -e "$S/full/worktrees/item-1/1-full/d.txt" ] || iso_ok=0
+[ ! -e "$S/full/worktrees/item-2/1-full/d.txt" ] || iso_ok=0
 [ ! -e "$S/cwd/d.txt" ] || iso_ok=0
 [ -z "$(git -C "$S/cwd" status --porcelain)" ] || iso_ok=0
-check tree-isolated "$iso_ok" "d.txt is only in worktrees/1/1; main checkout clean"
+check tree-isolated "$iso_ok" "d.txt is only in worktrees/item-1; main checkout clean"
 
 api_call POST /spaces/5/send '{"text":"Reply with one word."}'
 notgit_send_status=$STATUS
@@ -360,7 +361,7 @@ api_call POST /spaces/6/attach '{"workItemId":4}'
 attach_status=$STATUS
 api_call GET '/messages?space=6'
 attach_msg_ok=1
-attach_note='This Space is now attached to work item \"C\" (4). It works in '"$S"'/full/worktrees/1/4 on work-item/4. Uncommitted changes stay on the main checkout.'
+attach_note='This Space is now attached to work item \"C\" (4). It works in '"$S"'/full/worktrees/item-4 on work-item/4. Uncommitted changes stay on the main checkout.'
 echo "$BODY" | grep -qF "\"author\":\"reef\",\"body\":\"$attach_note\"" || attach_msg_ok=0
 api_call POST /spaces/6/send '{"text":"Reply with one word."}'
 wait_done 6 2
@@ -375,9 +376,9 @@ attach_ok=1
 sess6_id=$(echo "$sess6" | head -1)
 sess6_file=$(session_file "$sess6_id")
 grep -q "\"cwd\":\"$S/full/chats/6\"" "$sess6_file" 2>/dev/null || attach_ok=0
-grep -q "\"cwd\":\"$S/full/worktrees/1/4\"" "$sess6_file" 2>/dev/null || attach_ok=0
+grep -q "\"cwd\":\"$S/full/worktrees/item-4\"" "$sess6_file" 2>/dev/null || attach_ok=0
 wt_list3=$(git -C "$S/cwd" worktree list)
-echo "$wt_list3" | grep -q "^$S/full/worktrees/1/4 .*\[work-item/4\]" || attach_ok=0
+echo "$wt_list3" | grep -q "^$S/full/worktrees/item-4/1-full .*\[work-item/4\]" || attach_ok=0
 [ "$(git -C "$S/cwd" status --porcelain)" = "?? dirty.txt" ] || attach_ok=0
 check tree-attach-dirty "$attach_ok" "attach 200 with the move note, 2 lead turns share session $sess6_id (resumed in the worktree), main checkout only ?? dirty.txt"
 
@@ -662,15 +663,15 @@ done
 
 dev_turn_g=$("$H" sql "select id from turn where space_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$dev_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
-[[ "$(turn_col "$dev_turn_g" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$dev_turn_g$ ]] || { google_ok=0; google_bad+=" $LINENO"; }
+[[ "$(ckpt "$dev_turn_g")" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$dev_turn_g$ ]] || { google_ok=0; google_bad+=" $LINENO"; }
 [ "$(git -C "$S/google-app" log --oneline main..work-item/1 | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
-git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/1/1 .*\[work-item/1\]" || { google_ok=0; google_bad+=" $LINENO"; }
+git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/item-1/1-shop .*\[work-item/1\]" || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(git -C "$S/google-app" status --porcelain)" ] || { google_ok=0; google_bad+=" $LINENO"; }
 [ "$(git -C "$S/google-app" log --oneline main | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 
 tester_turn_g=$("$H" sql "select id from turn where space_id = 1 and role = 'tester' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$tester_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
-[[ "$(turn_col "$tester_turn_g" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$tester_turn_g$ ]] || { google_ok=0; google_bad+=" $LINENO"; }
+[[ "$(ckpt "$tester_turn_g")" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$tester_turn_g$ ]] || { google_ok=0; google_bad+=" $LINENO"; }
 lead_turn_g=$("$H" sql "select id from turn where space_id = 1 and role = 'lead' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$lead_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(echo "$("$H" sql "select paused from space")" | tail -n +2 | tr -d '[:space:]')" ] || { google_ok=0; google_bad+=" $LINENO"; }
@@ -724,7 +725,7 @@ api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa1","team":"pair"}
 api_call POST /spaces '{"projectId":1,"name":"fa2","team":"pair"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"fb1","team":"full"}'
 api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"fc1","team":"full"}'
-WA="$S/fu/worktrees/1/1"
+WA="$S/fu/worktrees/item-1/1-main"
 P='Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.'
 
 api_call POST /spaces/1/send '{"text":"@developer Use the Write tool to create the file f.txt containing the word one."}'
@@ -808,25 +809,25 @@ q_chan=$("$H" sql "select id from Space where name = 'q'" | tail -1)
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
 wait_done "$q_chan" 1
 Q=$("$H" sql "select id from turn where space_id = $q_chan order by id desc limit 1" | tail -1)
-[ -z "$(turn_col "$Q" checkpoint)" ] || echo "note: quick session turn $Q has a checkpoint" >&2
+[ -z "$(ckpt "$Q")" ] || echo "note: quick session turn $Q has a checkpoint" >&2
 api_call POST /work-items '{"projectId":1,"title":"FQ"}'
 api_call POST "/spaces/$q_chan/attach" '{"workItemId":4}'
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
 wait_done "$q_chan" 2
 {
-	git -C "$S/fu/worktrees/1/4" rev-parse HEAD
-	git -C "$S/fu/worktrees/1/4" status --porcelain
-	ls -a "$S/fu/worktrees/1/4"
+	git -C "$S/fu/worktrees/item-4/1-main" rev-parse HEAD
+	git -C "$S/fu/worktrees/item-4/1-main" status --porcelain
+	ls -a "$S/fu/worktrees/item-4/1-main"
 } >"$E/fq-before.txt"
 api_call POST "/turns/$Q/rollback"
 moved_ok=1
 [ "$STATUS" = 400 ] || moved_ok=0
 echo "$BODY" | grep -qF "turn $Q has no checkpoint" || moved_ok=0
-[ -z "$(turn_col "$Q" checkpoint)" ] || moved_ok=0
+[ -z "$(ckpt "$Q")" ] || moved_ok=0
 {
-	git -C "$S/fu/worktrees/1/4" rev-parse HEAD
-	git -C "$S/fu/worktrees/1/4" status --porcelain
-	ls -a "$S/fu/worktrees/1/4"
+	git -C "$S/fu/worktrees/item-4/1-main" rev-parse HEAD
+	git -C "$S/fu/worktrees/item-4/1-main" status --porcelain
+	ls -a "$S/fu/worktrees/item-4/1-main"
 } >"$E/fq-after.txt"
 diff "$E/fq-before.txt" "$E/fq-after.txt" >/dev/null || moved_ok=0
 check rollback-moved "$moved_ok" "rollback of a free Space's turn $Q, which has no checkpoint, is 400 after the attach too; the fq tree is unchanged"
@@ -872,19 +873,19 @@ wait_done "$freshq_chan" 1
 api_call GET "/turns?space=$freshq_chan"
 unborn_ok=1
 echo "$BODY" | grep -q '"status":"done"' || unborn_ok=0
-echo "$BODY" | grep -q '"checkpoint":null' || unborn_ok=0
+echo "$BODY" | grep -q '"checkpoints":\[\]' || unborn_ok=0
 check checkpoint-unborn "$unborn_ok" "a quick session associated with a project whose git repo has no commit: its lead turn is done with no checkpoint"
 
-rm -rf "$S/fu/worktrees/1/2"
+rm -rf "$S/fu/worktrees/item-2/1-main"
 api_call POST /spaces/3/send '{"text":"@developer Reply with one word. Use no tools."}'
 wait_done 3 1
 recreate_ok=1
 newest3=$("$H" sql "select id from turn where space_id = 3 order by id desc limit 1" | tail -1)
 [ "$(turn_col "$newest3" role)" = developer ] || recreate_ok=0
 [ "$(turn_col "$newest3" status)" = done ] || recreate_ok=0
-[ "$(turn_col "$newest3" "checkpoint is not null")" = 1 ] || recreate_ok=0
-ls "$S/fu/worktrees/1/2" 2>/dev/null | grep -qx a.txt || recreate_ok=0
-git -C "$S/cwd" worktree list | grep -q "^$S/fu/worktrees/1/2 .*\[work-item/2\]" || recreate_ok=0
+[ -n "$(ckpt "$newest3")" ] || recreate_ok=0
+ls "$S/fu/worktrees/item-2/1-main" 2>/dev/null | grep -qx a.txt || recreate_ok=0
+git -C "$S/cwd" worktree list | grep -q "^$S/fu/worktrees/item-2/1-main .*\[work-item/2\]" || recreate_ok=0
 check tree-recreate "$recreate_ok" "worktree fb was deleted by hand; the next wake remade it with no error"
 
 mkdir -p "$S/p157"
@@ -923,7 +924,7 @@ api_call POST /work-items '{"projectId":'"$p157c_id"',"title":"PC"}'
 pc_id=$("$H" sql "select id from work_item where title = 'PC'" | tail -1)
 api_call POST "/spaces/$cleanq_chan/attach" '{"workItemId":'"$pc_id"'}'
 api_call GET "/messages?space=$cleanq_chan"
-clean_note='This Space is now attached to work item \"PC\" ('"$pc_id"'). It works in '"$S"'/fu/worktrees/'"$p157c_id/$pc_id"' on work-item/'"$pc_id"'.'
+clean_note='This Space is now attached to work item \"PC\" ('"$pc_id"'). It works in '"$S"'/fu/worktrees/item-'"$pc_id"' on work-item/'"$pc_id"'.'
 echo "$BODY" | grep -qF "\"author\":\"reef\",\"body\":\"$clean_note\"" || clean_ok=0
 check attach-clean "$clean_ok" "attach on a clean main checkout: the reef note names only the worktree path and branch"
 

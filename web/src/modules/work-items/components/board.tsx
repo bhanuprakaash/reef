@@ -55,6 +55,7 @@ export function Board({ items, bots }: Props) {
               {item.type}
               {item.status === 'backlog' && item.proposedBy && ` · proposed by ${item.proposedBy}`}
               {owner && ` · owner ${owner}`}
+              {item.status === 'queued' && item.sentBack && ' · sent back'}
             </span>
           </span>
         </Link>

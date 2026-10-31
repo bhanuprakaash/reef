@@ -15,7 +15,8 @@ const (
 	_defaultType   = "feature"
 	_defaultStatus = "backlog"
 	_workItemCols  = "id, project_id, parent_id, type, title, description, status, " +
-		"proposed_by, queue_position, token_budget, created_at, closed_at, approved_at, approval_key"
+		"proposed_by, queue_position, token_budget, created_at, closed_at, approved_at, approval_key, " +
+		"EXISTS (SELECT 1 FROM proof WHERE proof.work_item_id = work_item.id AND send_back_note != '')"
 )
 
 func validType(t string) bool {
@@ -60,6 +61,7 @@ type WorkItem struct {
 	ClosedAt        *time.Time       `json:"closedAt"`
 	ApprovedAt      *time.Time       `json:"approvedAt"`
 	ApprovalKey     *string          `json:"approvalKey"`
+	SentBack        bool             `json:"sentBack"`
 	AcceptanceLines []AcceptanceLine `json:"acceptanceLines"`
 	// OwnerBotID, ParticipantBotIDs (the owner among them) and Targets belong to the top-level
 	// item: a sub-item reads its parent's and cannot set its own.
@@ -450,7 +452,7 @@ func scanWorkItem(r interface{ Scan(...any) error }) (WorkItem, error) {
 	var closed, approved sql.NullString
 	if err := r.Scan(
 		&w.ID, &w.ProjectID, &w.ParentID, &w.Type, &w.Title, &w.Description, &w.Status,
-		&w.ProposedBy, &w.QueuePosition, &w.TokenBudget, &created, &closed, &approved, &w.ApprovalKey,
+		&w.ProposedBy, &w.QueuePosition, &w.TokenBudget, &created, &closed, &approved, &w.ApprovalKey, &w.SentBack,
 	); err != nil {
 		return WorkItem{}, err
 	}
