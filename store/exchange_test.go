@@ -6,6 +6,75 @@ import (
 	"testing"
 )
 
+func TestConsultationGuidanceIsUnseenByTheAskerOnce(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	origin, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "consultation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bots := identityTestBots(t, s)
+	if _, _, err := s.CreateExchange(ctx, DirectMessage{
+		SpaceID: dest.ID, OriginSpaceID: &origin.ID, From: "lead", To: "architect",
+		FromBotID: bots["lead"], ToBotID: bots["architect"], Body: "plan?",
+	}, "Asked architect"); err != nil {
+		t.Fatal(err)
+	}
+	g, _, err := s.CreateExchange(ctx, DirectMessage{
+		SpaceID: dest.ID, OriginSpaceID: &dest.ID, From: "user", To: "architect",
+		ToBotID: bots["architect"], Body: "use sessions", Kind: ExchangeGuidance,
+	}, "To architect: use sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unseen := func() []Exchange {
+		t.Helper()
+		got, err := s.UnseenConsultationGuidance(ctx, origin.ID, *bots["lead"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := unseen(); len(got) != 0 {
+		t.Fatalf("before the guided turn = %+v, want none", got)
+	}
+
+	if _, err := s.CreateTurn(ctx, Turn{
+		SpaceID: dest.ID, Role: "architect", BotID: bots["architect"], Backend: "claude", DirectMessageID: &g.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := unseen(); len(got) != 0 {
+		t.Fatalf("before the reply = %+v, want none", got)
+	}
+	if _, err := s.CreateDirectResponse(ctx, g.ID, bots["architect"], "architect", "sessions it is"); err != nil {
+		t.Fatal(err)
+	}
+	if got := unseen(); len(got) != 1 || got[0].Request.Body != "use sessions" || got[0].Response.Body != "sessions it is" {
+		t.Fatalf("after the reply = %+v, want the guidance with the reply", got)
+	}
+
+	if _, err := s.CreateTurn(ctx, Turn{
+		SpaceID: origin.ID, Role: "lead", BotID: bots["lead"], Backend: "claude",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := unseen(); len(got) != 0 {
+		t.Fatalf("after the asker's next turn = %+v, want none", got)
+	}
+}
+
 func TestExchangeStartsOnceAndCrashAfterReplyKeepsIt(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

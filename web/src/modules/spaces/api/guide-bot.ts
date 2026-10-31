@@ -5,10 +5,10 @@ import type { Exchange } from '@/types/api';
 export function useGuideBot(spaceId: number, botId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (body: string) =>
+    mutationFn: ({ body, key }: { body: string; key: string }) =>
       api<Exchange>(`/spaces/${spaceId}/bots/${botId}/guidance`, {
         method: 'POST',
-        body: JSON.stringify({ body, key: crypto.randomUUID() }),
+        body: JSON.stringify({ body, key }),
       }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ['spaces', spaceId, 'bots', botId, 'activity'] }),

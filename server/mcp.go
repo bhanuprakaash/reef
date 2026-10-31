@@ -267,8 +267,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "Read a Space the user referenced with #[name](space:id), including a closed " +
 			"one, without waking it: it starts no turn, session or workspace there and adds nobody. " +
 			"Returns messages and, with query, memory items, each with its id: cite the message or " +
-			"memory id your answer rests on. snapshot is the Space as of snapshot.asOf; say it is a " +
-			"snapshot when you report what is happening there. A deleted Space comes back unavailable: " +
+			"memory id your answer rests on. At most the newest 50 messages come back; more is true " +
+			"when older ones were left out, so narrow with query. snapshot is the Space as of snapshot.asOf; " +
+			"say it is a snapshot when you report what is happening there. A deleted Space comes back unavailable: " +
 			"say so, do not guess what it held.",
 	}, m.readSpace)
 	mcp.AddTool(srv, &mcp.Tool{

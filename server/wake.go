@@ -79,7 +79,10 @@ func directWake(m *store.DirectMessage) wake {
 	}
 	text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
 		m.SpaceID, m.ID, m.ChainID, source, m.From, m.Body)
-	if m.IsUserGuidance() {
+	if m.IsUserGuidance() && m.FromBotID != nil {
+		text = fmt.Sprintf("User instruction relayed by %s from Space %d (sent at %s, message %d): %s",
+			m.From, *m.OriginSpaceID, m.CreatedAt.Format(time.RFC3339), *m.OriginMessageID, m.Body)
+	} else if m.IsUserGuidance() {
 		text = fmt.Sprintf("Guidance from the user (sent at %s, message %d): %s",
 			m.CreatedAt.Format(time.RFC3339), *m.OriginMessageID, m.Body)
 	}
@@ -89,7 +92,8 @@ func directWake(m *store.DirectMessage) wake {
 	}
 }
 
-// guidanceFirst moves the wakes of user guidance ahead of the others, each group keeping its order.
+// guidanceFirst moves the wakes the user's words are in ahead of the wakes a Bot started, each
+// group keeping its order, so guidance never jumps a message the user sent before it.
 func guidanceFirst(ws []wake) []wake {
 	slices.SortStableFunc(ws, func(a, b wake) int {
 		return cmp.Compare(guidanceRank(a), guidanceRank(b))
@@ -98,7 +102,7 @@ func guidanceFirst(ws []wake) []wake {
 }
 
 func guidanceRank(w wake) int {
-	if w.direct != nil && w.direct.IsUserGuidance() {
+	if w.fromBotID == nil || (w.direct != nil && w.direct.IsUserGuidance()) {
 		return 0
 	}
 	return 1

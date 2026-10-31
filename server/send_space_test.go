@@ -127,10 +127,12 @@ func TestSendToSpaceInstructionWaitsForPausedSpaceAndFailsVisibly(t *testing.T) 
 	if n := e.turnCount(t, _work); n != 1 {
 		t.Errorf("turns after continue = %d, want 1", n)
 	}
-	wantRan := "[Space 4, direct message 1, chain 1, source: direct request]\nada wrote privately: " +
-		"Instruction from the user, passed on by ada from Space 2: use sessions"
-	if ran := e.ranTexts(); !slices.Contains(ran, wantRan) {
-		t.Errorf("ran = %q, want %q", ran, wantRan)
+	wantRan := ": use sessions"
+	if ran := e.ranTexts(); !slices.ContainsFunc(ran, func(s string) bool {
+		return strings.HasPrefix(s, "User instruction relayed by ada from Space 2 (sent at ") &&
+			strings.HasSuffix(s, wantRan)
+	}) {
+		t.Errorf("ran = %q, want the instruction relayed by ada from Space 2", ran)
 	}
 	if ran := e.ranTexts(); slices.ContainsFunc(ran, func(s string) bool { return strings.Contains(s, "replied") }) {
 		t.Errorf("ran = %q, an instruction must not wake its sender", ran)

@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -104,5 +107,57 @@ func TestMCPReadSpaceCreatesNoWorkspace(t *testing.T) {
 	entries, err := os.ReadDir(dataDir)
 	if err != nil || len(entries) != 0 {
 		t.Errorf("data dir = %v, %v, want empty (%s)", entries, err, filepath.Base(dataDir))
+	}
+}
+
+func TestMCPReadSpaceReturnsTheNewestFiftyAndSaysWhenThereAreMore(t *testing.T) {
+	st, _ := mcpFixture(t)
+	ctx := context.Background()
+	tok, err := testToken(t, st, ctx, 4, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callTool(t, st, tok)
+	ref, err := st.CreateMessage(ctx, store.Message{SpaceID: 4, Author: "user", Body: "see #[architect](space:3)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveMessageRefs(ctx, ref.ID, store.ParseSpaceRefs(ref.Body)); err != nil {
+		t.Fatal(err)
+	}
+	var ids []int64
+	for i := range 60 {
+		m, err := st.CreateMessage(ctx, store.Message{SpaceID: 3, Author: "user", Body: fmt.Sprintf("page-%02d", i)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, m.ID)
+	}
+	read := func(args map[string]any) (bodies []string, more bool) {
+		t.Helper()
+		got, isErr := call("read_space", args)
+		var out struct {
+			Messages []struct {
+				Body string `json:"body"`
+			} `json:"messages"`
+			More bool `json:"more"`
+		}
+		if isErr || json.Unmarshal([]byte(got), &out) != nil {
+			t.Fatalf("read_space = %q (error %v)", got, isErr)
+		}
+		for _, m := range out.Messages {
+			bodies = append(bodies, m.Body)
+		}
+		return bodies, out.More
+	}
+
+	bodies, more := read(map[string]any{"spaceId": 3})
+	if len(bodies) != 50 || !more || bodies[0] != "page-10" || bodies[49] != "page-59" {
+		t.Errorf("newest page = %d messages %q, more %v, want 50 from page-10 to page-59, more true",
+			len(bodies), bodies, more)
+	}
+	bodies, more = read(map[string]any{"spaceId": 3, "after": ids[54]})
+	if want := []string{"page-55", "page-56", "page-57", "page-58", "page-59"}; !slices.Equal(bodies, want) || more {
+		t.Errorf("after the 55th = %q, more %v, want %q, more false", bodies, more, want)
 	}
 }

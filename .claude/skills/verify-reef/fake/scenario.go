@@ -48,7 +48,7 @@ var _scenarios = []scenario{
 	{"send-question-answer", "kit", pat(`sam wrote privately: Which login method did we choose`)},
 	{"send-question-relay", "sam", pat(`^kit replied: Sessions, not JWT`)},
 	{"send-instruction-ask", "sam", pat(`TELL kit in #\[Login\]\(space:1\)`)},
-	{"send-instruction-noted", "kit", pat(`Instruction from the user, passed on by sam from Space \d+: Use sessions`)},
+	{"send-instruction-noted", "kit", pat(`User instruction relayed by sam from Space \d+ \(.*\): Use sessions`)},
 	{"consult-relay", "sam", pat(`^kit replied: `)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},
 	{"direct-fail", "architect", pat(`wrote privately: Please review the failing plan`)},

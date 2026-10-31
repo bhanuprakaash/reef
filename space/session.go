@@ -379,9 +379,22 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 	if err != nil {
 		return s.failTurn(ctx, m.run.role, m.run.backend, m.run.botID, in, err)
 	}
+	consulted, err := s.st.UnseenConsultationGuidance(context.WithoutCancel(ctx), s.ch.ID, *m.run.botID)
+	if err != nil {
+		return s.failTurn(ctx, m.run.role, m.run.backend, m.run.botID, in, err)
+	}
 	var notice strings.Builder
 	for _, g := range guidance {
+		if g.FromBotID != nil {
+			fmt.Fprintf(&notice, "User instruction relayed by %s from Space %d (to %s, message %d): %s\n\n",
+				g.From, *g.OriginSpaceID, g.To, *g.OriginMessageID, g.Body)
+			continue
+		}
 		fmt.Fprintf(&notice, "User guidance (to %s, message %d): %s\n\n", g.To, *g.OriginMessageID, g.Body)
+	}
+	for _, ex := range consulted {
+		fmt.Fprintf(&notice, "User guidance in Consultation %d (to %s): %s\n%s replied: %s\n\n",
+			ex.Request.SpaceID, ex.Request.To, ex.Request.Body, ex.Response.From, ex.Response.Body)
 	}
 	text = notice.String() + text
 	m.run.Scopes, m.run.WakeMessage = sent, in.messageID

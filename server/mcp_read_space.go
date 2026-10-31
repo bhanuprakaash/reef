@@ -14,7 +14,10 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const _snapshotMessages = 5
+const (
+	_snapshotMessages = 5
+	_readMessages     = 50
+)
 
 type (
 	readSpaceIn struct {
@@ -42,6 +45,7 @@ type (
 		Kind        string          `json:"kind,omitempty"`
 		Closed      bool            `json:"closed,omitempty"`
 		Messages    []store.Message `json:"messages"`
+		More        bool            `json:"more,omitempty"`
 		Memory      []hitOut        `json:"memory"`
 		Snapshot    *spaceSnapshot  `json:"snapshot,omitempty"`
 	}
@@ -94,6 +98,9 @@ func (m *mcpServer) readSpace(
 		if msg.ID > in.After && strings.Contains(strings.ToLower(msg.Body), needle) {
 			out.Messages = append(out.Messages, msg)
 		}
+	}
+	if len(out.Messages) > _readMessages {
+		out.Messages, out.More = out.Messages[len(out.Messages)-_readMessages:], true
 	}
 	if in.Query != "" {
 		scope := space.BotScopes(c, *m.tok.BotID)[0]

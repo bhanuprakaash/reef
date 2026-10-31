@@ -9,6 +9,9 @@ vi.mock('@/modules/spaces/api/get-bot-activity', () => ({ useBotActivity }));
 vi.mock('@/modules/spaces/api/guide-bot', () => ({
   useGuideBot: () => ({ isPending: false, isError: false }),
 }));
+vi.mock('@/modules/spaces/api/exchange-action', () => ({
+  useExchangeAction: () => ({ isPending: false }),
+}));
 vi.mock('@/modules/spaces/api/stop-space', () => ({ useStopSpace: () => ({ isPending: false }) }));
 
 const guidance = {
@@ -19,9 +22,9 @@ const guidance = {
   state: 'waiting',
 } as DirectMessage;
 
-function render(kind: string, paused: boolean, running = false) {
+function render(kind: string, paused: boolean, running = false, sent = guidance) {
   useBotActivity.mockReturnValue({
-    data: { label: 'Consultation from Prakash', space: { kind }, exchanges: [guidance] },
+    data: { label: 'Consultation from Prakash', space: { kind }, exchanges: [sent] },
   });
   return renderToStaticMarkup(
     <GuidanceInput spaceId={2} botId={3} botName="Alex" paused={paused} running={running} />,
@@ -41,5 +44,14 @@ describe('GuidanceInput', () => {
     expect(html).toContain('Message Consultation from Prakash');
     expect(html).toContain('Waiting for Space to resume');
     expect(html).toContain('Stop');
+  });
+
+  it('offers Cancel on waiting guidance and Retry on failed or stopped guidance', () => {
+    expect(render('work_item', false)).toContain('Cancel');
+    expect(render('work_item', false)).not.toContain('Retry');
+    const failed = render('work_item', false, false, { ...guidance, state: 'failed' });
+    expect(failed).toContain('Retry');
+    expect(failed).not.toContain('Cancel');
+    expect(render('work_item', false, false, { ...guidance, state: 'stopped' })).toContain('Retry');
   });
 });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useBotActivity } from '@/modules/spaces/api/get-bot-activity';
 import { useGuideBot } from '@/modules/spaces/api/guide-bot';
 import { useStopSpace } from '@/modules/spaces/api/stop-space';
-import { exchangeState } from '@/modules/spaces/components/exchange-link';
+import { ExchangeActions, exchangeState } from '@/modules/spaces/components/exchange-link';
 import { Button } from '@/components/button';
 import { TextArea } from '@/components/text-area';
 
@@ -16,6 +16,7 @@ type Props = {
 
 export function GuidanceInput({ spaceId, botId, botName, paused, running }: Props) {
   const [text, setText] = useState('');
+  const [key, setKey] = useState(() => crypto.randomUUID());
   const guide = useGuideBot(spaceId, botId);
   const stop = useStopSpace(spaceId);
   const activity = useBotActivity(spaceId, botId);
@@ -36,6 +37,7 @@ export function GuidanceInput({ spaceId, botId, botName, paused, running }: Prop
             <li key={d.id} className="flex gap-2 text-[13px] text-muted">
               <span className="min-w-0 flex-1 truncate">{d.body}</span>
               <span className="shrink-0">{exchangeState(d, paused)}</span>
+              <ExchangeActions request={d} />
             </li>
           ))}
         </ul>
@@ -46,7 +48,15 @@ export function GuidanceInput({ spaceId, botId, botName, paused, running }: Prop
           e.preventDefault();
           const body = text.trim();
           if (body === '' || guide.isPending) return;
-          guide.mutate(body, { onSuccess: () => setText('') });
+          guide.mutate(
+            { body, key },
+            {
+              onSuccess: () => {
+                setText('');
+                setKey(crypto.randomUUID());
+              },
+            },
+          );
         }}
       >
         <TextArea

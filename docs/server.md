@@ -1096,8 +1096,8 @@ and text, so a repeated call returns the same exchange.
 A question's reply is posted in the conversation as a message from the recipient linked to the
 exchange, and wakes the asker with `[Space N, question to Space N, exchange N]` and the reply, as
 a consultation reply does. An instruction is what the user told the Bot to pass on: it reaches the
-recipient as `Instruction from the user, passed on by <Bot> from Space N: <text>`, and its reply is
-posted as a receipt but wakes nobody. Both are decided by the exchange state, shown by the window
+recipient as `User instruction relayed by <Bot> from Space N (...): <text>` (see [Guiding a
+Bot](#guiding-a-bot)), and its reply is posted as a receipt but wakes nobody. Both are decided by the exchange state, shown by the window
 on the linked message with links to the Space and the Bot's activity:
 
 | Destination | Outcome |
@@ -1133,9 +1133,20 @@ exchange, whose own turn holds the detail, and nothing else is copied into the c
 other member of the Space also gets the guidance, once: the next turn it starts after the guidance
 turn started, whatever woke it, begins with `User guidance (to <Bot>, message <id>): <text>`.
 Wakes already queued behind the guidance therefore start after it and carry it. A turn already
-running when the guidance arrives is not changed and is never described as corrected. An
-instruction a Bot sends with `send_to_space` is also kind `guidance`, but a Bot wrote it: it
-queues as a Bot handoff and is not shared this way.
+running when the guidance arrives is not changed and is never described as corrected. Only Bot
+handoffs and Bot messages queue behind guidance; messages the user sent earlier keep their place
+ahead of it.
+
+An instruction a Bot sends with `send_to_space` relays the user's words, so it is treated the same
+way: it runs ahead of Bot handoffs, and the other members get it once, as `User instruction
+relayed by <Bot> from Space N (to <Bot>, message <id>): <text>`.
+
+Guidance given in a consultation also reaches the Bot that asked: its next turn in the asking
+conversation, after the consulted Bot answered the guided turn, begins with `User guidance in
+Consultation N (to <Bot>): <text>` and the consulted Bot's reply, once. It starts no turn by itself.
+
+The REST API has no authentication and listens on localhost only (as for every route), so a Bot
+with a shell can call this route too and forge guidance. That is accepted for a personal local app.
 
 ### Space references
 

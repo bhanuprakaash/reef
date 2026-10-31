@@ -104,6 +104,29 @@ func TestGuidanceRunsBeforeAnotherBotsQueuedHandoff(t *testing.T) {
 	}
 }
 
+func TestGuidanceDoesNotJumpAMessageTheUserSentBeforeIt(t *testing.T) {
+	env := exchangeEnv(t)
+	env.sendTo(t, 2, "go block")
+	<-env.fake.started
+	handoff := env.newExchange(t, "handoff")
+	if err := env.h.s.deliverExchange(context.Background(), 2, handoff.ID); err != nil {
+		t.Fatal(err)
+	}
+	env.sendTo(t, 2, "earlier message")
+	g := env.guide(t, "architect", "k1", "use sessions")
+
+	env.fake.release <- struct{}{}
+	env.waitState(t, g.Request.ID, store.DirectAnswered)
+	env.waitState(t, handoff.ID, store.DirectAnswered)
+	env.waitIdle(t, 2)
+
+	ran := env.ranTexts()
+	if len(ran) < 4 || !strings.HasSuffix(ran[0], "go block") || !strings.Contains(ran[1], "earlier message") ||
+		!strings.HasPrefix(ran[2], "Guidance from the user") || !strings.Contains(ran[3], "review the plan") {
+		t.Errorf("turns ran %q, want go block, earlier message, the guidance, then the handoff", ran)
+	}
+}
+
 func TestGuidanceWaitsWhileThePausedSpaceStaysPaused(t *testing.T) {
 	ctx := context.Background()
 	env := exchangeEnv(t)

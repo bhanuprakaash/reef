@@ -1,6 +1,8 @@
 import { Link } from 'react-router';
+import { useExchangeAction } from '@/modules/spaces/api/exchange-action';
 import { useExchange } from '@/modules/spaces/api/get-exchange';
 import { useSpace } from '@/modules/spaces/api/get-space';
+import { Button } from '@/components/button';
 import type { DirectMessage } from '@/types/api';
 
 type Props = { exchangeId: number; spaceId: number };
@@ -32,6 +34,31 @@ export function exchangeState(request: DirectMessage, paused: boolean) {
   return state[request.state ?? 'waiting'];
 }
 
+export function ExchangeActions({ request }: { request: DirectMessage }) {
+  const retry = useExchangeAction('retry', request.id, request.spaceId);
+  const cancel = useExchangeAction('cancel', request.id, request.spaceId);
+  if (request.state === 'failed' || request.state === 'stopped') {
+    return (
+      <Button
+        size="sm"
+        variant="secondary"
+        disabled={retry.isPending}
+        onClick={() => retry.mutate()}
+      >
+        Retry
+      </Button>
+    );
+  }
+  if (request.state === 'waiting') {
+    return (
+      <Button size="sm" variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+        Cancel
+      </Button>
+    );
+  }
+  return null;
+}
+
 function Receipt({ request }: { request: DirectMessage }) {
   const { data: space } = useSpace(request.spaceId);
   return (
@@ -43,7 +70,8 @@ function Receipt({ request }: { request: DirectMessage }) {
       ·{' '}
       <Link to={`/spaces/${request.spaceId}/bots/${request.toBotId}`} className="underline">
         Activity
-      </Link>
+      </Link>{' '}
+      <ExchangeActions request={request} />
     </span>
   );
 }

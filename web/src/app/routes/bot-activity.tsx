@@ -3,6 +3,7 @@ import { useBots } from '@/lib/api/get-bots';
 import { useBotActivity } from '@/modules/spaces/api/get-bot-activity';
 import { Author } from '@/modules/spaces/components/author';
 import { GuidanceInput } from '@/modules/spaces/components/guidance-input';
+import { useLiveTurn } from '@/modules/spaces/hooks/use-live-turn';
 import { Bubble } from '@/modules/spaces/components/bubble';
 import { rowTime } from '@/utils/row-time';
 import { summarizeInput } from '@/modules/spaces/utils/summarize-input';
@@ -17,6 +18,7 @@ export function BotActivityPage() {
   const botId = Number(useParams().botId);
   const activity = useBotActivity(spaceId, botId);
   const bots = useBots();
+  const turn = useLiveTurn(spaceId);
 
   if (activity.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (activity.isError) return <p className="text-sm text-danger">{activity.error.message}</p>;
@@ -87,6 +89,7 @@ export function BotActivityPage() {
           botId={botId}
           botName={look(botId)?.name ?? 'Bot'}
           paused={space.paused !== ''}
+          running={turn.status === 'running'}
         />
       )}
 

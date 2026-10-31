@@ -32,10 +32,10 @@ type Exchange struct {
 	Response *DirectMessage `json:"response"`
 }
 
-// IsUserGuidance reports whether m is guidance the user wrote, which runs ahead of the Bot
-// handoffs waiting in its Space.
+// IsUserGuidance reports whether m carries the user's own words, written by the user or passed
+// on by a Bot as the user's instruction, and so runs ahead of the Bot handoffs waiting in its Space.
 func (m DirectMessage) IsUserGuidance() bool {
-	return m.Kind == ExchangeGuidance && m.FromBotID == nil && m.OriginMessageID != nil
+	return m.Kind == ExchangeGuidance && m.OriginMessageID != nil
 }
 
 // CreateExchange stores request m in its destination Space m.SpaceID, with the conversation
@@ -179,7 +179,7 @@ func (s *Store) SpaceExchanges(ctx context.Context, spaceID int64) ([]DirectMess
 // has seen none of it.
 func (s *Store) UnseenGuidance(ctx context.Context, spaceID, botID int64) ([]DirectMessage, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
-		" FROM direct_message WHERE space_id = ? AND reply_to_id IS NULL AND kind = ? AND from_bot_id IS NULL"+
+		" FROM direct_message WHERE space_id = ? AND reply_to_id IS NULL AND kind = ?"+
 		" AND origin_message_id IS NOT NULL AND to_bot_id != ? AND id IN ("+
 		"SELECT direct_message_id FROM turn WHERE space_id = ? AND direct_message_id IS NOT NULL AND id > "+
 		"COALESCE((SELECT MAX(id) FROM turn WHERE space_id = ? AND bot_id = ?), 0)) ORDER BY id",
@@ -188,6 +188,40 @@ func (s *Store) UnseenGuidance(ctx context.Context, spaceID, botID int64) ([]Dir
 		return nil, fmt.Errorf("list unseen guidance: %w", err)
 	}
 	return scanAll(rows, scanDirect)
+}
+
+// UnseenConsultationGuidance lists the user guidance given in consultations that Bot botID asked
+// from Space originID, with the consulted Bot's reply to it, for guided turns that started after
+// the newest turn of botID in originID. Oldest first.
+func (s *Store) UnseenConsultationGuidance(
+	ctx context.Context, originID, botID int64,
+) ([]Exchange, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
+		` FROM direct_message WHERE reply_to_id IS NULL AND kind = ? AND from_bot_id IS NULL
+		AND origin_message_id IS NOT NULL AND space_id IN (SELECT space_id FROM direct_message
+		WHERE reply_to_id IS NULL AND kind != ? AND origin_space_id = ? AND space_id != ?
+		AND from_bot_id = ?) AND id IN (SELECT direct_message_id FROM turn
+		WHERE direct_message_id IS NOT NULL AND id > COALESCE((SELECT MAX(id) FROM turn
+		WHERE space_id = ? AND bot_id = ?), 0)) ORDER BY id`,
+		ExchangeGuidance, ExchangeGuidance, originID, originID, botID, originID, botID)
+	if err != nil {
+		return nil, fmt.Errorf("list unseen consultation guidance: %w", err)
+	}
+	reqs, err := scanAll(rows, scanDirect)
+	if err != nil {
+		return nil, err
+	}
+	var out []Exchange
+	for _, r := range reqs {
+		ex, err := s.Exchange(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		if ex.Response != nil && ex.Response.Status == DirectDone {
+			out = append(out, ex)
+		}
+	}
+	return out, nil
 }
 
 // WaitingExchanges lists the exchange requests of the Space that no turn has started for.

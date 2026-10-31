@@ -49,14 +49,14 @@ func (m *mcpServer) sendToSpace(
 	if err != nil {
 		return nil, sendToSpaceOut{}, err
 	}
-	kind, body := store.ExchangeQuestion, in.Body
+	kind := store.ExchangeQuestion
 	switch in.Kind {
 	case _sendQuestion:
 	case _sendInstruction:
 		kind = store.ExchangeGuidance
-		body = fmt.Sprintf("Instruction from the user, passed on by %s from Space %d: %s", name, m.tok.SpaceID, in.Body)
 	default:
-		return nil, sendToSpaceOut{}, fmt.Errorf("%w: kind is %q or %q", store.ErrInvalid, _sendQuestion, _sendInstruction)
+		return nil, sendToSpaceOut{}, fmt.Errorf(
+			"%w: kind is %q or %q", store.ErrInvalid, _sendQuestion, _sendInstruction)
 	}
 	referenced, err := m.st.SpaceReferenced(ctx, m.tok.SpaceID, in.SpaceID)
 	if err != nil {
@@ -81,7 +81,7 @@ func (m *mcpServer) sendToSpace(
 	key := fmt.Sprintf("send:%d:%x", turn, sum[:8])
 	dm, _, err := m.st.CreateExchange(ctx, store.DirectMessage{
 		SpaceID: dest.ID, OriginSpaceID: &m.tok.SpaceID, From: name, To: to.Name,
-		FromBotID: m.tok.BotID, ToBotID: &to.ID, Body: body, Kind: kind, RequestKey: &key,
+		FromBotID: m.tok.BotID, ToBotID: &to.ID, Body: in.Body, Kind: kind, RequestKey: &key,
 	}, fmt.Sprintf("Sent to %s in %s: %s", to.Name, dest.Name, in.Body))
 	if err != nil {
 		return nil, sendToSpaceOut{}, err
