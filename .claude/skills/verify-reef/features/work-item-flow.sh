@@ -85,7 +85,7 @@ tester=$(sql1 "select id from bot where name = 'tester'")
 api_call POST /projects '{"name":"shop","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"Checkout form","description":"a form that takes an email and a password","ownerBotId":'"$lead"',"participantBotIds":['"$dev,$tester"'],"acceptanceLines":[{"text":"the form has an email and a password field"}]}'
 api_call POST /work-items '{"projectId":1,"title":"Order history","ownerBotId":'"$lead"',"participantBotIds":['"$dev,$tester"']}'
-api_call PATCH /work-items/1 '{"status":"queued"}'
+api_call POST /work-items/1/approve '{"key":"k1"}'
 
 queue_ok=1
 [ "$STATUS" = 200 ] || queue_ok=0
@@ -135,7 +135,7 @@ check flow-submit-review "$submit_ok" "item 1 $(item 1), sub-items $(sql1 "selec
 
 ### The second item, queued while the first is in review, starts at once
 
-api_call PATCH /work-items/2 '{"status":"queued"}'
+api_call POST /work-items/2/approve '{"key":"k2"}'
 wait_item 2 "in_progress:-"
 wait_for "/spaces?workItem=2" '"workItemId":2'
 first2=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)

@@ -53,7 +53,8 @@ export function Board({ items, bots }: Props) {
             <span className="block text-[14.5px] break-words">{item.title}</span>
             <span className="block text-xs break-words text-muted">
               {item.type}
-              {owner && ` · ${owner}`}
+              {item.status === 'backlog' && item.proposedBy && ` · proposed by ${item.proposedBy}`}
+              {owner && ` · owner ${owner}`}
             </span>
           </span>
         </Link>

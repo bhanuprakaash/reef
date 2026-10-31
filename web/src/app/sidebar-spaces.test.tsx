@@ -48,6 +48,8 @@ const workItem: WorkItem = {
   tokenBudget: 0,
   createdAt: '',
   closedAt: null,
+  approvedAt: null,
+  approvalKey: null,
   acceptanceLines: [],
   ownerBotId: null,
   participantBotIds: [],

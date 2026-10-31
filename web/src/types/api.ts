@@ -66,6 +66,8 @@ export type WorkItem = {
   tokenBudget: number;
   createdAt: string;
   closedAt: string | null;
+  approvedAt: string | null;
+  approvalKey: string | null;
   acceptanceLines: AcceptanceLine[];
   ownerBotId: number | null;
   participantBotIds: number[];

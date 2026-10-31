@@ -29,6 +29,8 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
 	mux.HandleFunc("PUT /work-items/{id}/queue-position", s.moveInQueue)
 	mux.HandleFunc("/work-items/{id}/queue-position", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/approve", s.approveWorkItem)
+	mux.HandleFunc("/work-items/{id}/approve", methodNotAllowed)
 	mux.HandleFunc("PUT /work-items/{id}/participants", s.putParticipants)
 	mux.HandleFunc("/work-items/{id}/participants", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/targets", s.listTargets)
@@ -222,6 +224,33 @@ func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note
 		}
 	}
 	return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
+}
+
+// approveWorkItem is the user authorizing a backlog item with the owner and participants in the
+// body (the proposal's where left out) and queuing it. key names this approval: the same key again
+// answers 200 with the item as it is, another key for an approved item is 409.
+func (s *server) approveWorkItem(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		OwnerBotID        *int64  `json:"ownerBotId"`
+		ParticipantBotIDs []int64 `json:"participantBotIds"`
+		Key               string  `json:"key"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.ApproveWorkItem(r.Context(), id, in.OwnerBotID, in.ParticipantBotIDs, in.Key)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	s.openStarted(r.Context())
+	writeJSON(w, http.StatusOK, f)
 }
 
 // putParticipants sets the owner and participants of a backlog work item; any other item is 400.

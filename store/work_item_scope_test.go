@@ -96,7 +96,7 @@ func TestOwnerAndParticipantsChangeOnlyInBacklog(t *testing.T) {
 	if _, err := s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "renamed", OwnerBotID: &bot}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.MoveWorkItem(ctx, 1, _queued, ByUser); err != nil {
+	if _, err := s.ApproveWorkItem(ctx, 1, nil, nil, "k"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SetWorkItemParticipants(ctx, 1, nil, nil); !errors.Is(err, ErrInvalid) {

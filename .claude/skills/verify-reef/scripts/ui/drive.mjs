@@ -1502,7 +1502,7 @@ async function inboxGroups() {
   };
   const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', ownerBotId: 1, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
   const idle = (sid) => sql(`select active_turn from space where id=${sid}`) === '';
-  await call('PATCH', `/work-items/${item.id}`, { status: 'queued' });
+  await call('POST', `/work-items/${item.id}/approve`, { key: 'review-me' });
   await eventually(async () => (await getJson(`/spaces?workItem=${item.id}`)).length > 0);
   const sid = (await getJson(`/spaces?workItem=${item.id}`))[0].id;
   await eventually(async () => idle(sid));
@@ -3902,7 +3902,7 @@ async function board() {
   await card('no owner item').dragTo(region('Queued'));
   const reason = main.getByRole('alert');
   await reason.waitFor();
-  check((await byTitle('no owner item')).status === 'backlog' && (await reason.innerText()) === 'Set an owner on this item before queuing it.', 'dragging an item with no owner into Queued is refused with the reason', `${(await byTitle('no owner item')).status}; ${await reason.innerText()}`);
+  check((await byTitle('no owner item')).status === 'backlog' && (await reason.innerText()) === 'Open the item and approve it to queue it.', 'dragging a Backlog item into Queued is refused with the reason', `${(await byTitle('no owner item')).status}; ${await reason.innerText()}`);
   await shot('refused-no-owner');
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -4084,7 +4084,7 @@ async function workItemReview() {
     await eventually(() => idle(sid));
   };
 
-  await call('PATCH', `/work-items/${id}`, { status: 'queued' });
+  await call('POST', `/work-items/${id}/approve`, { key: 'k' + id });
   await eventually(async () => (await spaceOf()) !== undefined && (await idle((await spaceOf()).id)));
   const sid = (await spaceOf()).id;
   await submit(sid);

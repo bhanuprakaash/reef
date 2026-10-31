@@ -31,6 +31,11 @@ func (s *server) joinSpace(ctx context.Context, id, botID int64) (store.Role, er
 	if err != nil {
 		return store.Role{}, err
 	}
+	if c, err := s.st.Space(ctx, id); err == nil && c.WorkItemID != nil {
+		if err := s.st.AddWorkItemParticipant(ctx, *c.WorkItemID, botID); err != nil {
+			return store.Role{}, err
+		}
+	}
 	s.noteJoined(ctx, id, role.Name)
 	return role, nil
 }

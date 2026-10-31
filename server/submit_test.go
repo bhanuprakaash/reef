@@ -34,8 +34,8 @@ func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 		}
 	}
 
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	do(t, http.MethodPost, env.url+"/work-items/2/approve", `{"key":"k2"}`)
 	close(queued)
 
 	deadline := time.Now().Add(5 * time.Second)

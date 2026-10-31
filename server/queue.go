@@ -72,7 +72,7 @@ func (s *server) openStarted(ctx context.Context) {
 		return
 	}
 	for _, w := range items {
-		if w.ParentID != nil || w.OwnerBotID == nil || w.ClosedAt != nil {
+		if w.ParentID != nil || w.OwnerBotID == nil || w.ApprovedAt == nil || w.ClosedAt != nil {
 			continue
 		}
 		sp, err := s.st.WorkItemActiveSpace(ctx, w.ID)

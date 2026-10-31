@@ -1022,7 +1022,7 @@ func TestMCPProposeWorkItem(t *testing.T) {
 	items, err := st.Inbox(ctx)
 	if err != nil || len(items) != 2 || items[1].Kind != "proposed" ||
 		items[1].Text != `lead proposed work item 3: Production deploy fails. `+
-			`It is in the Backlog until you queue it.` {
+			`It is in the Backlog until you approve it.` {
 		t.Errorf("inbox = %+v, %v, want the proposed FYI of item 3 second", items, err)
 	}
 	if msgs, err := st.Messages(ctx, chat.ID, 0); err != nil || len(msgs) != 0 {

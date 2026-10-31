@@ -9,11 +9,11 @@ import (
 
 const _queueOf = "parent_id IS NULL AND status = 'queued'"
 
-// StartQueues starts every queued item that has an owner, in queue order. A move into the
-// queue starts its item by itself; this catches up after a restart.
+// StartQueues starts every queued item that is approved and has an owner, in queue order. A move
+// into the queue starts its item by itself; this catches up after a restart.
 func (s *Store) StartQueues(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id FROM work_item WHERE "+_queueOf+" AND owner_bot_id IS NOT NULL "+
+		"SELECT id FROM work_item WHERE "+_queueOf+" AND owner_bot_id IS NOT NULL AND approved_at IS NOT NULL "+
 			"ORDER BY queue_position IS NULL, queue_position, id")
 	if err != nil {
 		return fmt.Errorf("list queue: %w", err)

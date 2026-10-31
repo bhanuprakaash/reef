@@ -15,6 +15,7 @@ import { useDiff } from '@/modules/work-items/api/get-diff';
 import { useWorkItem } from '@/modules/work-items/api/get-work-item';
 import { useMoveWorkItem } from '@/modules/work-items/api/move-work-item';
 import { AcceptanceLines } from '@/modules/work-items/components/acceptance-lines';
+import { ApproveCard } from '@/modules/work-items/components/approve-card';
 import { BriefPanel } from '@/modules/work-items/components/brief-panel';
 import { MemoryList } from '@/modules/work-items/components/memory-list';
 import { WorkItemForm } from '@/modules/work-items/components/work-item-form';
@@ -153,6 +154,7 @@ export function WorkItemPage() {
           {retire.isError && <p className="text-sm text-danger">{retire.error.message}</p>}
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
+          {f.parentId === null && f.status === 'backlog' && <ApproveCard item={f} />}
           {f.parentId === null && <TargetsCard item={f} projects={projects.data ?? []} />}
           <Card title="Spaces">
             {spaces.isError ? (

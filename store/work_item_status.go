@@ -36,7 +36,8 @@ func validMover(by string) bool {
 // MoveWorkItem sets the status of the item to to, if by may make that move, and returns the
 // item. A refused move is ErrInvalid and names the rule. The rules:
 //
-//   - backlog to queued and back: the user. A top-level item needs an owner to be queued.
+//   - backlog to queued: not a move, ApproveWorkItem authorizes and queues a top-level item. Queued
+//     back to backlog: the user, which withdraws the approval.
 //   - queued to in_progress: the queue.
 //   - in_progress to needs_you and back: the Space, when it pauses and continues.
 //   - in_progress to review: submit, and only when every sub-item is done or dropped.
@@ -92,6 +93,12 @@ func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (Work
 		if err := requeue(ctx, tx, w, to); err != nil {
 			return WorkItem{}, err
 		}
+		if to == _backlog {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE work_item SET approved_at = NULL, approval_key = NULL WHERE id = ?", id); err != nil {
+				return WorkItem{}, fmt.Errorf("withdraw approval: %w", err)
+			}
+		}
 	}
 	if to == _dropped && w.ParentID == nil {
 		if err := s.closeInTx(ctx, tx, id); err != nil {
@@ -126,6 +133,8 @@ func checkMove(from, to, by string, sub bool) error {
 	switch by {
 	case ByUser:
 		switch {
+		case from == _backlog && to == _queued && !sub:
+			return errors.New("approve it to queue it")
 		case to == _dropped,
 			from == _backlog && to == _queued,
 			from == _queued && to == _backlog,

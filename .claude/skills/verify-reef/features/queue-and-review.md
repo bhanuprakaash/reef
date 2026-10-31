@@ -11,10 +11,10 @@ restart starts what is queued. Contract: `docs/server.md` (Work items) and
 
 ## Sub-features
 
-- `queue-first-starts` `PATCH /work-items/1 {"status":"queued"}` on an item with an owner answers `in_progress`, opens one Space for the item led by its owner, and the lead's turn replays the `queue-lead` recording.
+- `queue-first-starts` `POST /work-items/1/approve {"key":"k1"}` on an item with an owner answers `in_progress`, opens one Space for the item led by its owner, and the lead's turn replays the `queue-lead` recording.
 - `queue-prompt` the first message of that Space starts `Work item 1: Login` and has the description and `Brief: sessions, not JWT`, and no acceptance line. The first prompt of the Space's first turn lists them: `Acceptance lines:`, then `1. [ ] wrong password is refused` and `2. [ ] session lasts a day`.
 - `queue-second-runs` a second item queued while the first runs is `in_progress` at once, has a Space whose first message starts `Work item 2: Logout`, and `GET /inbox` has a `started` item for it, `Started from the queue: Logout`, with no `reef` note in its Space.
-- `queue-needs-owner` `PATCH {"status":"queued"}` on an item with no owner is 400 `needs an owner before it is queued`; the item stays `backlog` with no Space.
+- `queue-needs-owner` approve on an item with no owner is 400 `needs an owner before it is approved`; the item stays `backlog` with no Space.
 - `queue-needs-you-alone` a cap pause moves the paused item to `needs_you`; the other running item stays `in_progress`, before and after Continue.
 - `queue-submit-review` the lead of a running item submits for review in a live turn (the scripted lead replays `submit-lead`, which calls `submit_for_review` through `reef mcp`): the item is `review`, and the other running item is still `in_progress`.
 - `queue-submit-proof` after that submit `GET /work-items/1/proof` shows both lines ticked, the note `a wrong password gets 401` and the command `go test ./...` with its output, and `GET /spaces/1/proposal` is a pending `wrap` proposal: the lead's wrap-up ran when its turn ended.
@@ -33,7 +33,7 @@ restart starts what is queued. Contract: `docs/server.md` (Work items) and
 
 ## How to get to it (user POV)
 
-- In the window or by `PATCH /work-items/{id}` with `{"status":"queued"}` on a top-level item that has an owner (`ownerBotId`). A restart of `reef serve` starts what is queued.
+- In the window (Approve) or by `POST /work-items/{id}/approve` with a `key` on a top-level backlog item that has an owner (`ownerBotId`). A restart of `reef serve` starts what is queued.
 
 ## Driving it with verify-reef
 

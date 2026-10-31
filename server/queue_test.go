@@ -26,12 +26,12 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 			`"acceptanceLines":[{"text":"wrong password is refused"},{"text":"session lasts a day"}]}`)
 	do(t, http.MethodPut, env.url+"/work-items/1/brief", `{"body":"sessions, not JWT","author":"user"}`)
 
-	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`); status != 400 ||
-		!strings.Contains(body, "needs an owner before it is queued") {
+	if status, body := do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`); status != 400 ||
+		!strings.Contains(body, "needs an owner before it is approved") {
 		t.Fatalf("queue without an owner = %d %s, want 400", status, body)
 	}
 	do(t, http.MethodPut, env.url+"/work-items/1/participants", `{"ownerBotId":1,"participantBotIds":[1]}`)
-	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`); status != 200 ||
+	if status, body := do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`); status != 200 ||
 		!strings.Contains(body, `"status":"in_progress"`) {
 		t.Fatalf("queue the item = %d %s, want 200 in_progress", status, body)
 	}
@@ -54,7 +54,7 @@ func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
 		t.Fatalf("create Space = %d %s, want 201", status, body)
 	}
 
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	env.waitIdle(t, 2)
 
 	want := "Work item 1: Login\nDescription: none\nBrief: none"
@@ -77,7 +77,7 @@ func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
 func TestQueuedItemStartsAfterRestart(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
-	env.exec(t, "UPDATE work_item SET status = 'queued', queue_position = 1 WHERE id = 1")
+	env.exec(t, "UPDATE work_item SET status = 'queued', queue_position = 1, approved_at = '2026-01-01T00:00:00Z' WHERE id = 1")
 	env.restart(t)
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -101,7 +101,7 @@ func TestStartedItemSpaceIsLedByTheOwnerWithTheParticipants(t *testing.T) {
 	do(t, http.MethodPost, env.url+"/bots", `{"name":"ann","backend":"claude"}`)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	do(t, http.MethodPut, env.url+"/work-items/1/participants", `{"ownerBotId":2,"participantBotIds":[1]}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	env.waitIdle(t, 2)
 
 	_, body := do(t, http.MethodGet, env.url+"/spaces/2", "")
@@ -119,7 +119,7 @@ func TestStartedItemSpaceIsLedByTheOwnerWithTheParticipants(t *testing.T) {
 func TestPutCannotChangeTheOwnerOfAStartedItem(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	env.waitIdle(t, 2)
 
 	status, body := do(t, http.MethodPut, env.url+"/work-items/1", `{"title":"Login","ownerBotId":null,"participantBotIds":[]}`)
@@ -135,7 +135,7 @@ func TestPutCannotChangeTheOwnerOfAStartedItem(t *testing.T) {
 func TestDropClosesTheSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	env.waitIdle(t, 2)
 
 	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"dropped"}`); status != 200 ||

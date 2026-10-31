@@ -185,7 +185,7 @@ func TestWorkItemBugWithLinesAndSubItems(t *testing.T) {
 		`{"id":1,"projectId":1,"parentId":null,"type":"bug","title":"Sign-in fails",`+
 			`"description":"500 on submit","status":"backlog","proposedBy":"",`+
 			`"queuePosition":null,"tokenBudget":1000000,"createdAt":"`) ||
-		!strings.Contains(body, `"closedAt":null,"acceptanceLines":[`+
+		!strings.Contains(body, `"closedAt":null,"approvedAt":null,"approvalKey":null,"acceptanceLines":[`+
 			`{"position":1,"text":"no 500","checked":false,"note":""},`+
 			`{"position":2,"text":"error shown","checked":false,"note":""},`+
 			`{"position":3,"text":"test added","checked":false,"note":""}],`+
@@ -239,8 +239,8 @@ func TestWorkItemRoundTrip(t *testing.T) {
 		!strings.Contains(body, `"acceptanceLines":[{"position":1,"text":"works","checked":true,"note":"ran it"}]`) {
 		t.Fatalf("update = %d %s, want the status in the body ignored", status, body)
 	}
-	status, body = do(t, http.MethodPatch, ts.URL+"/work-items/1", `{"status":"queued"}`)
-	if status != 400 || body != `{"error":"invalid: work item 1 needs an owner before it is queued"}` {
+	status, body = do(t, http.MethodPost, ts.URL+"/work-items/1/approve", `{"key":"k1"}`)
+	if status != 400 || body != `{"error":"invalid: work item 1 needs an owner before it is approved"}` {
 		t.Fatalf("patch to queued = %d %s, want 400 invalid", status, body)
 	}
 	status, body = do(t, http.MethodPatch, ts.URL+"/work-items/1", `{"status":"in_progress"}`)

@@ -10,7 +10,7 @@ func TestAddTargetIsNotedInTheItemsSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"api","path":"`+t.TempDir()+`"}`)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Rename the field","ownerBotId":1}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	env.waitIdle(t, 2)
 
 	status, body := do(t, http.MethodPost, env.url+"/work-items/1/targets", `{"projectId":2}`)

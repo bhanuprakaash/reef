@@ -43,14 +43,14 @@ api_call PUT /work-items/1/brief '{"body":"sessions, not JWT","author":"user"}'
 
 ### Queue the first item: it starts at once, with its Space and its first prompt
 
-api_call PATCH /work-items/1 '{"status":"queued"}'
+api_call POST /work-items/1/approve '{"key":"k1"}'
 first_ok=1
 [ "$STATUS" = 200 ] || first_ok=0
 echo "$BODY" | grep -q '"status":"in_progress"' || first_ok=0
 wait_done 1 1 || first_ok=0
 first_ok_log=$(grep -c 'scenario=queue-lead' "$E/fake-claude.log")
 [ "$first_ok_log" = 1 ] || first_ok=0
-check queue-first-starts "$first_ok" "PATCH queued: $STATUS $BODY; Spaces of item 1: $(spaces 1); queue-lead replays: $first_ok_log"
+check queue-first-starts "$first_ok" "approve: $STATUS $BODY; Spaces of item 1: $(spaces 1); queue-lead replays: $first_ok_log"
 
 prompt=$("$H" sql "select body from message where space_id = 1 and author = 'user'" | tail -n +2)
 prompt_ok=1
@@ -66,7 +66,7 @@ check queue-prompt "$prompt_ok" "first message of Space 1: $(echo "$prompt" | tr
 
 ### The second item starts at once, next to the first
 
-api_call PATCH /work-items/2 '{"status":"queued"}'
+api_call POST /work-items/2/approve '{"key":"k2"}'
 second_ok=1
 echo "$BODY" | grep -q '"status":"in_progress"' || second_ok=0
 wait_for "/spaces?workItem=2" '"workItemId":2' || second_ok=0
@@ -81,13 +81,13 @@ check queue-second-runs "$second_ok" "item 1 $(item 1), item 2 $(item 2), Spaces
 
 ### An item with no owner cannot be queued
 
-api_call PATCH /work-items/4 '{"status":"queued"}'
+api_call POST /work-items/4/approve '{"key":"k4"}'
 owner_ok=1
 [ "$STATUS" = 400 ] || owner_ok=0
-echo "$BODY" | grep -q 'needs an owner before it is queued' || owner_ok=0
+echo "$BODY" | grep -q 'needs an owner before it is approved' || owner_ok=0
 [ "$(item 4)" = "backlog:-" ] || owner_ok=0
 [ "$(spaces 4)" = 0 ] || owner_ok=0
-check queue-needs-owner "$owner_ok" "PATCH queued on item 4: $STATUS $BODY; item 4 $(item 4), Spaces of item 4: $(spaces 4)"
+check queue-needs-owner "$owner_ok" "approve of item 4: $STATUS $BODY; item 4 $(item 4), Spaces of item 4: $(spaces 4)"
 
 ### Needs you holds only its own item: a cap pause on item 1 leaves item 2 running
 
@@ -126,7 +126,7 @@ check queue-submit-proof "$proof_ok" "proof of item 1: $STATUS $proof_body; wrap
 ### Item 2 submits through reef mcp while the server is down, with item 3 queued; the restart starts item 3
 
 "$H" serve-stop
-"$H" sql --write "update work_item set status = 'queued', queue_position = 1 where id = 3" >/dev/null
+"$H" sql --write "update work_item set status = 'queued', queue_position = 1, approved_at = '2026-01-01T00:00:00Z' where id = 3" >/dev/null
 queued_before=$(item 3)
 "$H" sql --write "insert into token (token, space_id, role, created_at, bot_id) values ('lead-2', 2, 'lead', '2026-10-27T00:00:00Z', 1)" >/dev/null
 submit_out=$(REEF_TOKEN=lead-2 "$H" mcp-call submit_for_review '{"commands":[{"command":"true","output":""}]}')

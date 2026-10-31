@@ -63,14 +63,11 @@ func waiting(t *testing.T, s *Store, ids ...int64) {
 func TestOwnedItemStartsWhenQueued(t *testing.T) {
 	ctx := context.Background()
 	s, bot := queueFixture(t, 3)
-	if _, err := s.MoveWorkItem(ctx, 1, _queued, ByUser); !errors.Is(err, ErrInvalid) {
-		t.Fatalf("queue without an owner = %v, want ErrInvalid", err)
+	if _, err := s.ApproveWorkItem(ctx, 1, nil, nil, "k0"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("approve without an owner = %v, want ErrInvalid", err)
 	}
 	for _, id := range []int64{1, 2} {
-		if _, err := s.SetWorkItemParticipants(ctx, id, &bot, nil); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := s.MoveWorkItem(ctx, id, _queued, ByUser); err != nil {
+		if _, err := s.ApproveWorkItem(ctx, id, &bot, nil, fmt.Sprint("k", id)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -145,7 +142,10 @@ func TestStartQueuesAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	s, bot := queueFixture(t, 3)
 	waiting(t, s, 1, 2, 3)
-	if _, err := s.db.Exec("UPDATE work_item SET owner_bot_id = ? WHERE id IN (1, 3)", bot); err != nil {
+	if _, err := s.db.Exec("UPDATE work_item SET owner_bot_id = ? WHERE id IN (1, 2, 3)", bot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("UPDATE work_item SET approved_at = '2026-01-01T00:00:00Z' WHERE id IN (1, 3)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.StartQueues(ctx); err != nil {

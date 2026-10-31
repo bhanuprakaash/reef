@@ -24,16 +24,13 @@ export function dropAction(dragged: WorkItem, column: WorkItemStatus, onto?: Wor
     }
     return { kind: 'reorder', position: onto.queuePosition };
   }
-  const between = ['backlog', 'queued'];
-  if (between.includes(column) && between.includes(dragged.status)) {
-    if (column === 'queued' && dragged.parentId === null && dragged.ownerBotId === null) {
-      return { kind: 'refuse', reason: 'Set an owner on this item before queuing it.' };
-    }
-    return { kind: 'move', status: column };
+  if (column === 'queued' && dragged.status === 'backlog') {
+    return { kind: 'refuse', reason: 'Open the item and approve it to queue it.' };
   }
+  if (column === 'backlog' && dragged.status === 'queued') return { kind: 'move', status: column };
   return {
     kind: 'refuse',
     reason:
-      'Only Backlog and Queued take a drag. An item reaches the other columns through its own actions.',
+      'Only a Queued item takes a drag, back to Backlog. An item reaches the other columns through its own actions.',
   };
 }

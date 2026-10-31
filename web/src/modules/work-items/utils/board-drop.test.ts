@@ -15,6 +15,8 @@ const item = (over: Partial<WorkItem>): WorkItem => ({
   tokenBudget: 1000000,
   createdAt: '2026-10-27T10:00:00Z',
   closedAt: null,
+  approvedAt: null,
+  approvalKey: null,
   acceptanceLines: [],
   ownerBotId: 1,
   participantBotIds: [1],
@@ -23,21 +25,14 @@ const item = (over: Partial<WorkItem>): WorkItem => ({
 });
 
 describe('dropAction', () => {
-  it('moves between Backlog and Queued', () => {
-    expect(dropAction(item({ status: 'backlog' }), 'queued')).toEqual({
-      kind: 'move',
-      status: 'queued',
-    });
+  it('moves a queued item back to Backlog and refuses to queue a Backlog one', () => {
     expect(dropAction(item({ status: 'queued', queuePosition: 2 }), 'backlog')).toEqual({
       kind: 'move',
       status: 'backlog',
     });
-  });
-
-  it('refuses Queued for an item with no owner', () => {
-    expect(dropAction(item({ ownerBotId: null }), 'queued')).toEqual({
+    expect(dropAction(item({ status: 'backlog' }), 'queued')).toEqual({
       kind: 'refuse',
-      reason: 'Set an owner on this item before queuing it.',
+      reason: 'Open the item and approve it to queue it.',
     });
   });
 

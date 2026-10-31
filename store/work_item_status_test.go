@@ -11,7 +11,7 @@ import (
 func TestCheckMove(t *testing.T) {
 	allowed := map[string][]string{
 		"user top": {
-			"backlog>queued", "queued>backlog", "review>queued", "review>done",
+			"queued>backlog", "review>queued", "review>done",
 			"backlog>dropped", "queued>dropped", "in_progress>dropped", "needs_you>dropped",
 			"review>dropped", "done>dropped",
 		},

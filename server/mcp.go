@@ -137,10 +137,13 @@ type (
 		Type        string `json:"type,omitempty" jsonschema:"a label: feature, bug, incident, investigation, task or improvement; default task"`
 	}
 	proposeWorkItemIn struct {
-		Type        string   `json:"type" jsonschema:"a label: feature, bug, incident, investigation, task or improvement"`
-		Title       string   `json:"title" jsonschema:"what the work item is, in one line"`
-		Description string   `json:"description" jsonschema:"what to do and why"`
-		Acceptance  []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+		Type         string   `json:"type" jsonschema:"a label: feature, bug, incident, investigation, task or improvement"`
+		Title        string   `json:"title" jsonschema:"what the work item is, in one line"`
+		Description  string   `json:"description" jsonschema:"what to do and why"`
+		Acceptance   []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+		Owner        string   `json:"owner,omitempty" jsonschema:"name of the Bot you propose as owner, from find_bots; it need not be you"`
+		Participants []string `json:"participants,omitempty" jsonschema:"names of the other Bots you propose as participants, from find_bots"`
+		Targets      []int64  `json:"targets,omitempty" jsonschema:"ids of other Projects whose repository the work needs, from list_projects"`
 	}
 	proposeSpaceIn struct {
 		Name          string  `json:"name" jsonschema:"what the Space is for, in a few words"`
@@ -319,8 +322,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_work_item",
 		Description: "Propose a new work item for this project when you find work that is not " +
-			"yours to do now. It lands in the Backlog as proposed by you, with the team whose " +
-			"responsibility fits it best suggested. The user decides whether and when to queue it; " +
+			"yours to do now. It lands in the Backlog as proposed by you, with the owner and " +
+			"participants you name (find_bots finds them; the owner need not be you) and any other " +
+			"Projects whose repository it needs. The user may change all of it, then approves it; " +
 			"a proposal never starts work.",
 	}, m.proposeWorkItem)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -903,12 +907,40 @@ func (m *mcpServer) proposeWorkItem(
 	for _, text := range in.Acceptance {
 		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
 	}
+	for _, id := range in.Targets {
+		w.Targets = append(w.Targets, store.Target{ProjectID: id})
+	}
+	proposal := ""
+	if in.Owner != "" || len(in.Participants) > 0 {
+		bots, err := m.st.Bots(ctx)
+		if err != nil {
+			return nil, store.WorkItem{}, err
+		}
+		if in.Owner != "" {
+			b, err := findBot(bots, in.Owner)
+			if err != nil {
+				return nil, store.WorkItem{}, err
+			}
+			w.OwnerBotID = &b.ID
+			proposal = " (proposed owner " + b.Name + ")"
+		}
+		for _, ref := range in.Participants {
+			b, err := findBot(bots, ref)
+			if err != nil {
+				return nil, store.WorkItem{}, err
+			}
+			w.ParticipantBotIDs = append(w.ParticipantBotIDs, b.ID)
+		}
+		if len(w.ParticipantBotIDs) > 0 && w.OwnerBotID == nil {
+			return nil, store.WorkItem{}, errors.New("participants need an owner")
+		}
+	}
 	w, err = m.st.CreateWorkItem(ctx, w)
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
-	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
-		name, w.ID, w.Title)
+	text := fmt.Sprintf("%s proposed work item %d: %s%s. It is in the Backlog until you approve it.",
+		name, w.ID, w.Title, proposal)
 	if err := m.st.AddFYI(ctx, store.KindProposed, w.ID, text); err != nil {
 		return nil, store.WorkItem{}, err
 	}
@@ -1014,6 +1046,17 @@ func (m *mcpServer) findBots(
 		out.Bots = append(out.Bots, card(h.bot))
 	}
 	return nil, out, nil
+}
+
+// findBot is the Bot whose name is ref, ignoring case, or whose id is ref.
+func findBot(bots []store.Bot, ref string) (store.Bot, error) {
+	if i := slices.IndexFunc(bots, func(b store.Bot) bool { return strings.EqualFold(b.Name, ref) }); i >= 0 {
+		return bots[i], nil
+	}
+	if i := slices.IndexFunc(bots, func(b store.Bot) bool { return strconv.FormatInt(b.ID, 10) == ref }); i >= 0 {
+		return bots[i], nil
+	}
+	return store.Bot{}, fmt.Errorf("%w: no Bot %q; use a name or id from find_bots", store.ErrInvalid, ref)
 }
 
 func selected(all []store.Connection, ids []int64) []store.Connection {

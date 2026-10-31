@@ -15,7 +15,7 @@ const (
 	_defaultType   = "feature"
 	_defaultStatus = "backlog"
 	_workItemCols  = "id, project_id, parent_id, type, title, description, status, " +
-		"proposed_by, queue_position, token_budget, created_at, closed_at"
+		"proposed_by, queue_position, token_budget, created_at, closed_at, approved_at, approval_key"
 )
 
 func validType(t string) bool {
@@ -58,6 +58,8 @@ type WorkItem struct {
 	TokenBudget     int64            `json:"tokenBudget"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	ClosedAt        *time.Time       `json:"closedAt"`
+	ApprovedAt      *time.Time       `json:"approvedAt"`
+	ApprovalKey     *string          `json:"approvalKey"`
 	AcceptanceLines []AcceptanceLine `json:"acceptanceLines"`
 	// OwnerBotID, ParticipantBotIDs (the owner among them) and Targets belong to the top-level
 	// item: a sub-item reads its parent's and cannot set its own.
@@ -101,7 +103,7 @@ func (s *Store) CreateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 		return WorkItem{}, fmt.Errorf("begin create work item: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	owner, others := w.OwnerBotID, w.ParticipantBotIDs
+	owner, others, extra := w.OwnerBotID, w.ParticipantBotIDs, w.Targets
 	w, err = insertWorkItem(ctx, tx, w)
 	if err != nil {
 		return WorkItem{}, s.writeErr(ctx, "write work item", err, ErrInvalid,
@@ -116,6 +118,20 @@ func (s *Store) CreateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 				"VALUES (?, ?, ?, ?)", w.ID, w.ProjectID, ByUser,
 			w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
 			return WorkItem{}, fmt.Errorf("add home target: %w", err)
+		}
+		by := ByUser
+		if w.ProposedBy != "" {
+			by = "proposed by " + w.ProposedBy
+		}
+		for _, t := range extra {
+			if _, err := tx.ExecContext(ctx,
+				"INSERT OR IGNORE INTO work_item_target (work_item_id, project_id, authorized_by, created_at) "+
+					"VALUES (?, ?, ?, ?)", w.ID, t.ProjectID, by, w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+				if isForeignKey(err) {
+					return WorkItem{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
+				}
+				return WorkItem{}, fmt.Errorf("add proposed target: %w", err)
+			}
 		}
 	}
 	if err := putLines(ctx, tx, w.ID, w.AcceptanceLines); err != nil {
@@ -431,10 +447,10 @@ func (w *WorkItem) validate() error {
 func scanWorkItem(r interface{ Scan(...any) error }) (WorkItem, error) {
 	var w WorkItem
 	var created string
-	var closed sql.NullString
+	var closed, approved sql.NullString
 	if err := r.Scan(
 		&w.ID, &w.ProjectID, &w.ParentID, &w.Type, &w.Title, &w.Description, &w.Status,
-		&w.ProposedBy, &w.QueuePosition, &w.TokenBudget, &created, &closed,
+		&w.ProposedBy, &w.QueuePosition, &w.TokenBudget, &created, &closed, &approved, &w.ApprovalKey,
 	); err != nil {
 		return WorkItem{}, err
 	}
@@ -445,6 +461,13 @@ func scanWorkItem(r interface{ Scan(...any) error }) (WorkItem, error) {
 	w.CreatedAt = t
 	if w.ClosedAt, err = parseClosed(closed); err != nil {
 		return WorkItem{}, fmt.Errorf("work item %d: %w", w.ID, err)
+	}
+	if approved.Valid {
+		a, err := time.Parse(time.RFC3339Nano, approved.String)
+		if err != nil {
+			return WorkItem{}, fmt.Errorf("work item %d: bad approved_at: %w", w.ID, err)
+		}
+		w.ApprovedAt = &a
 	}
 	return w, nil
 }
