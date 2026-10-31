@@ -60,7 +60,7 @@ const space: SpacePreview = {
   lastMessage: null,
 };
 
-function render(item: WorkItem = workItem) {
+function render(item: WorkItem = workItem, inProject: Project | null = project) {
   useQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => ({
     data: queryKey[0] === 'spaces' ? [space] : [item],
   }));
@@ -69,7 +69,7 @@ function render(item: WorkItem = workItem) {
   useInbox.mockReturnValue({ data: [] });
   return renderToStaticMarkup(
     <MemoryRouter>
-      <SidebarSpaces project={project} query="" />
+      <SidebarSpaces project={inProject ?? undefined} query="" />
     </MemoryRouter>,
   );
 }
@@ -98,5 +98,23 @@ describe('SidebarSpaces', () => {
 
     expect(render()).toContain('#build');
     expect(render({ ...workItem, status: 'review' })).not.toContain('#build');
+  });
+
+  it('asks for the Spaces of the project, and for all of them under All projects', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+    useQuery.mockClear();
+
+    render(workItem, project);
+    render(workItem, null);
+
+    const keys = useQuery.mock.calls.map((call: { queryKey: string[] }[]) => call[0]?.queryKey);
+    expect(keys).toContainEqual(['spaces', 'project', 1]);
+    expect(keys).toContainEqual(['spaces']);
+  });
+
+  it('labels the section All projects when no project is picked', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+
+    expect(render(workItem, null)).toContain('aria-label="All projects"');
   });
 });

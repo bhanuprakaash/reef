@@ -89,7 +89,8 @@ export function Sidebar() {
   const waiting = inbox.data ?? [];
   const openItems =
     workItems.data?.filter(
-      (f) => f.projectId === current?.id && f.status !== 'done' && f.status !== 'dropped',
+      (f) =>
+        (!current || f.projectId === current.id) && f.status !== 'done' && f.status !== 'dropped',
     ).length ?? 0;
 
   return (
@@ -126,7 +127,7 @@ export function Sidebar() {
         />
       </label>
 
-      {projects.data && current && <ProjectSwitcher projects={projects.data} />}
+      {projects.data && <ProjectSwitcher projects={projects.data} />}
 
       <div className="-mx-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">
         <Row
@@ -161,7 +162,7 @@ export function Sidebar() {
         />
 
         {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-        {current && <SidebarSpaces project={current} query={query} />}
+        <SidebarSpaces project={current} query={query} />
       </div>
 
       <UpdateCard />

@@ -23,7 +23,7 @@ export function ProjectPage() {
   const id = Number(useParams().id);
   const projects = useProjects();
   const workItems = useWorkItems();
-  const spaces = useSpaces();
+  const spaces = useSpaces(id);
   const teams = useTeams();
   const [dialog, setDialog] = useState<'work-item' | 'space' | null>(null);
 
@@ -32,7 +32,7 @@ export function ProjectPage() {
   const project = projects.data.find((p) => p.id === id);
   if (!project) return <p className="text-sm text-danger">Project not found.</p>;
 
-  const projectSpaces = spaces.data?.filter((c) => c.projectId === id) ?? [];
+  const projectSpaces = spaces.data ?? [];
   const projectWorkItems = workItems.data?.filter((f) => f.projectId === id) ?? [];
   const freeSpaces = projectSpaces.filter((c) => c.workItemId === null);
 

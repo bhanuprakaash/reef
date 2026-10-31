@@ -3,7 +3,7 @@ import { useBots } from '@/lib/api/get-bots';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { GroupAvatar } from '@/components/creature';
 
-type Props = { projectId: number; onClose: () => void };
+type Props = { projectId?: number; onClose: () => void };
 
 export function NewConversationForm({ projectId, onClose }: Props) {
   const bots = useBots();

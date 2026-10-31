@@ -40,14 +40,12 @@ function Section({
   );
 }
 
-export function SidebarSpaces({ project, query }: { project: Project; query: string }) {
-  const spaces = useQuery({ ...spacesQuery, refetchInterval: 5000 });
+export function SidebarSpaces({ project, query }: { project?: Project; query: string }) {
+  const spaces = useQuery({ ...spacesQuery(project?.id), refetchInterval: 5000 });
   const items = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
 
   const q = query.trim().toLowerCase();
-  const mine = (spaces.data ?? []).filter(
-    (c) => c.projectId === project.id && c.name.toLowerCase().includes(q),
-  );
+  const mine = (spaces.data ?? []).filter((c) => c.name.toLowerCase().includes(q));
   const handedOver = (c: SpacePreview) => {
     const status = items.data?.find((f) => f.id === c.workItemId)?.status;
     return status === 'review' || status === 'done' || status === 'dropped';
@@ -58,7 +56,7 @@ export function SidebarSpaces({ project, query }: { project: Project; query: str
   const conversations = mine.filter((c) => c.kind === 'conversation').sort(byRecent);
 
   return (
-    <section aria-label={project.name} className="flex flex-col gap-0.5">
+    <section aria-label={project?.name ?? 'All projects'} className="flex flex-col gap-0.5">
       <Section to="/spaces" label="Spaces" empty="No Spaces open" spaces={live} />
       <Section
         to="/conversations"

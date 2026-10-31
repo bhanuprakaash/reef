@@ -1,6 +1,7 @@
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMemory } from '@/lib/api/get-memory';
 import { useBots } from '@/lib/api/get-bots';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -23,6 +24,7 @@ export function BotPage() {
   const memory = useMemory(`bot:${id}`);
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
+  const spaces = useSpaces(project?.id);
   const create = useStartConversation();
   const navigate = useNavigate();
 
@@ -35,11 +37,14 @@ export function BotPage() {
     team.roles.filter((r) => r.botId === id).map((role) => ({ team, role })),
   );
 
+  const ids = new Set(spaces.data?.map((s) => s.id));
+  const chats = spaces.data && conversations.data?.filter((c) => ids.has(c.id));
+  const latest = chats?.find((c) => c.movedTo === null && c.closedAt === null);
+
   function start() {
-    if (!project) return;
     if (!bot) return;
     create.mutate(
-      { projectId: project.id, bot },
+      { projectId: project?.id, bot },
       { onSuccess: (space) => void navigate(`/spaces/${space.id}`) },
     );
   }
@@ -60,8 +65,17 @@ export function BotPage() {
           <Link to={`/bots?bot=${id}`} className={buttonClass('secondary')}>
             Edit
           </Link>
-          <Button variant="primary" disabled={!project} loading={create.isPending} onClick={start}>
-            Start conversation
+          {latest && (
+            <Link to={`/spaces/${latest.id}`} className={buttonClass('primary')}>
+              Resume chat
+            </Link>
+          )}
+          <Button
+            variant={latest ? 'secondary' : 'primary'}
+            loading={create.isPending}
+            onClick={start}
+          >
+            New chat
           </Button>
         </div>
       </header>
@@ -102,13 +116,17 @@ export function BotPage() {
         {conversations.isError && (
           <p className="px-6 pb-4 text-sm text-danger">{conversations.error.message}</p>
         )}
-        {conversations.data?.length === 0 && (
+        {chats?.length === 0 && (
           <div className="px-6 pb-5">
-            <EmptyState title="No conversations yet" body="Start one to talk directly." compact />
+            <EmptyState
+              title="No conversations yet"
+              body="Start a new chat to talk directly."
+              compact
+            />
           </div>
         )}
         <ul>
-          {conversations.data?.map((c) => (
+          {chats?.map((c) => (
             <li key={c.id} className="border-t border-hairline">
               <Link to={`/spaces/${c.id}`} className="flex items-baseline gap-3 px-6 py-3.5">
                 <span className="min-w-0 flex-1">

@@ -68,7 +68,7 @@ export function CapturePage() {
           },
         };
         if (talk && bot) {
-          startConversation.mutate({ projectId: Number(project?.id), bot, text }, options);
+          startConversation.mutate({ projectId: project?.id, bot, text }, options);
         } else {
           createItem.mutate(
             { projectId: Number(project?.id), type, title: text, description },
@@ -141,7 +141,7 @@ export function CapturePage() {
           type="submit"
           variant="primary"
           className="h-[34px]! text-[13.5px]!"
-          disabled={!project || (talk && !bot)}
+          disabled={(!project && !talk) || (talk && !bot)}
           loading={create.isPending}
         >
           Capture
@@ -153,10 +153,10 @@ export function CapturePage() {
         <p className="text-[12.5px] text-muted">Captured</p>
       ) : (
         <p className="text-[12.5px] text-muted">
-          {!project
-            ? 'Pick a project to capture into.'
-            : talk
-              ? `Starts a conversation with ${bot?.name ?? 'a Bot'} in ${project.name}.`
+          {talk
+            ? `Starts a conversation with ${bot?.name ?? 'a Bot'}${project ? ` in ${project.name}` : ''}.`
+            : !project
+              ? 'Pick a project to capture into.'
               : `Lands in the ${project.name} Backlog as a ${type} titled "${text}".`}
         </p>
       )}

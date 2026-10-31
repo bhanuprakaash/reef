@@ -132,7 +132,7 @@ export function HomePage() {
 
   const waiting = inbox.data ?? [];
   const error = projects.error ?? workItems.error ?? inbox.error;
-  const projectWorkItems = workItems.data?.filter((f) => f.projectId === project?.id);
+  const projectWorkItems = workItems.data?.filter((f) => !project || f.projectId === project.id);
   const summary = [
     waiting.length > 0 &&
       (waiting.length === 1 ? 'One thing waits on you.' : `${waiting.length} things wait on you.`),

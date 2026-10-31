@@ -31,7 +31,6 @@ export function NewMenu({ project }: { project: Project | undefined }) {
         type="button"
         aria-label="New"
         aria-expanded={open}
-        disabled={!project}
         onClick={() => setOpen(!open)}
         className="flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
       >
@@ -53,6 +52,8 @@ export function NewMenu({ project }: { project: Project | undefined }) {
           {(Object.keys(TITLES) as Kind[]).map((kind) => (
             <MenuItem
               key={kind}
+              disabled={kind === 'work-item' && !project}
+              title={kind === 'work-item' && !project ? 'Pick a project first' : undefined}
               onClick={() => {
                 setCreating(kind);
                 setOpen(false);
@@ -63,23 +64,21 @@ export function NewMenu({ project }: { project: Project | undefined }) {
           ))}
         </Menu>
       )}
-      {project && (
-        <Dialog open={creating !== null} onClose={close} title={TITLES[creating ?? 'space']}>
-          {creating === 'work-item' && (
-            <AddWorkItemForm
-              projectId={project.id}
-              onClose={close}
-              onCreated={(item) => void navigate(`/work-items/${item.id}`)}
-            />
-          )}
-          {creating === 'space' && (
-            <NewSpaceForm projectId={project.id} workItemId={null} onClose={close} />
-          )}
-          {creating === 'conversation' && (
-            <NewConversationForm projectId={project.id} onClose={close} />
-          )}
-        </Dialog>
-      )}
+      <Dialog open={creating !== null} onClose={close} title={TITLES[creating ?? 'space']}>
+        {creating === 'work-item' && project && (
+          <AddWorkItemForm
+            projectId={project.id}
+            onClose={close}
+            onCreated={(item) => void navigate(`/work-items/${item.id}`)}
+          />
+        )}
+        {creating === 'space' && (
+          <NewSpaceForm projectId={project?.id} workItemId={null} onClose={close} />
+        )}
+        {creating === 'conversation' && (
+          <NewConversationForm projectId={project?.id} onClose={close} />
+        )}
+      </Dialog>
     </div>
   );
 }

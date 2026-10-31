@@ -10,7 +10,7 @@ import { TextField } from '@/components/text-field';
 const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
 
 type Props = {
-  projectId: number;
+  projectId?: number;
   workItemId: number | null;
   itemTeam?: string;
   onClose: () => void;

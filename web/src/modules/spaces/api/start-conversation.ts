@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { sendMessage } from '@/lib/api/send-message';
 import { createSpace } from '@/modules/spaces/api/create-space';
 
-type Input = { projectId: number; bot: { id: number; name: string }; text?: string };
+type Input = { projectId?: number; bot: { id: number; name: string }; text?: string };
 
 export function useStartConversation() {
   const queryClient = useQueryClient();

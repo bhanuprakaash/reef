@@ -221,7 +221,7 @@ function SkillsSection() {
         Read from disk for {project ? project.name : 'the current project'}. Roles pick from the
         list of their backend.
       </p>
-      {!project && <p className="text-sm text-muted">Add a project to see its skills.</p>}
+      {!project && <p className="text-sm text-muted">Pick a project to see its skills.</p>}
       {skills.isError && <p className="text-sm text-danger">{skills.error.message}</p>}
       {skills.data && (
         <>

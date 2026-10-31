@@ -37,7 +37,7 @@ export function useSendReview(workItemId: number) {
   return useMutation({
     mutationFn: async (comments: ReviewComment[]) => {
       const [spaces, teams] = await Promise.all([
-        queryClient.fetchQuery(spacesQuery),
+        queryClient.fetchQuery(spacesQuery()),
         queryClient.fetchQuery(teamsQuery),
       ]);
       const space = pickSpace(
