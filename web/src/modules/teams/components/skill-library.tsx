@@ -1,16 +1,21 @@
 import { useState } from 'react';
 import {
   useImportSkill,
+  useSkillDrafts,
   useSkillFiles,
   useSkillLibrary,
   useUpdateSkill,
 } from '@/modules/teams/api/skill-library';
+import { SkillDraftCard } from '@/modules/teams/components/skill-draft-card';
+import { SkillFileList } from '@/modules/teams/components/skill-file-list';
+import { EditSkillEditor, NewSkillEditor } from '@/modules/teams/components/skill-editor';
 import type { LibrarySkill } from '@/types/api';
 import { Button } from '@/components/button';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 
 function describeSource(s: LibrarySkill) {
+  if (s.sourceKind === 'reef') return 'Written in Reef';
   if (s.sourceKind === 'folder') return `Folder ${s.source}`;
   const where = [s.source, s.ref && `ref ${s.ref}`, s.dir && `in ${s.dir}`].filter(Boolean);
   return `Git ${where.join(' ')} at ${s.revision.slice(0, 12)}`;
@@ -19,25 +24,20 @@ function describeSource(s: LibrarySkill) {
 function SkillFiles({ skill }: { skill: LibrarySkill }) {
   const files = useSkillFiles(skill.id, skill.version, true);
   if (files.isError) return <p className="text-sm text-danger">{files.error.message}</p>;
-  return (
-    <ul className="mt-2 flex flex-col gap-1">
-      {files.data?.files.map((f) => (
-        <li key={f.path}>
-          <details>
-            <summary className="cursor-pointer font-mono text-xs text-soft">{f.path}</summary>
-            <pre className="mt-1 max-h-60 overflow-auto rounded-field bg-field p-2 text-xs whitespace-pre-wrap">
-              {f.body}
-            </pre>
-          </details>
-        </li>
-      ))}
-    </ul>
-  );
+  return <SkillFileList files={files.data?.files ?? []} />;
 }
 
 function SkillRow({ skill }: { skill: LibrarySkill }) {
   const update = useUpdateSkill();
   const [viewing, setViewing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <li className="py-3">
+        <EditSkillEditor skill={skill} onDone={() => setEditing(false)} />
+      </li>
+    );
+  }
   return (
     <li className="py-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -52,14 +52,20 @@ function SkillRow({ skill }: { skill: LibrarySkill }) {
         >
           Files
         </Button>
-        <Button
-          size="sm"
-          aria-label={`Update ${skill.name}`}
-          loading={update.isPending}
-          onClick={() => update.mutate(skill.id)}
-        >
-          Update
-        </Button>
+        {skill.sourceKind === 'reef' ? (
+          <Button size="sm" aria-label={`Edit ${skill.name}`} onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            aria-label={`Update ${skill.name}`}
+            loading={update.isPending}
+            onClick={() => update.mutate(skill.id)}
+          >
+            Update
+          </Button>
+        )}
       </div>
       {skill.description && <p className="mt-0.5 text-[12.5px] text-muted">{skill.description}</p>}
       <p className="mt-0.5 break-all text-xs text-muted">{describeSource(skill)}</p>
@@ -152,16 +158,36 @@ function ImportForm() {
 
 export function SkillLibrary() {
   const library = useSkillLibrary();
+  const drafts = useSkillDrafts();
+  const [creating, setCreating] = useState(false);
   return (
     <section aria-label="Skills library" className="flex flex-col gap-3">
       <div>
         <h2 className="text-[15px]">Skills library</h2>
         <p className="mt-1 text-[13px] text-muted">
-          Import a skill folder or a Git link. Importing never runs its scripts. An update is
-          explicit and saves a new version; the old ones stay.
+          Import a skill folder or a Git link, or write one here. Importing never runs its scripts.
+          An update or an edit is explicit and saves a new version; the old ones stay. Neither gives
+          the skill to a Bot.
         </p>
       </div>
       <ImportForm />
+      {creating ? (
+        <NewSkillEditor onDone={() => setCreating(false)} />
+      ) : (
+        <div>
+          <Button size="sm" onClick={() => setCreating(true)}>
+            New skill
+          </Button>
+        </div>
+      )}
+      {drafts.data && drafts.data.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <h3 className="text-[13px]">Drafts</h3>
+          {drafts.data.map((d) => (
+            <SkillDraftCard key={d.id} draft={d} />
+          ))}
+        </div>
+      )}
       {library.isError && <p className="text-sm text-danger">{library.error.message}</p>}
       {library.data?.length === 0 && <p className="text-sm text-muted">No skills imported yet.</p>}
       <ul className="flex flex-col divide-y divide-hairline">

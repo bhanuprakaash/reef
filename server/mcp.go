@@ -147,6 +147,14 @@ type (
 		BotIDs        []int64 `json:"botIds" jsonschema:"ids of the Bots to put in the Space, from find_bots"`
 		CoordinatorID int64   `json:"coordinatorBotId,omitempty" jsonschema:"the Bot that gets messages that mention nobody; default the first Bot"`
 	}
+	proposeSkillIn struct {
+		Name  string          `json:"name" jsonschema:"the skill's name: letters, digits, :, _ or -; it must match the name in SKILL.md"`
+		Files []skillFileView `json:"files" jsonschema:"every file of the skill folder as {path, body}; SKILL.md with name and description in its frontmatter is required"`
+	}
+	proposeSkillOut struct {
+		ID      int64  `json:"id" jsonschema:"draft id"`
+		Message string `json:"message"`
+	}
 	subItemIn struct {
 		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
 	}
@@ -308,6 +316,12 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"user's inbox; the user accepts or changes the selection before the Space is created. " +
 			"A proposal creates nothing and grants no access.",
 	}, m.proposeSpace)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_skill",
+		Description: "Propose a new skill when the user asks you to draft one. It shows in this " +
+			"Space and in the skill library as a draft; the user reviews every file and saves or " +
+			"rejects it. A draft is not in the library and is not given to any Bot.",
+	}, m.proposeSkill)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sub_items",
 		Description: "List this work item's sub-items with their status, oldest first.",
@@ -891,6 +905,23 @@ func (m *mcpServer) proposeSpace(
 		ProposedBy: name, Name: in.Name, BotIDs: in.BotIDs, CoordinatorBotID: in.CoordinatorID,
 	})
 	return nil, p, err
+}
+
+func (m *mcpServer) proposeSkill(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeSkillIn,
+) (*mcp.CallToolResult, proposeSkillOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, proposeSkillOut{}, err
+	}
+	p, err := buildSkillPackage(in.Name, in.Files)
+	if err != nil {
+		return nil, proposeSkillOut{}, err
+	}
+	d, err := m.st.CreateSkillDraft(ctx, m.tok.SpaceID, *m.tok.BotID, p)
+	if err != nil {
+		return nil, proposeSkillOut{}, err
+	}
+	return nil, proposeSkillOut{ID: d.ID, Message: "draft saved; the user will review it"}, nil
 }
 
 func (m *mcpServer) findBots(

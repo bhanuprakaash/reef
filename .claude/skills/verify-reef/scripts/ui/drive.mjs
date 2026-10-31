@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1731,6 +1731,70 @@ async function errorText(pattern, timeout = 15000) {
   }
 }
 
+// The skill editor, a Bot's skill draft in its Space and in the library, and the picker.
+async function skills() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const library = async () => getJson('/skills/library');
+  await addProject();
+  const lead = (await getJson('/bots')).find((b) => b.name === 'lead');
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  const lib = main.getByRole('region', { name: 'Skills library' });
+  await lib.getByRole('button', { name: 'New skill' }).click();
+  const form = lib.getByRole('form', { name: 'New skill' });
+  await form.getByLabel('Skill name').fill('editor-skill');
+  await form.getByLabel('SKILL.md').fill('---\nname: editor-skill\ndescription: Written in the editor.\n---\nSee notes/a.md.\n');
+  await form.getByRole('button', { name: 'Add file' }).click();
+  await form.getByLabel('Supporting file path').fill('notes/a.md');
+  await form.getByLabel('Contents of notes/a.md').fill('EDITOR-NOTE-1');
+  await shot('editor-new');
+  await form.getByRole('button', { name: 'Create skill' }).click();
+  await lib.getByRole('button', { name: 'Edit editor-skill' }).waitFor();
+  let made = (await library()).find((s) => s.name === 'editor-skill');
+  check(made?.version === 1 && made.sourceKind === 'reef', 'a skill written in the editor is saved at version 1', JSON.stringify(made));
+  await lib.getByRole('button', { name: 'View files of editor-skill' }).click();
+  await lib.locator('summary', { hasText: 'notes/a.md' }).click();
+  check((await lib.getByText('EDITOR-NOTE-1').count()) === 1, 'the supporting file contents can be inspected');
+  await lib.getByRole('button', { name: 'Edit editor-skill' }).click();
+  await lib.getByLabel('Contents of notes/a.md').fill('EDITOR-NOTE-2');
+  await shot('editor-edit');
+  await lib.getByRole('button', { name: 'Save new version' }).click();
+  await lib.getByRole('button', { name: 'Edit editor-skill' }).waitFor();
+  made = (await library()).find((s) => s.name === 'editor-skill');
+  const files = await getJson(`/skills/${made.id}`);
+  check(made.version === 2 && files.files.some((f) => f.body === 'EDITOR-NOTE-2'), 'an edit saves version 2 with the new file', `v${made.version}`);
+  check((await getJson(`/bots/${lead.id}`)).skills.length === 0, 'creating and editing a skill gives it to no Bot');
+
+  const space = await (await fetch(`${base}/spaces`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'skill chat', botId: lead.id, kind: 'conversation' }) })).json();
+  await page.goto(`${base}/spaces/${space.id}`);
+  await send('DRAFT A SKILL');
+  const card = page.getByRole('region', { name: 'Skill draft triage' });
+  await card.waitFor({ timeout: 60000 });
+  await card.getByText('SKILL.md').click();
+  await shot('draft-in-space');
+  check((await library()).every((s) => s.name !== 'triage'), 'a draft is not in the library while pending');
+  await card.getByRole('button', { name: 'Save triage' }).click();
+  await card.waitFor({ state: 'hidden' });
+  check((await library()).some((s) => s.name === 'triage' && s.version === 1), 'saving the draft puts triage in the library at version 1');
+
+  await send('DRAFT A SKILL');
+  await card.waitFor({ timeout: 60000 });
+  check((await card.getByRole('button', { name: 'Save as new version triage' }).count()) === 1, 'a draft named like a library skill offers Save as new version');
+  await page.goto(`${base}/bots`);
+  await lib.getByRole('heading', { name: 'Drafts' }).waitFor();
+  await shot('drafts-in-library');
+  await lib.getByRole('button', { name: 'Reject triage' }).click();
+  await lib.getByRole('heading', { name: 'Drafts' }).waitFor({ state: 'hidden' });
+  check((await library()).find((s) => s.name === 'triage').version === 1, 'rejecting a draft leaves the saved skill at version 1');
+  check((await getJson(`/bots/${lead.id}`)).skills.length === 0, 'saving and rejecting drafts gives no Bot a skill');
+
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await main.getByRole('combobox', { name: / add skill$/ }).click();
+  await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option', { name: /^triage · Reef/ }).click();
+  await main.getByRole('button', { name: 'Save Bot' }).click();
+  await page.getByText('Saved').waitFor();
+  await shot('picked');
+  check(JSON.stringify((await getJson(`/bots/${lead.id}`)).skills) === '["reef:triage"]', 'the saved skill is picked for a Bot through the picker', JSON.stringify((await getJson(`/bots/${lead.id}`)).skills));
+}
 async function workshop() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
     throw new Error('apply the team full first (teams/full.json, see features/bots.md)');

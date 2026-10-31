@@ -4,6 +4,7 @@ import type { LayoutContext } from '@/app/layout';
 import { WorkItemTerminal } from '@/app/work-item-terminal';
 import { MentionCardsProvider } from '@/app/mention-hovercard';
 import { ReviewDiff } from '@/app/review-diff';
+import { SkillDraftCards } from '@/app/skill-draft-cards';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useTerminal } from '@/app/use-terminal';
 import { useSpaceProjects } from '@/modules/spaces/api/space-projects';
@@ -64,6 +65,7 @@ export function SpacePage() {
         ...(spaceProjects.data ?? []).map((p) => p.name),
       ].join(' · ')
     ),
+    drafts: <SkillDraftCards spaceId={id} />,
     browserOpen: hasBrowser && browserOpen,
     onBrowserDriver: setBrowserDriver,
   };

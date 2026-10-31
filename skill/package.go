@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -73,6 +74,17 @@ func ReadFolder(dir string) (Package, error) {
 	if err != nil {
 		return Package{}, fmt.Errorf("read skill folder %q: %w", dir, err)
 	}
+	p, err = withManifest(p)
+	if errors.Is(err, errNoManifest) {
+		return Package{}, fmt.Errorf("skill folder %q has no SKILL.md", dir)
+	}
+	return p, err
+}
+
+var errNoManifest = errors.New("no SKILL.md")
+
+// withManifest fills p's Name and Description from its SKILL.md frontmatter.
+func withManifest(p Package) (Package, error) {
 	for _, f := range p.Files {
 		if f.Path != "SKILL.md" {
 			continue
@@ -84,7 +96,32 @@ func ReadFolder(dir string) (Package, error) {
 		p.Name, p.Description = name, description
 		return p, nil
 	}
-	return Package{}, fmt.Errorf("skill folder %q has no SKILL.md", dir)
+	return Package{}, errNoManifest
+}
+
+// Build makes a package from files written in Reef. It needs a SKILL.md whose frontmatter name
+// is name, and every path must stay inside the folder: relative, "/" separators, no duplicates,
+// nothing under .git.
+func Build(name string, files []File) (Package, error) {
+	seen := map[string]bool{}
+	for _, f := range files {
+		if !filepath.IsLocal(f.Path) || strings.Contains(f.Path, `\`) || f.Path != path.Clean(f.Path) ||
+			f.Path == ".git" || strings.HasPrefix(f.Path, ".git/") {
+			return Package{}, fmt.Errorf("skill file path %q must be a plain relative path with / separators", f.Path)
+		}
+		if seen[f.Path] {
+			return Package{}, fmt.Errorf("skill file %q is listed twice", f.Path)
+		}
+		seen[f.Path] = true
+	}
+	p, err := withManifest(Package{Files: files})
+	if err != nil {
+		return Package{}, err
+	}
+	if p.Name != name {
+		return Package{}, fmt.Errorf("SKILL.md names the skill %q, not %q", p.Name, name)
+	}
+	return p, nil
 }
 
 // ReadRepo clones repo (at ref, when set) into a temporary folder and reads the package in its

@@ -12,10 +12,15 @@ import (
 
 func (s *server) skillRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /skills", s.listSkills)
+	mux.HandleFunc("POST /skills", s.createSkill)
 	mux.HandleFunc("/skills", methodNotAllowed)
 	mux.HandleFunc("GET /skills/library", s.skillLibrary)
 	mux.HandleFunc("POST /skills/import", s.importSkill)
 	mux.HandleFunc("GET /skills/{id}", s.getSkill)
+	mux.HandleFunc("PUT /skills/{id}", s.editSkill)
+	mux.HandleFunc("GET /skill-drafts", s.listSkillDrafts)
+	mux.HandleFunc("POST /skill-drafts/{id}/save", s.saveSkillDraft)
+	mux.HandleFunc("POST /skill-drafts/{id}/reject", s.rejectSkillDraft)
 	mux.HandleFunc("POST /skills/{id}/update", s.updateSkill)
 	mux.HandleFunc("/skills/{id}/update", methodNotAllowed)
 }
@@ -163,6 +168,132 @@ func (s *server) getSkill(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, view)
 }
 
+// buildSkillPackage turns files that do not make a skill into ErrInvalid, so the caller sees why.
+func buildSkillPackage(name string, files []skillFileView) (skill.Package, error) {
+	in := make([]skill.File, 0, len(files))
+	for _, f := range files {
+		in = append(in, skill.File{Path: f.Path, Body: []byte(f.Body)})
+	}
+	p, err := skill.Build(name, in)
+	if err != nil {
+		return skill.Package{}, fmt.Errorf("%w: %v", store.ErrInvalid, err)
+	}
+	return p, nil
+}
+
+func (s *server) createSkill(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Name  string          `json:"name"`
+		Files []skillFileView `json:"files"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := buildSkillPackage(in.Name, in.Files)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	k, err := s.st.ImportSkill(r.Context(), "reef", "", "", "", p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, k)
+}
+
+// editSkill saves the files as the next version of a skill written in Reef. The name stays.
+func (s *server) editSkill(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		Files []skillFileView `json:"files"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	k, err := s.st.Skill(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if k.SourceKind != "reef" {
+		writeError(w, fmt.Errorf("%w: %q was imported; update it from its source", store.ErrInvalid, k.Name))
+		return
+	}
+	p, err := buildSkillPackage(k.Name, in.Files)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	k, err = s.st.UpdateSkill(r.Context(), id, p)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, k)
+}
+
+func (s *server) listSkillDrafts(w http.ResponseWriter, r *http.Request) {
+	space, err := queryID(r, "space")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var spaceID int64
+	if space != nil {
+		spaceID = *space
+	}
+	drafts, err := s.st.PendingSkillDrafts(r.Context(), spaceID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if drafts == nil {
+		drafts = []store.SkillDraft{}
+	}
+	writeJSON(w, http.StatusOK, drafts)
+}
+
+func (s *server) saveSkillDraft(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		Update bool `json:"update"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	k, err := s.st.SaveSkillDraft(r.Context(), id, in.Update)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, k)
+}
+
+func (s *server) rejectSkillDraft(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.st.RejectSkillDraft(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *server) updateSkill(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -172,6 +303,10 @@ func (s *server) updateSkill(w http.ResponseWriter, r *http.Request) {
 	k, err := s.st.Skill(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if k.SourceKind == "reef" {
+		writeError(w, fmt.Errorf("%w: %q was written in Reef; edit it instead", store.ErrInvalid, k.Name))
 		return
 	}
 	p, err := readSkillPackage(r.Context(), k.SourceKind, k.Source, k.Ref, k.Dir)

@@ -213,7 +213,7 @@ export type LibrarySkill = {
   id: number;
   name: string;
   description: string;
-  sourceKind: 'folder' | 'git';
+  sourceKind: 'folder' | 'git' | 'reef';
   source: string;
   ref: string;
   dir: string;
@@ -221,7 +221,17 @@ export type LibrarySkill = {
   version: number;
 };
 
-export type LibrarySkillFiles = LibrarySkill & { files: { path: string; body: string }[] };
+export type SkillFile = { path: string; body: string };
+
+export type SkillDraft = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  name: string;
+  files: SkillFile[];
+};
+
+export type LibrarySkillFiles = LibrarySkill & { files: SkillFile[] };
 
 export type Bot = Omit<Role, 'lead' | 'botId'> & { id: number };
 

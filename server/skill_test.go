@@ -81,7 +81,7 @@ func TestGetSkills(t *testing.T) {
 			}
 		})
 	}
-	if code, _ := do(t, http.MethodPost, ts.URL+"/skills", `{}`); code != http.StatusMethodNotAllowed {
-		t.Errorf("POST /skills = %d, want 405", code)
+	if code, _ := do(t, http.MethodDelete, ts.URL+"/skills", `{}`); code != http.StatusMethodNotAllowed {
+		t.Errorf("DELETE /skills = %d, want 405", code)
 	}
 }
