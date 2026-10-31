@@ -143,17 +143,22 @@ func (s *server) deliverAsked(ctx context.Context, spaceID int64, botID *int64) 
 func (s *server) wakeAsker(ctx context.Context, id int64) {
 	ex, err := s.st.Exchange(ctx, id)
 	if err != nil || ex.Response == nil || ex.Response.Status != store.DirectDone ||
-		ex.Request.OriginSpaceID == nil || ex.Request.FromBotID == nil {
+		ex.Request.OriginSpaceID == nil || ex.Request.FromBotID == nil ||
+		ex.Request.Kind == store.ExchangeGuidance {
 		if err != nil {
 			log.Printf("read exchange %d: %v", id, err)
 		}
 		return
 	}
 	req, resp := ex.Request, ex.Response
+	where := "consultation"
+	if req.Kind == store.ExchangeQuestion {
+		where = "question to Space"
+	}
 	w := wake{
 		from: resp.From, fromBotID: resp.FromBotID, botID: req.FromBotID, role: req.From,
-		text: fmt.Sprintf("[Space %d, consultation %d, exchange %d]\n%s replied: %s",
-			*req.OriginSpaceID, req.SpaceID, req.ID, resp.From, resp.Body),
+		text: fmt.Sprintf("[Space %d, %s %d, exchange %d]\n%s replied: %s",
+			*req.OriginSpaceID, where, req.SpaceID, req.ID, resp.From, resp.Body),
 		stored: resp.CreatedAt,
 	}
 	if err := s.runWake(ctx, *req.OriginSpaceID, w); err != nil {

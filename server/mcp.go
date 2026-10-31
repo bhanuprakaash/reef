@@ -397,6 +397,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	m.registerProjectTools(srv)
 	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.Kind == store.KindConversation {
 		m.registerConsult(srv)
+		m.registerSendToSpace(srv)
 	}
 	if tok.Review {
 		restrictToReview(srv)

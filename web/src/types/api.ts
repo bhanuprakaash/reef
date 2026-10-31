@@ -285,6 +285,7 @@ export type DirectMessage = {
   body: string;
   status: 'sent' | 'done' | 'failed';
   state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped' | 'cancelled';
+  kind?: 'request' | 'question' | 'guidance';
   createdAt: string;
 };
 

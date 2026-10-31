@@ -51,18 +51,9 @@ func (m *mcpServer) consult(
 	if asked.ID == *m.tok.BotID {
 		return nil, consultOut{}, fmt.Errorf("%w: cannot consult yourself", store.ErrInvalid)
 	}
-	running, err := m.st.Turns(ctx, store.TurnFilter{SpaceID: &m.tok.SpaceID, Status: "running"})
+	turn, err := m.runningTurn(ctx, name)
 	if err != nil {
 		return nil, consultOut{}, err
-	}
-	var turn int64
-	for _, t := range running {
-		if t.BotID != nil && *t.BotID == *m.tok.BotID {
-			turn = t.ID
-		}
-	}
-	if turn == 0 {
-		return nil, consultOut{}, fmt.Errorf("%w: %s has no running turn to consult from", store.ErrInvalid, name)
 	}
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d\x00%s", asked.ID, in.Consultation, in.Body)))
 	key := fmt.Sprintf("consult:%d:%x", turn, sum[:8])
@@ -75,6 +66,24 @@ func (m *mcpServer) consult(
 		return nil, consultOut{}, err
 	}
 	return nil, consultOut{Consultation: dm.SpaceID, Exchange: dm.ID, State: dm.State}, nil
+}
+
+// runningTurn is the id of the running turn of the calling Bot, which name is, in its Space.
+func (m *mcpServer) runningTurn(ctx context.Context, name string) (int64, error) {
+	running, err := m.st.Turns(ctx, store.TurnFilter{SpaceID: &m.tok.SpaceID, Status: "running"})
+	if err != nil {
+		return 0, err
+	}
+	var turn int64
+	for _, t := range running {
+		if t.BotID != nil && *t.BotID == *m.tok.BotID {
+			turn = t.ID
+		}
+	}
+	if turn == 0 {
+		return 0, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, name)
+	}
+	return turn, nil
 }
 
 // askedBot finds the Bot with the id or the name ref.

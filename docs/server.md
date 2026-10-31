@@ -1067,6 +1067,34 @@ The consultation is an ordinary Space for the rest: its history stays readable, 
 is refreshed and revoked with the Bot's others, and a restart fails a cut consultation turn with
 the interruption note and does not replay it.
 
+### Sending to a Space
+
+A Bot in a direct conversation sends a question or an instruction to a Bot that already works in a
+Space the conversation refers to ([Space references](#space-references)) with the `send_to_space`
+MCP tool. Nothing is added to either Space and no session is made: the exchange runs as a direct
+wake of the recipient in the destination Space, in the Bot's existing session there (the Space's
+live chain queues it behind a running turn, or starts one when idle). The exchange lives in the
+destination Space with kind `question` or `guidance`, links the conversation, and posts `Sent to
+<Bot> in <Space>: <text>` there as a message linked to it. Its key is the turn, Space, Bot, kind
+and text, so a repeated call returns the same exchange.
+
+A question's reply is posted in the conversation as a message from the recipient linked to the
+exchange, and wakes the asker with `[Space N, question to Space N, exchange N]` and the reply, as
+a consultation reply does. An instruction is what the user told the Bot to pass on: it reaches the
+recipient as `Instruction from the user, passed on by <Bot> from Space N: <text>`, and its reply is
+posted as a receipt but wakes nobody. Both are decided by the exchange state, shown by the window
+on the linked message with links to the Space and the Bot's activity:
+
+| Destination | Outcome |
+| --- | --- |
+| Open and idle or busy | `waiting` until its turn starts, then `delivered`, then `answered` |
+| Paused | stays `waiting` ("Waiting for Space to resume"); sending never resumes the Space, `POST /spaces/{id}/continue` delivers it once |
+| Closed, or the Bot is not a member | `failed` at once with the reason, posted as `No reply: ...` in the conversation; no turn starts |
+| Cut by a restart while running | `failed` with the interruption note, never replayed; `POST /exchanges/{id}/retry` runs it again |
+| Withdrawn while waiting (`POST /exchanges/{id}/cancel`) | `cancelled` |
+
+Every outcome keeps the origin and destination links of the exchange.
+
 ### Space references
 
 A user message can refer to a Space with the token `#[Name](space:ID)`. The composer writes it

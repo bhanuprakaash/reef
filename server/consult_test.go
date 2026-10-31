@@ -45,7 +45,12 @@ func newConsultEnv(t *testing.T) *consultEnv {
 	}
 	e.ada, e.ben = *testServerBot(t, e.st, "ada"), *testServerBot(t, e.st, "ben")
 	e.fake.onRun = func(role, text string, _ *int64) {
+		tool := "consult"
 		_, args, ok := strings.Cut(text, "consult:")
+		if !ok {
+			tool = "send_to_space"
+			_, args, ok = strings.Cut(text, "send:")
+		}
 		if role != "ada" || !ok {
 			return
 		}
@@ -71,7 +76,7 @@ func newConsultEnv(t *testing.T) *consultEnv {
 		}
 		call := callTool(t, e.st, tok)
 		for _, c := range calls {
-			got, _ := call("consult", c)
+			got, _ := call(tool, c)
 			e.mu.Lock()
 			e.results = append(e.results, got)
 			e.mu.Unlock()
