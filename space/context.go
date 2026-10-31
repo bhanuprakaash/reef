@@ -221,7 +221,7 @@ func firstPrompt(
 		if ch.Kind == store.KindConversation {
 			kind, scope = "a direct conversation with the user", "conversation"
 		}
-		fmt.Fprintf(&b, "You are the %s.\n"+
+		fmt.Fprintf(&b, "You are %s.\n"+
 			"This is %s: it has no work item, so there is no brief or work item items.\n",
 			r.Name, kind)
 		scopes := _quickBotScope
@@ -256,7 +256,7 @@ func firstPrompt(
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "You are the %s on work item %q (%d) in project %q.\n",
+		fmt.Fprintf(&b, "You are %s on work item %q (%d) in project %q.\n",
 			r.Name, f.Title, f.ID, p.Name)
 		how += _toolsLine + "\n"
 		b.WriteString(who)

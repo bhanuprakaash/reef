@@ -356,7 +356,7 @@ Example, for a work item with one approved wrap-up, asked by the developer of a 
 
 ```
 ## You
-You are the developer on work item "Email login" (1) in project "shop".
+You are developer on work item "Email login" (1) in project "shop".
 Description: Users sign in with email and password
 
 ## How to work

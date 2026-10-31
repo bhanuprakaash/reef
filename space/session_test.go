@@ -190,7 +190,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 ||
-		!strings.HasPrefix(ag.prompts[0], "## You\nYou are the architect on work item \"Login\" (1) in project \"shop\".") ||
+		!strings.HasPrefix(ag.prompts[0], "## You\nYou are architect on work item \"Login\" (1) in project \"shop\".") ||
 		!strings.HasSuffix(ag.prompts[0], "\n\nhi") {
 		t.Errorf("prompts = %q, want the context before hi", ag.prompts)
 	}
@@ -225,7 +225,7 @@ func TestOpen_QuickSession(t *testing.T) {
 	if want := filepath.Join(dir, "chats", "1"); ag.cfg.Cwd != want {
 		t.Errorf("Cwd = %q, want %q: an associated project is not the folder", ag.cfg.Cwd, want)
 	}
-	want := "## You\nYou are the architect.\n" +
+	want := "## You\nYou are architect.\n" +
 		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
 		"Associated projects, for context only; you do not work in them: shop (1).\n" +
 		"\n## How to work\n" +
@@ -288,7 +288,7 @@ func TestOpen_ChatWithoutProject(t *testing.T) {
 	if worktree.IsRepo(ctx, want) {
 		t.Errorf("%s is a git repo, want none", want)
 	}
-	wantPrompt := "## You\nYou are the architect.\n" +
+	wantPrompt := "## You\nYou are architect.\n" +
 		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
 		"\n## How to work\n" +
 		"Details are on demand through the reef MCP tools recall and read_memory. " +
@@ -454,7 +454,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, nil, whoAmI); err != nil {
 		t.Fatal(err)
 	}
-	want := "## You\nYou design.\n\nYour skills:\nsketch\n\nYou are the architect on work item"
+	want := "## You\nYou design.\n\nYour skills:\nsketch\n\nYou are architect on work item"
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}

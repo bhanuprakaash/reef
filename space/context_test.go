@@ -175,7 +175,7 @@ func TestContext(t *testing.T) {
 		t.Skip("test ran across midnight UTC")
 	}
 	want := `## You
-You are the architect on work item "Login" (1) in project "shop".
+You are architect on work item "Login" (1) in project "shop".
 Description: Google login
 
 ## How to work
@@ -213,7 +213,7 @@ func TestContext_EmptyWorkItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `## You
-You are the architect on work item "Login" (1) in project "shop".
+You are architect on work item "Login" (1) in project "shop".
 Description: Google login
 
 ## How to work
@@ -285,7 +285,7 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `## You
-You are the lead.
+You are lead.
 This is a free Space: it has no work item, so there is no brief or work item items.
 
 ## How to work
@@ -310,7 +310,7 @@ Details are on demand through the reef MCP tools recall and read_memory. remembe
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"## You\nYou are the lead.\nThis is a free Space: " +
+		"## You\nYou are lead.\nThis is a free Space: " +
 			"it has no work item, so there is no brief or work item items.\nYou work with Ada.\n" +
 			"\n## How to work\nYour team: @lead, @architect. ",
 		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
