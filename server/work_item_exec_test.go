@@ -110,7 +110,7 @@ func TestToolCallsNameTheTargetTheyWorkIn(t *testing.T) {
 	}
 	sub.want(t, `turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"tool_call","toolId":"t","toolName":"Write","input":{"file_path":"`+infra+`/deploy.txt"},`+
-			`"target":{"projectId":3,"projectName":"infra","workspaceId":2}}`)
+			`"targets":[{"projectId":3,"projectName":"infra","workspaceId":2}]}`)
 
 	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: 2, Role: "lead", Backend: "claude"})
 	if err != nil {
@@ -129,14 +129,16 @@ func TestToolCallsNameTheTargetTheyWorkIn(t *testing.T) {
 
 	_, body := do(t, http.MethodGet, env.url+"/spaces/2/inspector", "")
 	for _, want := range []string{
-		`"target":{"projectId":2,"projectName":"app","workspaceId":1}`,
-		`"input":"{\"command\":\"cd 3-infra \u0026\u0026 git status\"}","result":"","target":{"projectId":3,"projectName":"infra","workspaceId":2}}`,
+		`"targets":[{"projectId":2,"projectName":"app","workspaceId":1}]`,
+		`"input":"{\"command\":\"cd 3-infra \u0026\u0026 git status\"}","result":"","targets":[{"projectId":3,"projectName":"infra","workspaceId":2}]}`,
+		`"input":"{\"command\":\"cp 2-app/api.txt 3-infra/api.txt\"}","result":"","targets":[{"projectId":2,"projectName":"app","workspaceId":1},` +
+			`{"projectId":3,"projectName":"infra","workspaceId":2}]}`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("inspector = %s, want it to contain %s", body, want)
 		}
 	}
-	if got := strings.Count(body, `"target":`); got != 2 {
-		t.Errorf("inspector has %d targets, want 2: a command in both repositories or in none has none", got)
+	if got := strings.Count(body, `"targets":`); got != 3 {
+		t.Errorf("inspector has %d targets lists, want 3: a command in no repository has none", got)
 	}
 }

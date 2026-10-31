@@ -410,7 +410,7 @@ export type InspectorToolCall = {
   name: string;
   input: string;
   result: string;
-  target?: ToolTarget;
+  targets?: ToolTarget[];
   children?: InspectorToolCall[];
 };
 

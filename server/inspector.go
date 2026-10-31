@@ -39,7 +39,7 @@ type inspectorToolCall struct {
 	Name     string               `json:"name"`
 	Input    string               `json:"input"`
 	Result   string               `json:"result"`
-	Target   *eventTarget         `json:"target,omitempty"`
+	Targets  []eventTarget        `json:"targets,omitempty"`
 	Children []*inspectorToolCall `json:"children,omitempty"`
 }
 
@@ -101,7 +101,7 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 		byID := make(map[int64]*inspectorToolCall, len(calls))
 		tcs := make([]*inspectorToolCall, 0, len(calls))
 		for _, c := range calls {
-			tc := &inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result, Target: targetOf(dirs, json.RawMessage(c.Input))}
+			tc := &inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result, Targets: targetOf(dirs, json.RawMessage(c.Input))}
 			byID[c.ID] = tc
 			if p, ok := byID[c.ParentID]; ok {
 				p.Children = append(p.Children, tc)

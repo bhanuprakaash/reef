@@ -72,7 +72,14 @@ func ResolveBase(ctx context.Context, repo, base string) (StartRef, error) {
 		if ref, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
 			base = strings.TrimPrefix(ref, "origin/")
 		} else {
-			return StartRef{Ref: baseRef(ctx, repo, ""), Source: "local"}, nil
+			ref := baseRef(ctx, repo, "")
+			b := StartRef{Ref: ref, Source: "local"}
+			if _, err := git(ctx, repo, "remote", "get-url", "origin"); err == nil {
+				sha, _ := git(ctx, repo, "rev-parse", "--short", ref)
+				b.Note = fmt.Sprintf("origin's default branch is unknown; using local %s at %s",
+					strings.TrimPrefix(ref, "refs/heads/"), sha)
+			}
+			return b, nil
 		}
 	}
 	fetchErr := fetch(ctx, repo, base)

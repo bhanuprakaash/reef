@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/store"
 )
 
 // eventTarget is the repository a tool call works in.
@@ -17,10 +19,10 @@ type eventTarget struct {
 	WorkspaceID int64  `json:"workspaceId"`
 }
 
-// targetedEvent is an agent event with the repository its tool call works in, when that is one.
+// targetedEvent is an agent event with the repositories its tool call works in.
 type targetedEvent struct {
 	agent.Event
-	Target *eventTarget `json:"target,omitempty"`
+	Targets []eventTarget `json:"targets"`
 }
 
 type targetDir struct {
@@ -28,18 +30,23 @@ type targetDir struct {
 	eventTarget
 }
 
-// spaceTargets lists the workspaces of the work item of Space id, with their Project names. A
-// Space with no work item has none.
+// spaceTargets lists the workspaces of Space id, with their Project names: those of its work
+// item, or the quick fixes of a Space with none.
 func (s *server) spaceTargets(ctx context.Context, id int64) ([]targetDir, error) {
 	ch, err := s.st.Space(ctx, id)
-	if err != nil || ch.WorkItemID == nil {
-		return nil, err
-	}
-	f, err := s.st.WorkItem(ctx, *ch.WorkItemID)
 	if err != nil {
 		return nil, err
 	}
-	ws, err := s.itemWorkspaces(ctx, f)
+	var ws []store.Workspace
+	if ch.WorkItemID == nil {
+		ws, err = s.st.SpaceWorkspaces(ctx, id)
+	} else {
+		var f store.WorkItem
+		if f, err = s.st.WorkItem(ctx, *ch.WorkItemID); err != nil {
+			return nil, err
+		}
+		ws, err = s.itemWorkspaces(ctx, f)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -58,26 +65,23 @@ func (s *server) spaceTargets(ctx context.Context, id int64) ([]targetDir, error
 // in one.
 var _pathKeys = []string{"file_path", "path", "notebook_path", "cwd", "command"}
 
-// targetOf is the one workspace a tool call's input points into: a path or command inside its
-// folder, or naming its folder relative to the agent's working folder. A call that points into
-// none, or into more than one, has no target.
-func targetOf(dirs []targetDir, input json.RawMessage) *eventTarget {
+// targetOf is every workspace a tool call's input points into: a path or command inside its
+// folder, or naming its folder relative to the agent's working folder.
+func targetOf(dirs []targetDir, input json.RawMessage) []eventTarget {
 	var args map[string]any
 	if json.Unmarshal(input, &args) != nil {
 		return nil
 	}
-	var found *eventTarget
+	var found []eventTarget
 	for _, d := range dirs {
 		for _, k := range _pathKeys {
 			v, ok := args[k].(string)
 			if !ok || !mentions(v, d.dir) {
 				continue
 			}
-			if found != nil && found.WorkspaceID != d.WorkspaceID {
-				return nil
+			if !slices.ContainsFunc(found, func(t eventTarget) bool { return t.WorkspaceID == d.WorkspaceID }) {
+				found = append(found, d.eventTarget)
 			}
-			t := d.eventTarget
-			found = &t
 		}
 	}
 	return found

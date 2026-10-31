@@ -7,7 +7,7 @@ export type AgentEvent = {
   toolName?: string;
   parentToolId?: string;
   input?: unknown;
-  target?: ToolTarget;
+  targets?: ToolTarget[];
   output?: string;
   isError?: boolean;
 };
@@ -28,7 +28,7 @@ export type Tool = {
   id: string;
   name: string;
   input: unknown;
-  target?: ToolTarget;
+  targets?: ToolTarget[];
   done: boolean;
   output: string;
   isError: boolean;
@@ -84,7 +84,7 @@ function foldAgent(turn: LiveTurn, ev: AgentEvent): LiveTurn {
         id: ev.toolId ?? '',
         name: ev.toolName ?? '',
         input: ev.input,
-        target: ev.target,
+        targets: ev.targets,
         done: false,
         output: '',
         isError: false,

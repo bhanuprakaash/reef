@@ -125,8 +125,8 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 	}
 	if len(turns) != 2 || turns[0].Role != "tester" || len(turns[0].Checkpoints) > 0 ||
 		turns[1].Role != "developer" || len(turns[1].Checkpoints) == 0 ||
-		!regexp.MustCompile(`^refs/reef/checkpoints/[0-9a-f]{12}/2$`).MatchString(turns[1].Checkpoints[0].Ref) {
-		t.Fatalf("turns = %+v, want tester with no checkpoint, developer with refs/reef/checkpoints/<data dir>/2", turns)
+		!regexp.MustCompile(`^refs/reef/checkpoints/[0-9a-f]{12}/2/1$`).MatchString(turns[1].Checkpoints[0].Ref) {
+		t.Fatalf("turns = %+v, want tester with no checkpoint, developer with refs/reef/checkpoints/<data dir>/2/1", turns)
 	}
 	out, err := exec.Command("git", "-C", tree, "show", turns[1].Checkpoints[0].Ref+":note.txt").Output()
 	if err != nil || string(out) != "draft" {

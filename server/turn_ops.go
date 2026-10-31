@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
@@ -103,7 +104,7 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	err = s.restoreTree(ctx, c, ch, t)
 	if err == nil {
-		err = s.noteRollback(ctx, ch, id)
+		err = s.noteRollback(ctx, ch, fmt.Sprintf("Rolled back to before turn %d.", id))
 	}
 	if err = c.release(err); err != nil {
 		writeError(w, err)
@@ -112,9 +113,9 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// noteRollback posts the rollback note of turn id in every Space of ch's work item, since
+// noteRollback posts body in every Space of ch's work item, since
 // work item Spaces share a worktree; a quick session's Space has no work item to share with.
-func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) error {
+func (s *server) noteRollback(ctx context.Context, ch store.Space, body string) error {
 	chs := []store.Space{ch}
 	if ch.WorkItemID != nil {
 		var err error
@@ -122,7 +123,6 @@ func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) err
 			return err
 		}
 	}
-	body := fmt.Sprintf("Rolled back to before turn %d.", id)
 	for _, c := range chs {
 		if _, err := s.st.CreateMessage(ctx, store.Message{
 			SpaceID: c.ID, Author: store.ReefAuthor, Body: body,
@@ -157,15 +157,25 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t st
 		return fmt.Errorf("%s has a turn running: %w", dir, store.ErrConflict)
 	}
 	defer unlock()
+	var restored, failed []string
+	var errs []error
 	for _, r := range restores {
 		if err := worktree.Restore(ctx, r.dir, r.ref); err != nil {
-			return err
+			failed = append(failed, r.project)
+			errs = append(errs, fmt.Errorf("%s: %w", r.project, err))
+			continue
 		}
+		restored = append(restored, r.project)
 	}
-	return nil
+	if len(failed) > 0 && len(restored) > 0 {
+		err := s.noteRollback(ctx, ch, fmt.Sprintf("Rollback to before turn %d stopped partway. Restored: %s. Not restored: %s.",
+			t.ID, strings.Join(restored, ", "), strings.Join(failed, ", ")))
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
-type restore struct{ dir, ref string }
+type restore struct{ project, dir, ref string }
 
 // checkpointTrees is the workspace folder and ref of each checkpoint of t. A checkpoint taken
 // in a workspace that the work item of the Space ch, or the Space itself, does not have now,
@@ -203,7 +213,15 @@ func (s *server) checkpointTrees(ctx context.Context, ch store.Space, t store.Tu
 			return nil, fmt.Errorf("turn %d was checkpointed in %s, not %s: %w",
 				t.ID, from, ws[i].Dir, store.ErrConflict)
 		}
-		out = append(out, restore{ws[i].Dir, c.Ref})
+		p, err := s.st.Project(ctx, ws[i].ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		label := p.Name
+		if ws[i].Name != "" {
+			label += " (" + ws[i].Name + ")"
+		}
+		out = append(out, restore{label, ws[i].Dir, c.Ref})
 	}
 	return out, nil
 }

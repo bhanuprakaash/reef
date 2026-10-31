@@ -83,6 +83,15 @@ func (s *Store) EnsureWorkspace(ctx context.Context, w Workspace) (Workspace, er
 	return got, err
 }
 
+// Workspace returns the workspace with id.
+func (s *Store) Workspace(ctx context.Context, id int64) (Workspace, error) {
+	w, err := scanWorkspace(s.db.QueryRowContext(ctx, "SELECT "+_workspaceCols+" FROM workspace WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return w, fmt.Errorf("workspace %d: %w", id, ErrNotFound)
+	}
+	return w, err
+}
+
 // SetWorkspace records how creating w went: its base, base ref and source, state and note.
 func (s *Store) SetWorkspace(ctx context.Context, w Workspace) error {
 	res, err := s.db.ExecContext(ctx,

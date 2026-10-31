@@ -46,8 +46,8 @@ describe('ToolRow', () => {
   });
 
   it('shows the project a tool call works in', () => {
-    const target = { projectId: 3, projectName: 'infra', workspaceId: 2 };
-    const markup = renderToStaticMarkup(<ToolRow tool={{ ...read, target }} />);
+    const targets = [{ projectId: 3, projectName: 'infra', workspaceId: 2 }];
+    const markup = renderToStaticMarkup(<ToolRow tool={{ ...read, targets }} />);
 
     expect(markup).toContain('>infra<');
     expect(renderToStaticMarkup(<ToolRow tool={read} />)).not.toContain('>infra<');

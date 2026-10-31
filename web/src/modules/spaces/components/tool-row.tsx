@@ -60,9 +60,9 @@ export function ToolRow({ tool }: { tool: Tool }) {
           <span className="min-w-0 flex-1 truncate text-soft">
             {subagentLabel(tool.name, tool.input) ?? summarizeInput(tool.input)}
           </span>
-          {tool.target && (
+          {tool.targets && tool.targets.length > 0 && (
             <span className="shrink-0 rounded-full bg-field px-2 text-muted">
-              {tool.target.projectName}
+              {tool.targets.map((t) => t.projectName).join(', ')}
             </span>
           )}
         </summary>

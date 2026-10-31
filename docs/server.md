@@ -116,7 +116,7 @@ logged in and on `PATH`.
   A checkpoint taken in a workspace the Space's work item does not have, such as a free Space's
   turn after an attach, is not listed. A conversation's side panel lists its open fixes (Project,
   branch, head, state, "origin could not be refreshed" note) with Abandon. A tool row shows the name of the Project it works in when
-  the server names a `target` for it. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
+  the server names its `targets` (every Project it points into). A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
@@ -423,7 +423,7 @@ One agent run in a Space.
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
-| `checkpoints` | object[] | one `{"workspaceId", "projectId", "ref"}` per workspace snapshotted before the turn, `ref` being `refs/reef/checkpoints/<data folder>/<turn id>` in that workspace's repository. `[]` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Spaces live](#spaces-live)), for a turn of a Space with no work item, and for a workspace whose repository has no commit. Set by the server, never by a request |
+| `checkpoints` | object[] | one `{"workspaceId", "projectId", "ref"}` per workspace snapshotted before the turn, `ref` being `refs/reef/checkpoints/<data folder>/<turn id>/<workspace id>` in that workspace's repository (worktrees of one repository share their refs, so each workspace has its own). `[]` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Spaces live](#spaces-live)), for a turn of a Space with no work item and no quick fix, and for a workspace whose repository has no commit. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, its largest `costUsd` plus the `costUsd` of the turns stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share |
 | `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
@@ -706,7 +706,7 @@ tool calls.
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404, 409 the Space is the proof's Space of a work item in review |
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, `target`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level). `target` is `{"projectId", "projectName", "workspaceId"}`, present when the call's `file_path`, `path`, `notebook_path`, `cwd` or `command` points into exactly one workspace of the Space's work item, by its absolute path or its folder relative to the agent's working folder; a call that points into none or into several has none. The live `agent` stream carries the same `target` on `tool_call` events | 404 |
+| `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, `targets`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level). `targets` is a list of `{"projectId", "projectName", "workspaceId"}`, present when the call's `file_path`, `path`, `notebook_path`, `cwd` or `command` points into at least one workspace of the Space (its work item's, or the quick fixes of a Space with none), by its absolute path or its folder relative to the agent's working folder; a call that points into none has none. The live `agent` stream carries the same `targets` on `tool_call` events | 404 |
 | `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed`, `stopped` or `cancelled`), `kind`, `originSpaceId?`, `originMessageId?`, `createdAt` | 400 bad id, 404 |
 | `GET /exchanges/{id}` | | 200 `{request, response}`: the exchange request (a direct request with `originSpaceId`; `spaceId` is its destination) and its newest response, `null` until there is one | 404 |
 | `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` or `stopped` exchange back to `waiting` and delivers it again | 404, 409 not `failed` or `stopped` (two retries at once: one wins), or has a `done` response |
@@ -808,9 +808,11 @@ a message wakes them.
   exists, or the folder is no git repo with a commit, the row is `paused` with the reason in
   `note` and only that repository waits; the others are made. A new note is also posted as a
   `reef` message in the item's active Space. A Project with no base branch uses the branch
-  `origin/HEAD` names, else the local default branch, never an assumed `main`. A `creating` row
-  found again (a restart cut the creation) is finished in the same folder and keeps the edits
-  already there. No workspace is rolled back because another failed.
+  `origin/HEAD` names, else the local default branch (when the repository has an `origin`, `note`
+  says `origin's default branch is unknown; using local <branch> at <sha>`), never an assumed
+  `main`. Only authorized targets get a workspace: one still proposed by a Bot gets none. A
+  `creating` row found again (a restart cut the creation) is finished in the same folder, keeps
+  the edits already there, and keeps its base and note. No workspace is rolled back because another failed.
 - An agent of a Space under a work item runs in the work item's root folder,
   `<data folder>/worktrees/item-<work item id>`, which holds one workspace per target, so one
   claude or codex process reaches every repository by a relative path. Each workspace is on
@@ -835,7 +837,7 @@ a message wakes them.
   a missing root is closed, and the next one resumes the session in the new root.
 - Before each turn of a role with `write` on a work item, the server stores a checkpoint of every
   ready workspace of the item: a commit of HEAD plus the whole working tree, untracked files
-  included and ignored ones left out, at `refs/reef/checkpoints/<data folder>/<turn id>` in that
+  included and ignored ones left out, at `refs/reef/checkpoints/<data folder>/<turn id>/<workspace id>` in that
   workspace's repository, where `<data folder>` is the first 12 hex digits of the sha256 of the
   absolute data folder path, so two Reef copies on one repo never overwrite each other's. One
   `turn_checkpoint` row per workspace holds the ref; they are the turn's `checkpoints`. A Space
@@ -878,7 +880,7 @@ a message wakes them.
   have (a free Space's turn after an attach), when a `reef chat` holds the Space, or when a
   turn of any role of any Space runs on the work item's root (the write lock is held, or a
   read-only turn is a reader). There is no atomic rollback across repositories: if one restore
-  fails, the ones before it stay restored. A reader that starts during the restore is not held
+  fails, the others are still tried and `reef` posts `Rollback to before turn N stopped partway. Restored: ... Not restored: ...` when some were restored, before the error is returned. A reader that starts during the restore is not held
   back. A turn with no `checkpoints` is 400. Then `reef` posts `Rolled back
   to before turn N.` in the Space. The agent's session is not rewound. When a turn of
   a role that has run before in the Space is sent, its prompt gets the lines `reef wrote: ...`
@@ -890,7 +892,7 @@ a message wakes them.
   workspace with uncommitted changes (untracked files count) is 409 with `work item <id> has
   uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
   Otherwise every workspace is removed with `git worktree remove`, then the root folder, the work
-  item rows are deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of
+  item rows are deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>/<workspace id>` refs of
   every turn of its Spaces are deleted, in the repository of the workspace each was taken in.
   The workspaces go first because that is the step that can refuse or fail, and a
   later wake of a work item makes them again; the refs go after the rows that name them, so a

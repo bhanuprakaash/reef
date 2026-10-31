@@ -589,16 +589,8 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			f, err = s.st.WorkItem(wctx, *c.WorkItemID)
 		}
 		if err == nil {
-			var ws []store.Workspace
-			ws, err = EnsureWorkspaces(ctx, s.st, s.trees, s.dataDir, f)
-			if err == nil && !slices.ContainsFunc(ws, func(w store.Workspace) bool {
-				return w.State == store.WorkspaceReady
-			}) {
-				err = errors.New("no repository of this Work item is ready")
-				if len(ws) > 0 && ws[0].Note != "" {
-					err = errors.New(ws[0].Note)
-				}
-			}
+			ws, werr := EnsureWorkspaces(ctx, s.st, s.trees, s.dataDir, f)
+			err = requireReadyWorkspace(ctx, s.st, ws, werr)
 		}
 	}
 	switch {

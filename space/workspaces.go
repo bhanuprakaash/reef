@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -50,6 +51,9 @@ func EnsureWorkspaces(ctx context.Context, st *store.Store, trees *Trees, dataDi
 	}
 	var errs []error
 	for _, t := range item.Targets {
+		if !authorized(t) {
+			continue
+		}
 		p, err := st.Project(ctx, t.ProjectID)
 		if err != nil {
 			return nil, err
@@ -76,6 +80,12 @@ func EnsureWorkspaces(ctx context.Context, st *store.Store, trees *Trees, dataDi
 	return rows, errors.Join(errs...)
 }
 
+// authorized reports whether the user, or an approval, gave t: a target still proposed by a Bot
+// is no write permission.
+func authorized(t store.Target) bool {
+	return t.AuthorizedBy != "" && !strings.HasPrefix(t.AuthorizedBy, "proposed by")
+}
+
 // targetLines tells an agent where each repository of item f is, relative to its working
 // folder, on which branch and from which base. A pull request you open targets that base.
 func targetLines(ctx context.Context, st *store.Store, b *strings.Builder, f store.WorkItem) error {
@@ -83,15 +93,21 @@ func targetLines(ctx context.Context, st *store.Store, b *strings.Builder, f sto
 	if err != nil {
 		return err
 	}
-	ws, err := st.WorkItemWorkspaces(ctx, topID)
+	all, err := st.WorkItemWorkspaces(ctx, topID)
 	if err != nil {
 		return err
+	}
+	var ws []store.Workspace
+	for _, w := range all {
+		if slices.ContainsFunc(f.Targets, func(t store.Target) bool { return t.ProjectID == w.ProjectID && authorized(t) }) {
+			ws = append(ws, w)
+		}
 	}
 	if len(ws) == 0 {
 		return nil
 	}
-	b.WriteString("Repositories you may change, each in its own folder under your working folder; " +
-		"a pull request targets the base branch:\n")
+	fmt.Fprintf(b, "Your folder %s is not a repository, and changes made in it are lost. Make every change "+
+		"inside one of these repository folders (a pull request targets the base branch):\n", filepath.Dir(ws[0].Dir))
 	for _, w := range ws {
 		p, err := st.Project(ctx, w.ProjectID)
 		if err != nil {
@@ -163,6 +179,12 @@ func ensureWorkspace(
 		return err
 	}
 	defer unlock()
+	if w, err = st.Workspace(ctx, w.ID); err != nil {
+		return err
+	}
+	if _, err := os.Stat(filepath.Join(w.Dir, ".git")); err == nil && w.State == store.WorkspaceReady {
+		return nil
+	}
 	before := w.Note
 	w.Base = p.BaseBranch
 	b, err := worktree.Create(ctx, p.Path, w.Dir, w.Branch, p.BaseBranch)
@@ -177,9 +199,14 @@ func ensureWorkspace(
 		}
 		return err
 	default:
-		w.State, w.Note = store.WorkspaceReady, ""
+		w.State = store.WorkspaceReady
+		if b.Ref == "" && w.BaseRef == "" {
+			b, _ = worktree.ResolveBase(ctx, p.Path, p.BaseBranch)
+		}
 		if b.Ref != "" {
 			w.BaseRef, w.BaseSource, w.Note = b.Ref, b.Source, b.Note
+		} else if w.BaseRef == "" {
+			w.Note = ""
 		}
 	}
 	if err := st.SetWorkspace(ctx, w); err != nil {
@@ -285,6 +312,30 @@ func fixLines(ctx context.Context, st *store.Store, b *strings.Builder, spaceID 
 		b.WriteString("\n")
 	}
 	return nil
+}
+
+// requireReadyWorkspace is nil when any of ws can be worked in: a target that failed is noted
+// and the others run. Otherwise it names each repository and why it waits. err is what
+// EnsureWorkspaces returned.
+func requireReadyWorkspace(ctx context.Context, st *store.Store, ws []store.Workspace, err error) error {
+	if slices.ContainsFunc(ws, func(w store.Workspace) bool { return w.State == store.WorkspaceReady }) {
+		return nil
+	}
+	if len(ws) == 0 {
+		return cmp.Or(err, errors.New("no repository of this Work item is ready"))
+	}
+	if len(ws) == 1 && ws[0].Note != "" {
+		return errors.New(ws[0].Note)
+	}
+	var lines []string
+	for _, w := range ws {
+		p, perr := st.Project(ctx, w.ProjectID)
+		if perr != nil {
+			return perr
+		}
+		lines = append(lines, fmt.Sprintf("%s: %s", p.Name, cmp.Or(w.Note, "not ready")))
+	}
+	return fmt.Errorf("no repository of this Work item is ready: %s", strings.Join(lines, "; "))
 }
 
 func oneLine(err error) string {

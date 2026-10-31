@@ -390,8 +390,6 @@ func (r *Runner) delta(ctx context.Context) (string, error) {
 	return changedSince(ctx, r.st, r.Memory, ch, *r.botID, since)
 }
 
-// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
-// Turns made before the data dir was in the name keep their stored ref, which still restores.
 // checkpoint snapshots every workspace Workspaces lists and records a checkpoint of turn id for
 // each.
 func (r *Runner) checkpoint(ctx context.Context, id int64) error {
@@ -399,12 +397,12 @@ func (r *Runner) checkpoint(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	ref, err := r.checkpointRef(id)
-	if err != nil {
-		return err
-	}
 	for _, w := range ws {
-		err := worktree.Checkpoint(ctx, w.Dir, ref)
+		ref, err := r.checkpointRef(id, w.ID)
+		if err != nil {
+			return err
+		}
+		err = worktree.Checkpoint(ctx, w.Dir, ref)
 		if err == nil {
 			err = r.st.AddTurnCheckpoint(ctx, id, w.ID, ref)
 		}
@@ -415,13 +413,16 @@ func (r *Runner) checkpoint(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (r *Runner) checkpointRef(turnID int64) (string, error) {
+// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>/
+// <workspace id>: worktrees of one repository share their refs, so each workspace needs its own.
+// Turns made before that keep their stored ref, which still restores.
+func (r *Runner) checkpointRef(turnID, workspaceID int64) (string, error) {
 	dir, err := filepath.Abs(r.DataDir)
 	if err != nil {
 		return "", fmt.Errorf("checkpoint ref: %w", err)
 	}
 	sum := sha256.Sum256([]byte(dir))
-	return fmt.Sprintf("refs/reef/checkpoints/%x/%d", sum[:6], turnID), nil
+	return fmt.Sprintf("refs/reef/checkpoints/%x/%d/%d", sum[:6], turnID, workspaceID), nil
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply

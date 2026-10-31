@@ -36,7 +36,11 @@ function ToolCallRow({ call }: { call: InspectorToolCall }) {
     <div>
       <div className="text-soft">
         {label ? `${call.name} ${label}` : call.name}
-        {call.target && <span className="ml-2 text-muted">{call.target.projectName}</span>}
+        {call.targets && call.targets.length > 0 && (
+          <span className="ml-2 text-muted">
+            {call.targets.map((t) => t.projectName).join(', ')}
+          </span>
+        )}
       </div>
       {children.length > 0 && (
         <details className="mt-1.5">

@@ -36,6 +36,7 @@ var _scenarios = []scenario{
 	{"propose-owner", "lead", pat(`^PROPOSE THE SLOW SEARCH FOR BOB`)},
 	{"owner-handover", "", pat(`You are now the owner and coordinator of Work item`)},
 	{"quick-fix-open", "", pat(`^QUICK FIX LOGIN`)},
+	{"quick-fix-second", "", pat(`^QUICK FIX LOGOUT`)},
 	{"quick-fix-again", "", pat(`^QUICK FIX AGAIN`)},
 	{"flow-propose-kit", "kit", pat(`PROPOSE THE SLOW SEARCH`)},
 	{"assign-two-repos", "lead", pat(`^Work item \d+: Rename in two repos`)},

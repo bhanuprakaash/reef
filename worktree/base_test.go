@@ -54,6 +54,25 @@ func TestEnsure_BaseBranchIsFetchedFromOrigin(t *testing.T) {
 	}
 }
 
+func TestResolveBase_EmptyBaseWithOriginButNoDefaultSaysSo(t *testing.T) {
+	remote := t.TempDir()
+	run(t, remote, "init", "--bare", "-b", "main")
+	repo := newRepo(t)
+	run(t, repo, "remote", "add", "origin", remote)
+	sha := run(t, repo, "rev-parse", "--short", "main")
+
+	b, err := ResolveBase(context.Background(), repo, "")
+
+	want := "origin's default branch is unknown; using local main at " + sha
+	if err != nil || b.Source != "local" || b.Ref != "refs/heads/main" || b.Note != want {
+		t.Errorf("ResolveBase = %+v, %v; want local refs/heads/main with note %q", b, err, want)
+	}
+	plain := newRepo(t)
+	if b, err := ResolveBase(context.Background(), plain, ""); err != nil || b.Note != "" {
+		t.Errorf("ResolveBase of a repo with no origin = %+v, %v; want no note", b, err)
+	}
+}
+
 func TestEnsure_BaseBranchWithoutRemote(t *testing.T) {
 	repo := newRepo(t)
 	run(t, repo, "checkout", "-b", "dev")
