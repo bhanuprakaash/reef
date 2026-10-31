@@ -20,17 +20,19 @@ type wakeAgent struct {
 	events  chan agent.Event
 	onStart func()
 	onSend  func()
+	cfg     agent.Config
 }
 
-func (a *wakeAgent) Start(context.Context, agent.Config) error {
+func (a *wakeAgent) Start(_ context.Context, cfg agent.Config) error {
+	a.cfg = cfg
 	if a.onStart != nil {
 		a.onStart()
 	}
 	return nil
 }
 
-func (a *wakeAgent) Resume(_ context.Context, _ agent.Config, id string) error {
-	a.session = id
+func (a *wakeAgent) Resume(_ context.Context, cfg agent.Config, id string) error {
+	a.cfg, a.session = cfg, id
 	return nil
 }
 

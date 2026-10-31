@@ -609,6 +609,7 @@ func roleConfig(r store.Role, cwd string) agent.Config {
 		Cwd:             cwd,
 		PermissionMode:  mode,
 		Model:           r.Model,
+		Instructions:    Instructions(r),
 		Tools:           append(tools, "mcp__reef__*"),
 		DisallowedTools: denied,
 	}

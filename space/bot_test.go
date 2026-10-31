@@ -82,8 +82,9 @@ func TestSession_OneBotRunsWithProfileAccess(t *testing.T) {
 			t.Errorf("team %s: checkpoint = %v, want %v", tt.team, got, tt.checkpoint)
 		}
 		want := "lesson " + strconv.FormatInt(item.ID, 10) + ": Check the empty case first."
-		if !strings.Contains(turns[0].Prompt, "You test.") || !strings.Contains(turns[0].Prompt, want) {
-			t.Errorf("team %s: prompt =\n%s\nwant it to hold the description and %q", tt.team, turns[0].Prompt, want)
+		if !strings.HasSuffix(ag.cfg.Instructions, "\n\nYou test.") || !strings.Contains(turns[0].Prompt, want) {
+			t.Errorf("team %s: instructions end %q, prompt =\n%s\nwant the description last and %q",
+				tt.team, ag.cfg.Instructions, turns[0].Prompt, want)
 		}
 	}
 }

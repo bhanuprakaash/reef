@@ -234,6 +234,15 @@ func TestThreadParams_Model(t *testing.T) {
 	}
 }
 
+func TestThreadParams_Instructions(t *testing.T) {
+	if got := threadParams(agent.Config{Instructions: "Be brief."})["developerInstructions"]; got != "Be brief." {
+		t.Errorf("threadParams developerInstructions = %v, want Be brief.", got)
+	}
+	if _, ok := threadParams(agent.Config{})["developerInstructions"]; ok {
+		t.Error("threadParams has developerInstructions without instructions")
+	}
+}
+
 func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{
 		"reef": {Command: "reef-mcp"},

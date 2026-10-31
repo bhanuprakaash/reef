@@ -351,6 +351,16 @@ func TestWakeAs_CompactedSessionGetsTheFirstPromptAgain(t *testing.T) {
 				strings.Contains(got, "## You\n") || strings.Contains(got, "## What we know\n") {
 				t.Errorf("turn 3 prompt = %q, want a wake and at most a delta", got)
 			}
+			for i, ag := range e.agents {
+				if !strings.HasPrefix(ag.cfg.Instructions, "You are a Bot working in Reef. ") {
+					t.Errorf("agent %d instructions = %q, want the shared prompt first", i, ag.cfg.Instructions)
+				}
+			}
+			for i, turn := range turns {
+				if strings.Contains(turn.Prompt, "You are a Bot working in Reef.") {
+					t.Errorf("turn %d prompt holds the shared prompt, want it in the instructions only", i+1)
+				}
+			}
 		})
 	}
 }

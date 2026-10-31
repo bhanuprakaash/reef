@@ -280,16 +280,30 @@ a work item and for a quick session. It has three sections in this order, each w
 `##` header. It never holds a message body. A part with nothing to say is left out: there is
 no `No brief yet.` and no `none`. A section with no part left is left out.
 
+A session has four layers. The first two are stable instructions, not part of this prompt: the
+shared Reef behavior (`_reefPrompt` in `space/context.go`), then the Bot's description as the
+Space adopted it, together `space.Instructions`, passed in `agent.Config.Instructions` (claude
+`--append-system-prompt`, codex `developerInstructions`; see [agents.md](agents.md)). Every new
+backend context carries them, so a renewal or a resume after compaction restores them. The
+description says how the Bot contributes and grants no tool: tools and permissions come only from
+the adopted settings. The third and fourth layers are this prompt: the assignment, participants,
+profile, project associations and memory summaries (`## You`, `## What we know`) and the delivery
+instructions (`## How to work`). It goes before the first message of a session and again after a
+compaction; later turns carry only the request and what changed.
+
 1. `## You`
-   - When the role has a description or skills (a team role, see Teams): the description, then
-     `Your skills:` and the skills, each followed by a blank line. `reef context` has no role
-     to read them from and does not print them. A role keeps the description and skills it adopted
+   - When the role has skills: `Your skills:` and the skills, followed by a blank line. `reef context`
+     has no role to read them from and does not print them. A role keeps the skills it adopted
      in the Space; a later edit of the Bot changes none of this.
    - One line: role, work item title and id, project name. A free Space says instead:
      the role and that it is a free Space with no work item, so there is no brief or work item items.
      A direct conversation says it is a direct conversation with the user. Either then lists
      `Associated projects, for context only; you do not work in them: shop (1).` when the Space has
-     any, with no folder: the agent runs in a folder of its own, not in a project.
+     any, with no folder: the agent runs in a folder of its own, not in a project. It then lists
+     the other projects, up to 10, as `Other projects (list_projects finds them,
+     associate_project links one to this Space): shop (1); infra (2): Deploys shop`: id, name and
+     the first line of the project's purpose. Project architecture and project memory are not
+     loaded; the Bot reads them on demand.
    - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
      big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
    - The description (if set), as `Description: ...`, then `Acceptance lines:` with one line
@@ -298,17 +312,19 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    - On a work item, when the project has a base branch, `Base branch: dev. A pull request you open targets it.`
 2. `## How to work`
    - When the team has two or more roles: `Your team: @lead, @architect.` It says that
-     `post_to_space` and @mentions are shared (decisions, blockers, user questions and outcomes
-     belong there), while `send_to_role` coordinates in detail with one bot and gets one
-     automatic direct response, and that an `Asked together:` line names every role one message
+     `post_to_space` is for what the whole team needs and that only a line starting with `@name`
+     wakes a bot, while `send_to_role` coordinates in detail with one bot and gets one
+     automatic direct response. Routed messages are delivered after the sender's turn ends and the
+     reply arrives in a later turn, so a role sends the request and ends its turn instead of
+     waiting. An `Asked together:` line names every role one message
      woke. A public message that wakes you starts with `[Space N, message N]` or `[Space N,
      message N, thread N]`; your plain reply goes where the header says (a top-level reply starts
      your own thread), and `post_to_space` takes the header's `thread` as its `parent` when there
      is one. After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
      Space since the role's last turn began, such as a rollback note (see
      [server.md](server.md#spaces-live)). The prompt does not explain them. It also asks a role
-     to publish one concise outcome with `post_to_space` when a direct chain completes with
-     information the team or the user needs; raw logs and routine acknowledgements stay private.
+     to publish one concise outcome with `post_to_space` when a direct exchange ends with
+     something the team or the user needs.
      A new Space never gets direct messages in its context: the brief and the memory items are
      the memory that carries over. The lead gets one more line: do not summarize or repeat a
      specialist's post back to the user, because they see it. `reef context` has no team and
@@ -359,7 +375,7 @@ You are developer on work item "Email login" (1) in project "shop".
 Description: Users sign in with email and password
 
 ## How to work
-Your team: @lead, @developer. Use post_to_space and @mentions for work the whole team needs: ...
+Your team: @lead, @developer. Use post_to_space for what the whole team needs; ...
 Details are on demand through the reef MCP tools recall, read_memory, read_thread and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
 ## What we know

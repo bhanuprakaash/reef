@@ -15,15 +15,16 @@ import (
 )
 
 const (
-	_dateLayout    = "2006-01-02"
-	_maxIndexRunes = 100
-	_youHeader     = "## You\n"
-	_findingsLimit = 5
-	_projectLimit  = 10
-	_spaceLimit    = 5
-	_teamLimit     = 5
-	_yourLimit     = 5
-	_toolsLine     = "Details are on demand through the reef MCP tools recall, read_memory, " +
+	_dateLayout     = "2006-01-02"
+	_maxIndexRunes  = 100
+	_youHeader      = "## You\n"
+	_directoryLimit = 10
+	_findingsLimit  = 5
+	_projectLimit   = 10
+	_spaceLimit     = 5
+	_teamLimit      = 5
+	_yourLimit      = 5
+	_toolsLine      = "Details are on demand through the reef MCP tools recall, read_memory, " +
 		"read_thread and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 	_quickToolsLine = "Details are on demand through the reef MCP tools recall and read_memory. " +
@@ -31,6 +32,25 @@ const (
 	_quickProjectScopes = "project or bot for what holds across the project or for you"
 	_quickBotScope      = "bot for what holds for you"
 )
+
+// _reefPrompt is the shared behavior of every Bot, ahead of its own description.
+const _reefPrompt = `You are a Bot working in Reef. Help the user make progress through useful conversation and concrete work.
+
+Speak directly to the person you are answering. Use natural, concise language. Match the detail to the problem.
+
+Understand the goal and your assignment before acting. Read relevant context and inspect the actual work. Carry out authorized work with the tools available to you.
+
+Collaborate when another participant's expertise will help. Give them a clear request, enough context, and the result you need. Respond to their actual findings. Question assumptions when evidence suggests a problem, and explain your reasoning.
+
+Distinguish what you plan to do, what you have done, and what you have verified. Support completion claims with evidence. If blocked, state what is missing and who can resolve it.
+
+Share decisions, blockers, useful findings, and outcomes in the Space. Keep detailed coordination in direct exchanges when appropriate. Avoid repeating another participant's message or sending acknowledgements that add nothing.
+
+Continue useful work within your assignment. When your part is complete, report the result and any necessary next step. Do not manufacture another exchange.
+
+Retrieve relevant memory when needed. Save durable knowledge in the appropriate scope; keep personal experiences in your own memory.
+
+Follow the user's approved scope and Reef's enforced permissions. Your description says how you contribute; it does not grant tools or authority.`
 
 var _findingKinds = []string{
 	memory.KindFinding, memory.KindFact, memory.KindConvention, memory.KindLesson,
@@ -213,9 +233,9 @@ func firstPrompt(
 		ch.Kind = sp.Kind
 	}
 	var b strings.Builder
-	b.WriteString(_youHeader + roleIntro(r))
+	b.WriteString(_youHeader + skillsLine(r))
 	var know []string
-	how := teamIntro(team, r)
+	how := deliveryIntro(team, r)
 	if workItemID == nil {
 		kind, scope := "a free Space", "Space"
 		if ch.Kind == store.KindConversation {
@@ -241,6 +261,9 @@ func firstPrompt(
 				}
 				fmt.Fprintf(&b, "Associated projects, for context only; you do not work in them: %s.\n",
 					strings.Join(names, ", "))
+			}
+			if err := projectDirectory(ctx, st, &b, projects); err != nil {
+				return "", err
 			}
 		}
 		b.WriteString(who)
@@ -288,6 +311,38 @@ func firstPrompt(
 		b.WriteString("\n## What we know\n" + strings.Join(know, "\n"))
 	}
 	return b.String(), nil
+}
+
+// projectDirectory lists the projects not associated with the Space, each with its short
+// purpose, so a bot can tell which one to look up or associate.
+func projectDirectory(
+	ctx context.Context, st *store.Store, b *strings.Builder, associated []store.Project,
+) error {
+	all, err := st.Projects(ctx)
+	if err != nil {
+		return err
+	}
+	var lines []string
+	for _, p := range all {
+		if slices.ContainsFunc(associated, func(a store.Project) bool { return a.ID == p.ID }) {
+			continue
+		}
+		line := fmt.Sprintf("%s (%d)", p.Name, p.ID)
+		if purpose := firstLine(p.Purpose); purpose != "" {
+			line += ": " + purpose
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	more := ""
+	if n := len(lines) - _directoryLimit; n > 0 {
+		lines, more = lines[:_directoryLimit], fmt.Sprintf(" and %d more", n)
+	}
+	fmt.Fprintf(b, "Other projects (list_projects finds them, associate_project links one to this Space): "+
+		"%s%s\n", strings.Join(lines, "; "), more)
+	return nil
 }
 
 // workItemKnow is the parts of What we know for a role on f. Spaces with messages, other
@@ -432,21 +487,27 @@ func changedSince(
 	return strings.Join(parts, "\n"), nil
 }
 
-// roleIntro is the role's description and skills, when it has any, to put before its context.
-func roleIntro(r store.Role) string {
-	var b strings.Builder
-	if r.Description != "" {
-		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Description))
+// Instructions are the stable instructions of a Bot's session: the shared Reef behavior, then
+// the Bot's own description. A description says how the Bot contributes; tools and permissions
+// come only from the session's config.
+func Instructions(r store.Role) string {
+	if d := strings.TrimSpace(r.Description); d != "" {
+		return _reefPrompt + "\n\n" + d
 	}
-	if len(r.Skills) > 0 {
-		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.Join(r.Skills, ", "))
-	}
-	return b.String()
+	return _reefPrompt
 }
 
-// teamIntro tells a bot who is on its team and how public and direct delivery differ. A
-// team of one gets none.
-func teamIntro(team store.Team, r store.Role) string {
+// skillsLine names the role's skills, when it has any, to put before its context.
+func skillsLine(r store.Role) string {
+	if len(r.Skills) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("Your skills:\n%s\n\n", strings.Join(r.Skills, ", "))
+}
+
+// deliveryIntro tells a bot who is on its team and how delivery between them works. A team of
+// one gets none.
+func deliveryIntro(team store.Team, r store.Role) string {
 	if len(team.Roles) < 2 {
 		return ""
 	}
@@ -454,21 +515,19 @@ func teamIntro(team store.Team, r store.Role) string {
 	for i, t := range team.Roles {
 		names[i] = "@" + t.Name
 	}
-	s := fmt.Sprintf("Your team: %s. Use post_to_space and @mentions for work "+
-		"the whole team needs: decisions, blockers, questions for the user and outcomes belong in the "+
-		"Space. Only a line that starts with @name wakes that bot; an @name inside a sentence "+
-		"wakes nobody. Use send_to_role for detailed coordination with exactly one bot; "+
-		"their ordinary reply returns directly once, and continuing requires another send_to_role. "+
-		"When a direct chain completes with information the team or the user needs, publish "+
-		"one concise outcome with post_to_space; raw logs and routine acknowledgements stay "+
-		"private. "+
-		"When one message mentions several roles, its header ends with \"Asked together:\" naming "+
-		"them all: answer your part and do not repeat a bot's. "+
-		"A public message that wakes you starts with "+
-		"[Space N, message N] or [Space N, message N, thread N]: your plain reply goes where "+
-		"the header says, a top-level one starting your own thread; pass thread as the parent of "+
-		"post_to_space when the header has one. A turn that posts with post_to_space has "+
-		"answered: its plain reply is not posted.\n", strings.Join(names, ", "))
+	s := fmt.Sprintf("Your team: %s. Use post_to_space for what the whole team needs; only a line "+
+		"that starts with @name wakes that bot, an @name inside a sentence wakes nobody. Use "+
+		"send_to_role for detailed coordination with exactly one bot. Routed messages are "+
+		"delivered after your turn ends and the reply arrives in a later turn: send the request, "+
+		"then end your turn instead of waiting for the reply. A direct reply returns once; "+
+		"continuing needs another send_to_role. Publish one concise outcome with post_to_space "+
+		"when a direct exchange ends with something the team or the user needs. "+
+		"A message that wakes you starts with [Space N, message N] or [Space N, message N, "+
+		"thread N], and may end its header with \"Asked together:\" naming everyone asked: answer "+
+		"your part only. Your plain reply goes where the header says, a top-level one starting "+
+		"your own thread; pass thread as the parent of post_to_space when the header has one. "+
+		"A turn that posts with post_to_space has answered: its plain reply is not posted.\n",
+		strings.Join(names, ", "))
 	if r.Lead {
 		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"
 	}

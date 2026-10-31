@@ -667,6 +667,18 @@ func TestToolsDisallowed(t *testing.T) {
 	}
 }
 
+func TestInstructionsAppended(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{Cwd: t.TempDir(), Instructions: "Be brief."}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, " --append-system-prompt Be brief.") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
 func TestMCPServerNameRejected(t *testing.T) {
 	a := fakeClaude(t, "argv")
 	cfg := agent.Config{

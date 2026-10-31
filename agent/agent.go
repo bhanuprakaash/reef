@@ -35,6 +35,7 @@ type Config struct {
 	Bin             string               // backend executable; empty is claude or codex from PATH
 	PermissionMode  string               // backend-specific value, passed through
 	Model           string               // backend-specific model name; empty is the backend's default
+	Instructions    string               // standing instructions the backend keeps on top of its own, for the whole session
 	Tools           []string             // tools allowed without asking; codex ignores it
 	DisallowedTools []string             // tools denied whatever settings allow; codex ignores it
 	MCPServers      map[string]MCPServer // extra MCP servers, by name

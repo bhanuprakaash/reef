@@ -169,8 +169,12 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Errorf("started = %v, resumed = %q, want a new session", ag.started, ag.resumed)
 	}
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
+	if !strings.HasPrefix(ag.cfg.Instructions, "You are a Bot working in Reef. ") {
+		t.Errorf("instructions = %q, want the shared prompt first", ag.cfg.Instructions)
+	}
 	want := agent.Config{
 		Cwd: dir + "/worktrees/1/1", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
+		Instructions: ag.cfg.Instructions,
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},
@@ -261,6 +265,11 @@ func TestWorkDir_NoWorkItem(t *testing.T) {
 func TestOpen_ChatWithoutProject(t *testing.T) {
 	ctx := context.Background()
 	st, _ := openStore(t)
+	if _, err := st.CreateProject(ctx, store.Project{
+		Name: "infra", Path: t.TempDir(), Purpose: "Deploys shop.\nSecond line.",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	id := testBotID(t, st, "architect")
 	ch, err := st.CreateBotSpace(ctx, store.Space{Name: "chat", Role: "architect"}, *id)
 	if err != nil {
@@ -290,6 +299,7 @@ func TestOpen_ChatWithoutProject(t *testing.T) {
 	}
 	wantPrompt := "## You\nYou are architect.\n" +
 		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
+		"Other projects (list_projects finds them, associate_project links one to this Space): shop (1); infra (2): Deploys shop.\n" +
 		"\n## How to work\n" +
 		"Details are on demand through the reef MCP tools recall and read_memory. " +
 		"remember saves to this Space by default; use scope bot for what holds for you.\n" +
@@ -410,7 +420,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
-			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"claude:sketch"},
+			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"sketch"},
 			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
 		},
 	}}); err != nil {
@@ -454,7 +464,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, nil, whoAmI); err != nil {
 		t.Fatal(err)
 	}
-	want := "## You\nYou design.\n\nYour skills:\nclaude:sketch\n\nYou are architect on work item"
+	want := "## You\nYour skills:\nclaude:sketch\n\nYou are architect on work item"
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
@@ -536,8 +546,9 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 	if err := s.RunAs(ctx, "tester", "check it", nil, nil, discard); err != nil {
 		t.Fatalf("RunAs tester error = %v, want nil", err)
 	}
-	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "## You\nYou test.") {
-		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its description", len(ags), ags[1].prompts)
+	if len(ags) != 2 || !strings.HasSuffix(ags[1].cfg.Instructions, "\n\nYou test.") {
+		t.Errorf("agents = %d, tester instructions = %q, want the description after the shared prompt",
+			len(ags), ags[len(ags)-1].cfg.Instructions)
 	}
 }
 
@@ -616,13 +627,13 @@ func TestSession_AdoptedSettingsSurviveBotEdits(t *testing.T) {
 	got := turn(second, "new chat")
 	if got.cfg.Model != "opus" || got.cfg.PermissionMode != "default" ||
 		!reflect.DeepEqual(got.cfg.Tools, []string{"Read", "Task", "mcp__reef__*"}) ||
-		!strings.Contains(strings.Join(got.prompts, "\n"), "You code in Go only.") {
-		t.Errorf("new Space: cfg %+v, prompts %q; want the edited opus, Read and description", got.cfg, got.prompts)
+		!strings.HasSuffix(got.cfg.Instructions, "\n\nYou code in Go only.") {
+		t.Errorf("new Space: cfg %+v; want the edited opus, Read and description", got.cfg)
 	}
 }
 
 func TestSession_MissingSessionStartsNewOne(t *testing.T) {
-	const intro = "You lead.\n\n"
+	const intro = "You are lead on work item"
 	tests := []struct {
 		name string
 		gone func(*recordingAgent)
@@ -883,9 +894,10 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	if len(ags) != 4 {
 		t.Fatalf("agents = %d, want 4", len(ags))
 	}
-	if len(ags[0].prompts) != 1 || !strings.Contains(ags[0].prompts[0], "You code.") ||
+	if len(ags[0].prompts) != 1 || !strings.HasSuffix(ags[0].cfg.Instructions, "\n\nYou code.") ||
 		!strings.HasSuffix(ags[0].prompts[0], "wake 1") {
-		t.Errorf("wake 1: prompts = %q, want the description and wake 1", ags[0].prompts)
+		t.Errorf("wake 1: prompts = %q, instructions = %q, want the description and wake 1",
+			ags[0].prompts, ags[0].cfg.Instructions)
 	}
 	want := []string{"wake 2", "wake 3", "wake 4"}
 	for i, ag := range ags[1:] {
@@ -934,8 +946,9 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 	if len(ags[0].prompts) != 4 {
 		t.Fatalf("prompts = %q, want 4", ags[0].prompts)
 	}
-	if !strings.Contains(ags[0].prompts[0], "You lead.") || !strings.HasSuffix(ags[0].prompts[0], "wake 1") {
-		t.Errorf("wake 1: prompt = %q, want the description and wake 1", ags[0].prompts[0])
+	if !strings.HasSuffix(ags[0].cfg.Instructions, "\n\nYou lead.") || !strings.HasSuffix(ags[0].prompts[0], "wake 1") {
+		t.Errorf("wake 1: prompt = %q, instructions = %q, want the description and wake 1",
+			ags[0].prompts[0], ags[0].cfg.Instructions)
 	}
 	want := []string{"wake 2", "wake 3", "wake 4"}
 	for i, p := range ags[0].prompts[1:] {
@@ -1625,8 +1638,8 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 	if got.Status != "failed" || got.Error != "chat exited" || got.Usage != want {
 		t.Errorf("turn = %q %q %+v, want failed, chat exited, %+v", got.Status, got.Error, got.Usage, want)
 	}
-	if !strings.Contains(got.Prompt, "You code.") || !strings.HasSuffix(got.Prompt, "build it") {
-		t.Errorf("prompt = %q, want the description and the wake", got.Prompt)
+	if !strings.HasSuffix(got.Prompt, "build it") {
+		t.Errorf("prompt = %q, want the wake last", got.Prompt)
 	}
 
 	if used, err := st.SpaceTokens(ctx, ch.ID); err != nil || used != 22 {
