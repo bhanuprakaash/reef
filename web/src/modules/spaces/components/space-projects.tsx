@@ -1,5 +1,6 @@
 import { useSetSpaceProject, useSpaceProjects } from '@/modules/spaces/api/space-projects';
 import type { Project } from '@/types/api';
+import { Button } from '@/components/button';
 import { Select } from '@/components/select';
 
 type Props = { spaceId: number; projects: Project[]; readOnly: boolean };
@@ -24,15 +25,15 @@ export function SpaceProjects({ spaceId, projects, readOnly }: Props) {
           <li key={p.id} className="flex min-h-9 items-center gap-2 text-[14.5px]">
             <span className="min-w-0 flex-1 truncate">{p.name}</span>
             {!readOnly && (
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="sm"
                 aria-label={`Remove ${p.name}`}
                 disabled={set.isPending}
                 onClick={() => set.mutate({ projectId: p.id, associated: false })}
-                className="rounded-field px-2 text-[12.5px] text-muted hover:bg-card hover:text-fg"
               >
                 Remove
-              </button>
+              </Button>
             )}
           </li>
         ))}

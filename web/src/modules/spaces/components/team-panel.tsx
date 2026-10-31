@@ -4,6 +4,7 @@ import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import { SpaceProjects } from '@/modules/spaces/components/space-projects';
 import type { Project, Role } from '@/types/api';
+import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
 import { Creature, type CreatureState } from '@/components/creature';
@@ -96,14 +97,14 @@ export function TeamPanel({
                   </span>
                 </span>
                 {!role.lead && (
-                  <button
-                    type="button"
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={setCoordinator.isPending}
                     onClick={() => setCoordinator.mutate(role.botId)}
-                    className="rounded-field px-2 py-1 text-[12.5px] text-muted hover:bg-card hover:text-fg"
                   >
                     Make coordinator
-                  </button>
+                  </Button>
                 )}
                 {usage && (
                   <span className="text-[12.5px] tabular-nums text-muted">
