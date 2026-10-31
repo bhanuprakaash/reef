@@ -74,7 +74,9 @@ export function MessageList({
   const firstId = new Map<number, number>();
   for (const { root, replies } of threads) {
     for (const m of [root, ...replies]) {
-      if (m.botId != null) firstId.set(m.botId, Math.min(m.id, firstId.get(m.botId) ?? m.id));
+      if (m.botId != null && m.exchangeId == null) {
+        firstId.set(m.botId, Math.min(m.id, firstId.get(m.botId) ?? m.id));
+      }
     }
   }
   const founder = Math.min(...firstId.values());

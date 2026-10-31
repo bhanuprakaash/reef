@@ -46,7 +46,7 @@ func TestBotChatsListBothSidesAndActivityReadsOnly(t *testing.T) {
 	ada := chatLines(getJSON[[]store.BotChat](t, fmt.Sprintf("%s/bots/%d/chats", e.url, e.ada)))
 	wantAda := []string{
 		fmt.Sprintf(`chat 2 bot %d "ada chat"`, e.ada),
-		fmt.Sprintf(`consultation 4 bot %d "Consultation with ben" from 2 "ada · ada chat"`, e.ben),
+		fmt.Sprintf(`consultation 4 bot %d "Consultation with ben · q1" from 2 "ada · ada chat"`, e.ben),
 	}
 	if !slices.Equal(ada, wantAda) {
 		t.Errorf("Ada's chats = %q, want %q", ada, wantAda)
@@ -54,7 +54,7 @@ func TestBotChatsListBothSidesAndActivityReadsOnly(t *testing.T) {
 	ben := chatLines(getJSON[[]store.BotChat](t, fmt.Sprintf("%s/bots/%d/chats", e.url, e.ben)))
 	wantBen := []string{
 		fmt.Sprintf(`chat 3 bot %d "ben chat"`, e.ben),
-		fmt.Sprintf(`consultation 4 bot %d "Consultation from ada" from 2 "ada · ada chat"`, e.ben),
+		fmt.Sprintf(`consultation 4 bot %d "Consultation from ada · q1" from 2 "ada · ada chat"`, e.ben),
 	}
 	if !slices.Equal(ben, wantBen) {
 		t.Errorf("Ben's chats = %q, want %q", ben, wantBen)
@@ -77,7 +77,7 @@ func TestBotChatsListBothSidesAndActivityReadsOnly(t *testing.T) {
 		t.Errorf("activity = %s, want a turn with no tool calls to show []", raw)
 	}
 	a := getJSON[store.BotActivity](t, url)
-	if a.Label != "Consultation from ada" || a.Origin == nil || a.Origin.SpaceID != 2 || len(a.Turns) == 0 ||
+	if a.Label != "Consultation from ada · q1" || a.Origin == nil || a.Origin.SpaceID != 2 || len(a.Turns) == 0 ||
 		len(a.Exchanges) == 0 {
 		t.Errorf("activity = %+v, want the consultation with its origin, turns and exchanges", a)
 	}

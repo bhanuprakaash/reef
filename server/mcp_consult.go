@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -61,7 +62,7 @@ func (m *mcpServer) consult(
 		SpaceID: in.Consultation, OriginSpaceID: &m.tok.SpaceID, From: name, To: asked.Name,
 		FromBotID: m.tok.BotID, ToBotID: &asked.ID, Body: in.Body, Kind: store.ExchangeRequest,
 		RequestKey: &key,
-	}, "Consultation from "+name, "Asked "+asked.Name+": "+in.Body)
+	}, "Consultation from "+name+" · "+opening(in.Body), "Asked "+asked.Name+": "+in.Body)
 	if err != nil {
 		return nil, consultOut{}, err
 	}
@@ -101,4 +102,13 @@ func (m *mcpServer) askedBot(ctx context.Context, ref string) (store.Bot, error)
 		}
 	}
 	return store.Bot{}, fmt.Errorf("%w: unknown bot %q", store.ErrInvalid, ref)
+}
+
+// opening is the first words of a question, to tell consultations from one asker apart.
+func opening(body string) string {
+	words := strings.Fields(body)
+	if len(words) <= 6 {
+		return strings.Join(words, " ")
+	}
+	return strings.Join(words[:6], " ") + "…"
 }

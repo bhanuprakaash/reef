@@ -32,10 +32,14 @@ func wakeText(
 	if err != nil {
 		return "", nil, err
 	}
+	known, err := st.GuidanceKnown(ctx, spaceID, botID)
+	if err != nil {
+		return "", nil, err
+	}
 	var blocks []string
 	var sent store.Scopes
 	for _, sc := range scopes {
-		b, newest, err := block(ctx, st, spaceID, botID, sc, read, sessionID == "")
+		b, newest, err := block(ctx, st, spaceID, botID, sc, read, known, sessionID == "")
 		if err != nil {
 			return "", nil, err
 		}
@@ -50,7 +54,7 @@ func wakeText(
 
 func block(
 	ctx context.Context, st *store.Store, spaceID, botID int64, sc store.Scope,
-	read map[int64]int64, fresh bool,
+	read map[int64]int64, known map[int64]bool, fresh bool,
 ) (text string, newest int64, err error) {
 	var msgs []store.Message
 	if sc.Thread != 0 {
@@ -70,6 +74,8 @@ func block(
 	unread := slices.DeleteFunc(msgs, func(m store.Message) bool {
 		switch {
 		case (m.BotID != nil && *m.BotID == botID) || m.Author == store.ReefAuthor:
+			return true
+		case m.ExchangeID != nil && known[*m.ExchangeID]:
 			return true
 		case m.ParentID != nil:
 			return sc.Thread == 0 || m.ID <= read[*m.ParentID]

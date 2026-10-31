@@ -679,7 +679,7 @@ tool calls.
 | `PUT /bots/{id}` | every field | 200 | 400, 404, 409 name taken |
 | `DELETE /bots/{id}` | | 204 | 400 the bot is in a team or a Space (names it), 404 |
 | `GET /bots/{id}/conversations` | `?project=ID` (only those associated with the Project), `?limit=N` (at most 200; without it all), `?before=ID` (only those after that conversation in the list, so the last id of a page is the next `before`), `?resumable=1` (leave out the conversations that moved to a Space) | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Pages follow the list order by (newest activity, id), so they never repeat or skip one unless a listed conversation gets a message while the pages are read. `?resumable=1&project=N&limit=1` is the Bot's latest chat to resume under Project N and `?resumable=1&limit=1` its latest overall; `[]` means none, and the server never creates one: the client offers New chat (`POST /spaces`). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 400 bad id, 404 |
-| `GET /bots/{id}/chats` | `?project=ID`, `?limit=N` (at most 200), `?before=SPACE_ID`, paged like `/bots/{id}/conversations` | 200 the Bot's chats, newest activity first, as `{kind, spaceId, botId, label, origin?, active, closed, lastActivity}`. `kind` is `chat` (a personal chat; label is its title), `space` (a Space the Bot is a member of, or a work item or free Space it left after taking part; label `<Bot> · <Space>`, such as `Alex · Login Space`, with ` (left)` after it once the Bot left) or `consultation` (label `Consultation from <asker>` for the consulted Bot, `Consultation with <Bot>` for the asker, whose entry opens the consulted Bot's activity). A consultation's `origin` is the requesting chat `{spaceId, label}`, derived from its first request's `origin_space_id` and `from_bot_id`. `active` is true while a turn of the Bot (any turn in a consultation) runs; `botId` is the Bot whose activity the entry opens. Reads stored rows only | 400, 404 |
+| `GET /bots/{id}/chats` | `?project=ID`, `?limit=N` (at most 200), `?before=SPACE_ID`, paged like `/bots/{id}/conversations` | 200 the Bot's chats, newest activity first, as `{kind, spaceId, botId, label, origin?, active, closed, lastActivity}`. `kind` is `chat` (a personal chat; label is its title), `space` (a Space the Bot is a member of, or a work item or free Space it left after taking part; label `<Bot> · <Space>`, such as `Alex · Login Space`, with ` (left)` after it once the Bot left) or `consultation` (label `Consultation from <asker> · <first words of the first question>` for the consulted Bot, `Consultation with <Bot> · <first words>` for the asker, whose entry opens the consulted Bot's activity). A consultation's `origin` is the requesting chat `{spaceId, label}`, derived from its first request's `origin_space_id` and `from_bot_id`. `active` is true while a turn of the Bot (any turn in a consultation) runs; `botId` is the Bot whose activity the entry opens. Reads stored rows only | 400, 404 |
 | `GET /spaces/{id}/bots/{botId}/activity` | | 200 `{space, botId, label, origin?, messages, exchanges, turns}`: what the records hold of that Bot in that Space, a Bot that left included (label ends ` (left)`). `messages` are those it wrote, those that woke it and those linked to its exchanges (every message in a chat or consultation); `exchanges` are its direct messages with their state; `turns` are its turns each with `toolCalls` (`{id, name, input, result, parentId?}`, as the backend exposed them). Nothing about model reasoning. A pure read: no turn, session or workspace is created, so it works on a closed Space whose workspace and backend are gone | 400, 404 the Space, or the Bot never took part in it |
 | `POST /teams/{name}/members` | `botId`, `lead` | 201 the role as `GET /teams/{name}` shows it | 400 unknown bot, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
@@ -1060,7 +1060,7 @@ unknown, so it is never replayed, and the user retries it on purpose. An exchang
 ### Consultations
 
 A Bot in a direct conversation asks another Bot with the `consult` MCP tool. The question runs in a
-Space of kind `consultation`, titled `Consultation from <asker>`: one member, the consulted Bot,
+Space of kind `consultation`, titled `Consultation from <asker> · <first words of the first question>`: one member, the consulted Bot,
 leading it, no work item and no Team. It takes the Bot's own profile and permissions as a
 direct conversation does, runs in its own chat folder, and refuses `POST /spaces/{id}/members`
 (`400`). The consulted Bot has no `consult` tool, so consultations do not nest; its prompt tells it
@@ -1123,7 +1123,10 @@ The Bot receives `Guidance from the user (sent at <time>, message <id>): <text>`
 in its existing session. The Space's live chain runs guidance at the next turn boundary, after the
 whole running turn, ahead of any Bot handoff waiting behind it (guidance among themselves in the
 order sent). The end of a tool call is not a boundary, so guidance stays `waiting` until its own
-turn starts. Ordinary user messages keep their order. A paused Space keeps guidance `waiting`
+turn starts. Ordinary user messages keep their order, and run in stored order with guidance, all
+of them ahead of Bot handoffs. A Space held for a moment by a refresh, a member removal or a
+continue, or by a turn that cannot take the wake, delivers its waiting exchanges, guidance first,
+when that ends, with no continue; only a Space that cannot run then (shutdown) is paused. A paused Space keeps guidance `waiting`
 ("Waiting for Space to resume"), sending never resumes it, and `POST /spaces/{id}/continue` runs
 it first. `POST /spaces/{id}/stop` is separate: it stops the running turn and keeps waiting guidance
 `waiting`; the next turn the Space starts runs it first.
@@ -1132,6 +1135,9 @@ The `To <Bot>: <text>` message is the Space's record that user guidance happened
 exchange, whose own turn holds the detail, and nothing else is copied into the conversation. Every
 other member of the Space also gets the guidance, once: the next turn it starts after the guidance
 turn started, whatever woke it, begins with `User guidance (to <Bot>, message <id>): <text>`.
+The `To <Bot>: <text>` line is then left out of that wake's "New in the Space" list, and out of the
+guided Bot's later wakes, which got it as its own guidance. A Bot that joined after the guidance
+was given does not get it.
 Wakes already queued behind the guidance therefore start after it and carry it. A turn already
 running when the guidance arrives is not changed and is never described as corrected. Only Bot
 handoffs and Bot messages queue behind guidance; messages the user sent earlier keep their place
@@ -1411,6 +1417,7 @@ this far on a folder in use, so it cannot fail the turns of the server that owns
   `Turn 2 by developer, turn 3 by tester failed: server restarted. The worktree may be dirty; retry or roll back.`
 
 - With one turn: `Turn 2 by developer failed: server restarted. The worktree may be dirty; retry or roll back.`
+- A direct conversation or a consultation has no worktree: its note ends after `server restarted.`
 - The server logs `marked N running turns failed: server restarted`.
 - A `running` turn in a Space whose `chat-<space id>.lock` a live `reef chat` holds is
   left `running`, and that Space gets no message from `reef`. `reef chat` is a separate

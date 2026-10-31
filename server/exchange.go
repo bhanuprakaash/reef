@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -168,9 +169,47 @@ func (s *server) deliverExchange(ctx context.Context, spaceID, id int64) error {
 	}
 	err = s.runWake(ctx, spaceID, directWake(&dm))
 	if errors.Is(err, errBusy) {
-		return s.parkBusy(ctx, spaceID)
+		return s.deferDelivery(ctx, spaceID)
 	}
 	return err
+}
+
+// deferDelivery has the chain that holds Space id deliver its waiting exchanges when it ends.
+// A Space nothing holds, or one that is shutting down, is paused instead, and continue
+// delivers them.
+func (s *server) deferDelivery(ctx context.Context, id int64) error {
+	if l := s.lookup(id); l != nil && s.ctx.Err() == nil {
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if l.state != _idle {
+			l.redeliver = true
+			return nil
+		}
+	}
+	return s.parkBusy(ctx, id)
+}
+
+// deliverWaiting delivers the exchanges waiting in Space id, the user's guidance first.
+func (s *server) deliverWaiting(id int64) {
+	if s.ctx.Err() != nil {
+		if err := s.parkBusy(context.WithoutCancel(s.ctx), id); err != nil {
+			log.Printf("pause Space %d: %v", id, err)
+		}
+		return
+	}
+	waiting, err := s.st.WaitingExchanges(s.ctx, id)
+	if err != nil {
+		log.Printf("list waiting exchanges of Space %d: %v", id, err)
+		return
+	}
+	slices.SortStableFunc(waiting, func(a, b store.DirectMessage) int {
+		return cmp.Compare(guidanceRank(directWake(&a)), guidanceRank(directWake(&b)))
+	})
+	for _, ex := range waiting {
+		if err := s.deliverExchange(s.ctx, id, ex.ID); err != nil {
+			log.Printf("deliver exchange %d: %v", ex.ID, err)
+		}
+	}
 }
 
 // runWake queues w behind the turn a running chain of Space spaceID is on, or starts a chain

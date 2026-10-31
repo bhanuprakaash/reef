@@ -93,10 +93,14 @@ func directWake(m *store.DirectMessage) wake {
 }
 
 // guidanceFirst moves the wakes the user's words are in ahead of the wakes a Bot started, each
-// group keeping its order, so guidance never jumps a message the user sent before it.
+// group keeping its order, the user's wakes in the order they were stored, so guidance never
+// jumps a message the user sent before it.
 func guidanceFirst(ws []wake) []wake {
 	slices.SortStableFunc(ws, func(a, b wake) int {
-		return cmp.Compare(guidanceRank(a), guidanceRank(b))
+		if c := cmp.Compare(guidanceRank(a), guidanceRank(b)); c != 0 || guidanceRank(a) != 0 {
+			return c
+		}
+		return a.stored.Compare(b.stored)
 	})
 	return ws
 }

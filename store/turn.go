@@ -534,8 +534,14 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 		if i+1 < len(turns) && turns[i+1].SpaceID == t.SpaceID {
 			continue
 		}
-		body := fmt.Sprintf("%s failed: %s. %s",
-			strings.Join(names, ", "), _restartError, _restartAdvice)
+		var kind string
+		if err := tx.QueryRowContext(ctx, "SELECT kind FROM space WHERE id = ?", t.SpaceID).Scan(&kind); err != nil {
+			return nil, fmt.Errorf("read Space kind: %w", err)
+		}
+		body := fmt.Sprintf("%s failed: %s.", strings.Join(names, ", "), _restartError)
+		if kind != KindConversation && kind != KindConsultation {
+			body += " " + _restartAdvice
+		}
 		names = nil
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO message (space_id, author, body, created_at) VALUES (?, ?, ?, ?)",

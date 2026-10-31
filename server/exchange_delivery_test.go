@@ -110,7 +110,7 @@ func TestFailedAskingTurnWithdrawsWhatItAsked(t *testing.T) {
 	}
 }
 
-func TestGuidanceSentUnderAClaimWaitsForContinue(t *testing.T) {
+func TestGuidanceSentUnderAClaimRunsWhenItReleases(t *testing.T) {
 	ctx := context.Background()
 	env := exchangeEnv(t)
 	c, _, err := env.h.s.claim(ctx, 2, _noTurn)
@@ -118,16 +118,14 @@ func TestGuidanceSentUnderAClaimWaitsForContinue(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := env.guide(t, "architect", "k1", "use sessions")
+	if g.Request.State != store.DirectWaiting || env.turnCount(t, 2) != 0 {
+		t.Fatalf("under a claim: state = %s, turns = %d, want waiting, 0 turns", g.Request.State, env.turnCount(t, 2))
+	}
 	_ = c.release(nil)
-	space, err := env.st.Space(ctx, 2)
-	if err != nil || g.Request.State != store.DirectWaiting || space.Paused == "" || env.turnCount(t, 2) != 0 {
-		t.Fatalf("under a claim: state = %s, paused = %q, turns = %d, %v, want waiting, paused, 0 turns",
-			g.Request.State, space.Paused, env.turnCount(t, 2), err)
-	}
-	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/continue", ""); status != http.StatusNoContent {
-		t.Fatalf("continue = %d %s", status, body)
-	}
 	env.waitState(t, g.Request.ID, store.DirectAnswered)
+	if space, err := env.st.Space(ctx, 2); err != nil || space.Paused != "" {
+		t.Errorf("paused = %q, %v, want running", space.Paused, err)
+	}
 }
 
 func TestStopKeepsGuidanceWaitingForTheNextWake(t *testing.T) {

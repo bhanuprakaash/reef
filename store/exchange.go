@@ -176,18 +176,49 @@ func (s *Store) SpaceExchanges(ctx context.Context, spaceID int64) ([]DirectMess
 
 // UnseenGuidance lists the user guidance given to other Bots of the Space whose turn started
 // after the newest turn of Bot botID there, oldest first. A Bot that has not run in the Space
-// has seen none of it.
+// has seen none of it, except what was given before it joined, which is not for it.
 func (s *Store) UnseenGuidance(ctx context.Context, spaceID, botID int64) ([]DirectMessage, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
 		" FROM direct_message WHERE space_id = ? AND reply_to_id IS NULL AND kind = ?"+
 		" AND origin_message_id IS NOT NULL AND to_bot_id != ? AND id IN ("+
 		"SELECT direct_message_id FROM turn WHERE space_id = ? AND direct_message_id IS NOT NULL AND id > "+
-		"COALESCE((SELECT MAX(id) FROM turn WHERE space_id = ? AND bot_id = ?), 0)) ORDER BY id",
-		spaceID, ExchangeGuidance, botID, spaceID, spaceID, botID)
+		"COALESCE((SELECT MAX(id) FROM turn WHERE space_id = ? AND bot_id = ?), 0))"+
+		" AND created_at > COALESCE((SELECT MAX(created_at) FROM message WHERE space_id = ? AND author = ? AND "+
+		"body = (SELECT name FROM bot WHERE id = ?) || ?), '') ORDER BY id",
+		spaceID, ExchangeGuidance, botID, spaceID, spaceID, botID, spaceID, ReefAuthor, botID, JoinedSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("list unseen guidance: %w", err)
 	}
 	return scanAll(rows, scanDirect)
+}
+
+// GuidanceKnown is the ids of the user guidance exchanges of Space spaceID that Bot botID has
+// been told: the guidance given to it that a turn of its ran, and what UnseenGuidance lists.
+func (s *Store) GuidanceKnown(ctx context.Context, spaceID, botID int64) (map[int64]bool, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM direct_message WHERE space_id = ? AND reply_to_id IS NULL"+
+		" AND kind = ? AND to_bot_id = ? AND id IN (SELECT direct_message_id FROM turn WHERE space_id = ? AND bot_id = ?)",
+		spaceID, ExchangeGuidance, botID, spaceID, botID)
+	if err != nil {
+		return nil, fmt.Errorf("list received guidance: %w", err)
+	}
+	ids, err := scanAll(rows, func(r interface{ Scan(...any) error }) (id int64, err error) {
+		return id, r.Scan(&id)
+	})
+	if err != nil {
+		return nil, err
+	}
+	unseen, err := s.UnseenGuidance(ctx, spaceID, botID)
+	if err != nil {
+		return nil, err
+	}
+	known := map[int64]bool{}
+	for _, id := range ids {
+		known[id] = true
+	}
+	for _, g := range unseen {
+		known[g.ID] = true
+	}
+	return known, nil
 }
 
 // UnseenConsultationGuidance lists the user guidance given in consultations that Bot botID asked

@@ -2775,12 +2775,12 @@ async function consult() {
   check(shape === 'conversation|1|1', 'the chat stays one conversation with one member', shape);
   const consultation = (await link.getAttribute('href')).split('/').pop();
   const kinds = sql(`select kind, name from Space where id=${consultation}`);
-  check(kinds === 'consultation|Consultation from sam', 'the link opens a consultation titled by its origin', kinds);
+  check(kinds === 'consultation|Consultation from sam · Please review the login plan and…', 'the link opens a consultation titled by its origin', kinds);
   await main.getByText('Asked kit: Please review the login plan').waitFor();
   await shot('desktop-chat');
   await link.click();
   await page.waitForURL(`**/spaces/${consultation}`);
-  await main.getByRole('heading', { name: 'Consultation from sam', level: 1 }).waitFor();
+  await main.getByRole('heading', { name: /^Consultation from sam · /, level: 1 }).waitFor();
   await main.getByText(/sam and kit (coordinated|are coordinating)/i).waitFor();
   const own = sql(`select count(*) from space_member m join Space s on s.id = m.space_id where s.kind = 'conversation' and m.bot_id = (select id from bot where name = 'kit')`);
   check(own === '0', 'the consultation makes no chat of kit', own);
@@ -3735,10 +3735,11 @@ async function bot() {
   const memoryCount = (await memoryCard.locator('h2 + span').innerText()).trim();
   check(memoryCount === '2', 'the memory count matches', memoryCount);
 
-  const convoCard = main.getByRole('region', { name: 'Conversations' });
+  const convoCard = main.getByRole('region', { name: 'Chats' });
   await convoCard.getByRole('link', { name: /newer chat/ }).waitFor();
   const order = async () => (await convoCard.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop())));
-  const restOrder = async () => (await getJson(`/bots/${sam.id}/conversations`)).map((c) => String(c.id));
+  const restOrder = async () => (await getJson(`/bots/${sam.id}/chats`)).map((c) => String(c.spaceId));
+  check((await convoCard.getByText('Chat', { exact: true }).count()) === 2, 'each chat shows the Chat kind chip');
   check((await order()).join() === (await restOrder()).join() && (await order()).length === 2, 'the conversations list matches REST, newest first', (await order()).join());
   check((await convoCard.getByRole('link').first().innerText()).includes('newer chat'), 'the newer conversation is first');
   await shot('desktop-1280x800');
@@ -3762,7 +3763,7 @@ async function bot() {
   await shot('phone-390x844');
   await page.goto(`${base}/bots/${loner.id}`);
   await main.getByRole('heading', { name: loner.name, level: 1 }).waitFor();
-  check((await main.getByText('In no Crew yet').count()) === 1 && (await main.getByText('No conversations yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Bot with no Team, conversation or memory shows three empty states');
+  check((await main.getByText('In no Crew yet').count()) === 1 && (await main.getByText('No chats yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Bot with no Team, conversation or memory shows three empty states');
   await shot('phone-empty-390x844');
   await page.goto(`${base}/bots/999999`);
   await main.getByText('No Bot 999999').waitFor();

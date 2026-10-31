@@ -160,7 +160,7 @@ func TestConsultKeepsTheChatAndLinksEveryExchange(t *testing.T) {
 		t.Errorf("Ben's own chat = %q, want nothing written", lines)
 	}
 	consultation, err := e.st.Space(ctx, 4)
-	if err != nil || consultation.Kind != store.KindConsultation || consultation.Name != "Consultation from ada" ||
+	if err != nil || consultation.Kind != store.KindConsultation || consultation.Name != "Consultation from ada · q1" ||
 		consultation.BotID == nil || *consultation.BotID != e.ben {
 		t.Errorf("consultation = %+v, %v", consultation, err)
 	}

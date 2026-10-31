@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -110,9 +111,10 @@ func (s *Store) BotChats(ctx context.Context, botID int64, p ConversationPage) (
 			c.Kind = ChatConsultation
 			c.Origin = &ChatOrigin{SpaceID: originID, Label: originLabel(askerName, originName)}
 			if askerID == botID {
-				c.BotID, c.Label = leadID, "Consultation with "+leadName
+				c.BotID = leadID
+				c.Label = "Consultation with " + leadName + strings.TrimPrefix(name, consultationLabel(askerName))
 			} else {
-				c.Label = consultationLabel(askerName)
+				c.Label = name
 			}
 		default:
 			c.Kind, c.Label = ChatSpace, spaceLabel(bot.Name, name)
@@ -195,7 +197,7 @@ func (s *Store) BotActivity(ctx context.Context, spaceID, botID int64) (BotActiv
 		}
 		if err == nil {
 			a.Origin = &ChatOrigin{SpaceID: originID, Label: originLabel(askerName, originName)}
-			a.Label = consultationLabel(askerName)
+			a.Label = c.Name
 		}
 	}
 	rows, err := s.db.QueryContext(ctx,

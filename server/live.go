@@ -126,6 +126,9 @@ type live struct {
 	// queued is the wakes that arrived while a chain starts or runs; the chain runs them after
 	// its current turn, or gives them back when it ends first.
 	queued []wake
+	// redeliver is set when an exchange found the Space busy with a turn it cannot join: the
+	// chain that ends the Space's busy state delivers what waits.
+	redeliver bool
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
 	dropped   int
 	activeGen uint64
@@ -1211,6 +1214,7 @@ func (c *chain) release(err error) error {
 	c.cancel()
 	var directFailed []directFail
 	var holds []int64
+	again := false
 	if c.l != nil {
 		c.l.mu.Lock()
 		directFailed, holds = c.shedLocked(nil, stopped)
@@ -1220,6 +1224,7 @@ func (c *chain) release(err error) error {
 		if mine {
 			c.l.state, c.l.cancel = _idle, nil
 			c.l.activeGen = 0
+			again, c.l.redeliver = c.l.redeliver, false
 		}
 		c.l.mu.Unlock()
 		c.finalize(mine, directFailed, holds)
@@ -1228,6 +1233,9 @@ func (c *chain) release(err error) error {
 		c.s.dropIdle(c.id, c.l, false)
 		if !c.settling {
 			c.s.settleLeaving(c.ctx, c.id)
+		}
+		if again {
+			c.s.deliverWaiting(c.id)
 		}
 	} else {
 		close(c.done)
@@ -1452,7 +1460,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	finish := func(remaining []wake) {
 		directFailed, holds := c.shedLocked(remaining, c.ctx.Err() != nil)
 		mine := c.gen == l.activeGen
+		again := false
 		if mine {
+			again, l.redeliver = l.redeliver, false
 			// Only the chain that still owns the live state may retire it; an older
 			// chain whose teardown ran late leaves a newer chain's state alone.
 			l.cancel()
@@ -1463,6 +1473,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		c.finalize(mine, directFailed, holds)
 		close(c.done)
 		s.settleLeaving(c.ctx, c.id)
+		if again {
+			s.deliverWaiting(c.id)
+		}
 	}
 	for {
 		var w wake
