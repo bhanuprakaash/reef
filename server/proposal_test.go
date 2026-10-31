@@ -104,6 +104,24 @@ func TestAttach_MixedProjectMemoryStaysInTheSpace(t *testing.T) {
 	if want := (memory.Ref{Kind: memory.ScopeSpace, ID: "1"}); item.Scope != want {
 		t.Errorf("scope after attaching a Space of two projects = %v, want %v", item.Scope, want)
 	}
+
+	team, err := env.st.SpaceTeam(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := env.st.CreateToken(ctx, 1, team.Roles[0].BotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callToolMemory(t, env.st, ms, tok, t.TempDir())
+	if out, isErr := call("recall", map[string]any{"query": "sessions"}); isErr ||
+		!strings.Contains(out, `"body":"use sessions, not JWT"`) {
+		t.Errorf("recall after attach = %q, error %v, want the Space's decision", out, isErr)
+	}
+	if out, isErr := call("read_memory", map[string]any{"id": res.Item.ID}); isErr ||
+		!strings.Contains(out, `"body":"use sessions, not JWT"`) {
+		t.Errorf("read_memory after attach = %q, error %v, want the Space's decision", out, isErr)
+	}
 }
 
 func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {

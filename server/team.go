@@ -3,9 +3,12 @@ package server
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -196,7 +199,7 @@ func viewRole(r store.Role) roleView {
 	}
 }
 
-func viewSession(bs store.BotSession, live store.Role, pending bool) *sessionView {
+func viewSession(bs store.BotSession, live store.Role, library []store.Skill, pending bool) *sessionView {
 	v := &sessionView{
 		Backend: bs.Backend, Model: bs.Model, PermissionMode: bs.PermissionMode, Write: bs.Write,
 		Tools: nonNil(bs.Tools), Skills: make([]sessionSkillView, len(bs.Skills)),
@@ -213,8 +216,28 @@ func viewSession(bs store.BotSession, live store.Role, pending bool) *sessionVie
 		bs.Description != live.Description || bs.Write != live.Write ||
 		bs.PermissionMode != live.PermissionMode || !slices.Equal(bs.Tools, live.Tools) ||
 		!slices.Equal(adopted.Skills, live.Skills) ||
-		!slices.Equal(connectionIDs(bs.Connections), connectionIDs(live.Connections))
+		!slices.EqualFunc(bs.Connections, live.Connections, sameConnection) ||
+		slices.ContainsFunc(bs.Skills, func(k store.AdoptedSkill) bool { return outdated(k, library) })
 	return v
+}
+
+func sameConnection(a, b store.Connection) bool {
+	return a.ID == b.ID && a.Name == b.Name && a.Command == b.Command && a.URL == b.URL &&
+		slices.Equal(a.Args, b.Args) && maps.Equal(a.Env, b.Env)
+}
+
+// outdated says a Reef skill's library version has moved on since the session adopted it. A skill
+// read from disk is not compared: its folder is only read when a session adopts.
+func outdated(k store.AdoptedSkill, library []store.Skill) bool {
+	name, ok := strings.CutPrefix(k.Ref, "reef:")
+	if !ok {
+		return false
+	}
+	i := slices.IndexFunc(library, func(l store.Skill) bool { return l.Name == name })
+	if i < 0 {
+		return k.Version != ""
+	}
+	return strconv.Itoa(library[i].Version) != k.Version
 }
 
 func connectionIDs(cs []store.Connection) []int64 {

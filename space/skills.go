@@ -21,26 +21,72 @@ func BotSkillsDir(dataDir string, id int64) string {
 // AdoptBotSession adopts the Bot's settings in the Space and copies the skills it picked into
 // the new BotSession's own folder: a Reef skill at its current library version, a claude: or
 // codex: skill as read from disk, which is never changed. The copies stay as they are until the
-// Bot adopts again.
+// Bot adopts again. The copies are made in a staging folder before the database write starts and
+// moved into place by the adoption.
 func AdoptBotSession(
 	ctx context.Context, st *store.Store, dataDir string, spaceID, botID int64,
-) (store.BotSession, error) {
-	return st.AdoptBotSessionWith(ctx, spaceID, botID, func(bs store.BotSession) ([]store.AdoptedSkill, error) {
+) (_ store.BotSession, err error) {
+	bot, err := st.Bot(ctx, botID)
+	if err != nil {
+		return store.BotSession{}, err
+	}
+	if len(bot.Skills) == 0 {
+		return st.AdoptBotSession(ctx, spaceID, botID)
+	}
+	parent := filepath.Join(dataDir, "bot-sessions")
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return store.BotSession{}, fmt.Errorf("adopt skills: %w", err)
+	}
+	stage, err := os.MkdirTemp(parent, "stage-")
+	if err != nil {
+		return store.BotSession{}, fmt.Errorf("adopt skills: %w", err)
+	}
+	var adoptedID int64
+	defer func() {
+		_ = os.RemoveAll(stage)
+		if err != nil && adoptedID != 0 {
+			_ = os.RemoveAll(filepath.Join(parent, strconv.FormatInt(adoptedID, 10)))
+		}
+	}()
+	preview := store.BotSession{Backend: bot.Backend, Skills: make([]store.AdoptedSkill, len(bot.Skills))}
+	for i, ref := range bot.Skills {
+		preview.Skills[i].Ref = ref
+	}
+	staged, err := copySkills(ctx, st, filepath.Join(stage, "skills"), spaceID, preview)
+	if err != nil {
+		return store.BotSession{}, fmt.Errorf("adopt skills: %w", err)
+	}
+	bs, err := st.AdoptBotSessionWith(ctx, spaceID, botID, func(bs store.BotSession) ([]store.AdoptedSkill, error) {
+		if bs.Backend != preview.Backend || !slices.EqualFunc(bs.Skills, staged, func(a, b store.AdoptedSkill) bool { return a.Ref == b.Ref }) {
+			return nil, fmt.Errorf("adopt skills: bot %d changed while its skills were copied", botID)
+		}
+		adoptedID = bs.ID
 		root := filepath.Dir(BotSkillsDir(dataDir, bs.ID))
 		if err := os.RemoveAll(root); err != nil {
 			return nil, fmt.Errorf("adopt skills: clear %s: %w", root, err)
 		}
-		skills, err := copySkills(ctx, st, dataDir, spaceID, bs)
-		if err != nil {
-			_ = os.RemoveAll(root)
+		if err := os.Rename(stage, root); err != nil {
 			return nil, fmt.Errorf("adopt skills: %w", err)
 		}
-		return skills, nil
+		for i := range staged {
+			if staged[i].Dir != "" {
+				rel, err := filepath.Rel(filepath.Join(stage, "skills"), staged[i].Dir)
+				if err != nil {
+					return nil, err
+				}
+				staged[i].Dir = filepath.Join(BotSkillsDir(dataDir, bs.ID), rel)
+			}
+		}
+		return staged, nil
 	})
+	if err != nil {
+		return store.BotSession{}, err
+	}
+	return bs, nil
 }
 
 func copySkills(
-	ctx context.Context, st *store.Store, dataDir string, spaceID int64, bs store.BotSession,
+	ctx context.Context, st *store.Store, skillsDir string, spaceID int64, bs store.BotSession,
 ) ([]store.AdoptedSkill, error) {
 	sp, err := st.Space(ctx, spaceID)
 	if err != nil {
@@ -85,7 +131,7 @@ func copySkills(
 			k.Version = pkg.Hash()
 		}
 		if k.Reason = pkg.Compat()[bs.Backend]; k.Reason == "" {
-			k.Dir = filepath.Join(BotSkillsDir(dataDir, bs.ID), source, strings.ReplaceAll(name, ":", "-"))
+			k.Dir = filepath.Join(skillsDir, source, strings.ReplaceAll(name, ":", "-"))
 			if err := writePackage(k.Dir, pkg); err != nil {
 				return nil, err
 			}

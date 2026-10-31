@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/store"
@@ -91,8 +92,8 @@ func (s *server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// _mask stands in for a secret in REST responses: env values, and the userinfo and query values of
-// a url.
+// _mask stands in for a secret in REST responses: env values, every argument, and the userinfo and
+// query of a url.
 const _mask = "****"
 
 func redactConnection(c store.Connection) store.Connection {
@@ -102,6 +103,9 @@ func redactConnection(c store.Connection) store.Connection {
 			env[k] = _mask
 		}
 		c.Env = env
+	}
+	if c.Args != nil {
+		c.Args = slices.Repeat([]string{_mask}, len(c.Args))
 	}
 	c.URL = redactURL(c.URL)
 	return c
@@ -118,6 +122,8 @@ func redactURL(raw string) string {
 	for i, p := range pairs {
 		if k, _, ok := strings.Cut(p, "="); ok {
 			pairs[i] = k + "=" + _mask
+		} else if p != "" {
+			pairs[i] = _mask
 		}
 	}
 	u.RawQuery = strings.Join(pairs, "&")
@@ -143,6 +149,15 @@ func keepSecrets(in *store.Connection, stored store.Connection) error {
 			return fmt.Errorf("%w: env %s is masked and has no stored value; enter it again", store.ErrInvalid, k)
 		}
 		in.Env[k] = sv
+	}
+	for i, v := range in.Args {
+		if v != _mask {
+			continue
+		}
+		if i >= len(stored.Args) {
+			return fmt.Errorf("%w: argument %d is masked and has no stored value; enter it again", store.ErrInvalid, i+1)
+		}
+		in.Args[i] = stored.Args[i]
 	}
 	if in.URL == redactURL(stored.URL) {
 		in.URL = stored.URL

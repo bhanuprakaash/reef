@@ -28,7 +28,7 @@ func TestConnectionsAndBotSelection(t *testing.T) {
 	}{
 		{"empty list", http.MethodGet, "/connections", "", 200, `[]`},
 		{"create stdio", http.MethodPost, "/connections",
-			`{"name":"files","command":"files-mcp","args":["--ro"],"env":{"KEY":"v"}}`, 201, `"name":"files","command":"files-mcp","args":["--ro"],"env":{"KEY":"****"}`},
+			`{"name":"files","command":"files-mcp","args":["--ro"],"env":{"KEY":"v"}}`, 201, `"name":"files","command":"files-mcp","args":["****"],"env":{"KEY":"****"}`},
 		{"create http", http.MethodPost, "/connections", `{"name":"web","url":"http://127.0.0.1:9/mcp"}`, 201, `"url":"http://127.0.0.1:9/mcp"`},
 		{"both fields", http.MethodPost, "/connections", `{"name":"x","command":"c","url":"http://h"}`, 400, `needs a command or a url, not both`},
 		{"name taken", http.MethodPost, "/connections", `{"name":"web","command":"c"}`, 409, `a connection named \"web\" already exists`},
@@ -72,6 +72,20 @@ func TestMaskedEditKeepsStoredSecrets(t *testing.T) {
 	do(t, http.MethodPut, ts.URL+"/connections/1", `{"name":"files","command":"g","env":{"KEY":"****"}}`)
 	do(t, http.MethodPut, ts.URL+"/connections/1", `{"name":"files","command":"h"}`)
 	do(t, http.MethodPut, ts.URL+"/connections/2", `{"name":"web","url":"https://****@h.io/mcp?token=****"}`)
+	do(t, http.MethodPost, ts.URL+"/connections", `{"name":"keyed","command":"k","args":["--api-key","X","run"]}`)
+	do(t, http.MethodPost, ts.URL+"/connections", `{"name":"bare","url":"https://h.io/mcp?secrettoken"}`)
+	if status, body := do(t, http.MethodGet, ts.URL+"/connections", ""); status != 200 ||
+		!strings.Contains(body, `"args":["****","****","****"]`) || !strings.Contains(body, `"url":"https://h.io/mcp?****"`) {
+		t.Errorf("list = %d %s, want every arg masked and the bare query part masked", status, body)
+	}
+	do(t, http.MethodPut, ts.URL+"/connections/3", `{"name":"keyed","command":"k","args":["****","****","go"]}`)
+	keyed, err := st.Connection(t.Context(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(keyed.Args, " "); got != "--api-key X go" {
+		t.Errorf("keyed args = %q, want %q: masks restored by position", got, "--api-key X go")
+	}
 	files, err := st.Connection(t.Context(), 1)
 	if err != nil {
 		t.Fatal(err)

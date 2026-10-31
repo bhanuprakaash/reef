@@ -481,6 +481,11 @@ func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	roles := viewTeam(t).Roles
+	library, err := s.st.Skills(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	for i, role := range t.Roles {
 		bs, err := s.st.ActiveBotSession(r.Context(), id, role.BotID)
 		if errors.Is(err, store.ErrNotFound) {
@@ -490,7 +495,7 @@ func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		roles[i].Session = viewSession(bs, role, slices.Contains(pending, role.BotID))
+		roles[i].Session = viewSession(bs, role, library, slices.Contains(pending, role.BotID))
 	}
 	writeJSON(w, http.StatusOK, roles)
 }

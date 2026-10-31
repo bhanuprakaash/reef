@@ -643,7 +643,7 @@ changed`. To change a proposal, reject it, tell the agent what to change, and ty
 `invalid: proposal 1 is already approved`.
 
 `reef serve` offers the same over REST, and attaches a free Space to a work item, moving its
-`space` items to the work item unless the Space has other Projects: see [server.md](server.md#wrap-up-and-attach).
+`space` items to the work item unless the Space has other Projects: items left in the Space stay readable by recall and read_memory there. See [server.md](server.md#wrap-up-and-attach).
 
 The chat goes on after `/wrap`. The next session, in any Space, starts from the
 approved brief and memory items.

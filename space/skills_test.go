@@ -80,6 +80,9 @@ func TestSession_AdoptedSkillsReachBackendsAndStayUntilRefresh(t *testing.T) {
 	if got := readSkillFile(t, filepath.Join(root, "reef/deploy/scripts/ship.sh")); got != "echo v1" {
 		t.Errorf("copied library file = %q, want echo v1", got)
 	}
+	if left, _ := filepath.Glob(filepath.Join(dataDir, "bot-sessions", "stage-*")); len(left) != 0 {
+		t.Errorf("staging folders left = %v, want none", left)
+	}
 	var plugged, gone store.AdoptedSkill
 	for _, k := range bs.Skills {
 		switch k.Ref {

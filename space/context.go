@@ -176,11 +176,21 @@ func ReadScopes(
 	if err != nil {
 		return nil, err
 	}
-	return readBotConversations(ctx, st, scopes, id)
+	return readBotConversations(ctx, st, withOwnShelf(ch, scopes), id)
 }
 
 func ReadBotScopes(ctx context.Context, st *store.Store, ch store.Space, id int64) ([]memory.Ref, error) {
-	return readBotConversations(ctx, st, BotScopes(ch, id), id)
+	return readBotConversations(ctx, st, withOwnShelf(ch, BotScopes(ch, id)), id)
+}
+
+// withOwnShelf adds the shelf of the Space itself to scopes for reading when the Space is
+// attached to a work item: attaching leaves the Space's items there when the Space had several
+// Projects. Nothing is written to it.
+func withOwnShelf(ch store.Space, scopes []memory.Ref) []memory.Ref {
+	if ch.WorkItemID == nil || ch.ID == 0 {
+		return scopes
+	}
+	return append(scopes, memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)})
 }
 
 func readBotConversations(ctx context.Context, st *store.Store, scopes []memory.Ref, id int64) ([]memory.Ref, error) {
