@@ -13,6 +13,8 @@ import (
 // ReefAuthor is the author of the notes Reef itself writes into a Space.
 const ReefAuthor = "reef"
 
+const _userAuthor = "user"
+
 // Message is append-only: there is no update or delete. A reply has the thread root as
 // ParentID; a top-level message has none.
 type Message struct {
@@ -69,8 +71,29 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 			return Message{}, fmt.Errorf("check parent: %w", err)
 		}
 	}
-	now := time.Now().UTC()
-	return s.insertMessage(ctx, s.db, m, now)
+	var refs []int64
+	if m.Author == _userAuthor {
+		refs = ParseSpaceRefs(m.Body)
+	}
+	if len(refs) == 0 {
+		return s.insertMessage(ctx, s.db, m, time.Now().UTC())
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Message{}, fmt.Errorf("begin message: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	msg, err := s.insertMessage(ctx, tx, m, time.Now().UTC())
+	if err != nil {
+		return Message{}, err
+	}
+	if err := saveMessageRefs(ctx, tx, msg.ID, refs); err != nil {
+		return Message{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Message{}, fmt.Errorf("commit message: %w", err)
+	}
+	return msg, nil
 }
 
 func (s *Store) insertMessage(ctx context.Context, db execer, m Message, now time.Time) (Message, error) {

@@ -38,10 +38,14 @@ func ParseSpaceRefs(body string) []int64 {
 }
 
 // SaveMessageRefs records that the message refers to the Spaces. A reference survives the
-// deletion of the Space it names.
+// deletion of the Space it names. CreateMessage does it for a user message.
 func (s *Store) SaveMessageRefs(ctx context.Context, messageID int64, spaceIDs []int64) error {
+	return saveMessageRefs(ctx, s.db, messageID, spaceIDs)
+}
+
+func saveMessageRefs(ctx context.Context, db execer, messageID int64, spaceIDs []int64) error {
 	for _, id := range spaceIDs {
-		if _, err := s.db.ExecContext(ctx,
+		if _, err := db.ExecContext(ctx,
 			"INSERT OR IGNORE INTO message_ref (message_id, space_id) VALUES (?, ?)",
 			messageID, id); err != nil {
 			return fmt.Errorf("save message ref: %w", err)

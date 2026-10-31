@@ -40,23 +40,31 @@ type Hold struct {
 
 // CreateHold adds h as pending.
 func (s *Store) CreateHold(ctx context.Context, h Hold) (Hold, error) {
+	h, err := insertHold(ctx, s.db, h)
+	if err != nil {
+		return Hold{}, s.writeErr(ctx, "insert hold", err, ErrNotFound,
+			parent{table: "space", id: &h.SpaceID}, parent{table: "message", id: &h.MessageID})
+	}
+	return h, nil
+}
+
+func insertHold(ctx context.Context, db execer, h Hold) (Hold, error) {
 	now := time.Now().UTC()
 	var messageID any
 	if h.MessageID != 0 {
 		messageID = h.MessageID
 	}
-	res, err := s.db.ExecContext(ctx,
+	res, err := db.ExecContext(ctx,
 		"INSERT INTO approval (space_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes, from_bot_id, to_bot_id) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		h.SpaceID, h.From, h.To, messageID, h.DirectMessageID, h.Text, h.Parent, _holdKind,
 		now.Format(time.RFC3339Nano), h.Scopes, h.FromBotID, h.ToBotID)
 	if err != nil {
-		return Hold{}, s.writeErr(ctx, "insert hold", err, ErrNotFound,
-			parent{table: "space", id: &h.SpaceID}, parent{table: "message", id: &h.MessageID})
+		return h, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return Hold{}, fmt.Errorf("insert hold: %w", err)
+		return h, fmt.Errorf("insert hold: %w", err)
 	}
 	h.ID, h.Status, h.CreatedAt = id, HoldPending, now
 	return h, nil
@@ -89,6 +97,23 @@ func (s *Store) ClaimHolds(ctx context.Context, spaceID int64) ([]Hold, error) {
 	}
 	slices.SortFunc(hs, func(a, b Hold) int { return cmp.Compare(a.ID, b.ID) })
 	return hs, nil
+}
+
+// ClaimExchangeHold claims the pending hold that wakes the asker of exchange id with its reply.
+// It returns false when there is none, because it is claimed or the exchange has no such hold.
+func (s *Store) ClaimExchangeHold(ctx context.Context, id int64) (Hold, bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"UPDATE approval SET status = ? WHERE status = ? AND kind = ? AND message_id IN "+
+			"(SELECT id FROM message WHERE exchange_id = ?) RETURNING "+_holdCols,
+		HoldClaimed, HoldPending, _holdKind, id)
+	if err != nil {
+		return Hold{}, false, fmt.Errorf("claim exchange hold: %w", err)
+	}
+	hs, err := scanAll(rows, scanHold)
+	if err != nil || len(hs) == 0 {
+		return Hold{}, false, err
+	}
+	return hs[0], true, nil
 }
 
 // ReopenHold sets a claimed hold back to pending, for a wake that could not start.

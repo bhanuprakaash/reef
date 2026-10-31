@@ -45,6 +45,15 @@ func (m DirectMessage) IsUserGuidance() bool {
 func (s *Store) CreateExchange(
 	ctx context.Context, m DirectMessage, originNote string,
 ) (DirectMessage, bool, error) {
+	return s.createExchange(ctx, m, originNote, nil)
+}
+
+// createExchange is CreateExchange; before, when set, runs in the transaction ahead of the
+// insert and may set m.SpaceID.
+func (s *Store) createExchange(
+	ctx context.Context, m DirectMessage, originNote string,
+	before func(tx *sql.Tx, m *DirectMessage) error,
+) (DirectMessage, bool, error) {
 	if m.Kind == "" {
 		m.Kind = ExchangeRequest
 	}
@@ -69,6 +78,11 @@ func (s *Store) CreateExchange(
 		return DirectMessage{}, false, fmt.Errorf("begin exchange: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if before != nil {
+		if err := before(tx, &m); err != nil {
+			return DirectMessage{}, false, err
+		}
+	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO direct_message (space_id, source_message_id, from_role, to_role, body, status, state,
 		created_at, from_bot_id, to_bot_id, origin_space_id, origin_message_id, kind, request_key)
@@ -187,37 +201,71 @@ func (s *Store) WaitingExchanges(ctx context.Context, spaceID int64) ([]DirectMe
 	return scanAll(rows, scanDirect)
 }
 
-// RetryExchange moves failed exchange id back to waiting. Of two calls only one succeeds, and
-// an exchange that has a done response or is in any other state is refused.
+// RetryExchange moves failed or stopped exchange id back to waiting. Of two calls only one
+// succeeds, and an exchange that has a done response or is in any other state is refused.
 func (s *Store) RetryExchange(ctx context.Context, id int64) (DirectMessage, error) {
-	return s.moveExchange(ctx, id, DirectFailed, DirectWaiting,
-		" AND NOT EXISTS (SELECT 1 FROM direct_message r WHERE r.reply_to_id = direct_message.id AND r.status = 'done')")
-}
-
-// CancelExchange withdraws exchange id while it waits.
-func (s *Store) CancelExchange(ctx context.Context, id int64) (DirectMessage, error) {
-	return s.moveExchange(ctx, id, DirectWaiting, DirectCancelled, "")
-}
-
-func (s *Store) moveExchange(
-	ctx context.Context, id int64, from, to, extra string,
-) (DirectMessage, error) {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE direct_message SET state = ? WHERE id = ? AND state = ? AND reply_to_id IS NULL"+
-			" AND origin_space_id IS NOT NULL"+extra, to, id, from)
+		`UPDATE direct_message SET state = ? WHERE id = ? AND state IN (?, ?) AND reply_to_id IS NULL
+		AND origin_space_id IS NOT NULL AND NOT EXISTS
+		(SELECT 1 FROM direct_message r WHERE r.reply_to_id = direct_message.id AND r.status = 'done')`,
+		DirectWaiting, id, DirectFailed, DirectStopped)
 	if err != nil {
-		return DirectMessage{}, fmt.Errorf("move exchange %d to %s: %w", id, to, err)
+		return DirectMessage{}, fmt.Errorf("retry exchange %d: %w", id, err)
 	}
+	return s.movedExchange(ctx, res, id, "failed or stopped")
+}
+
+// CancelExchange withdraws exchange id while it waits. A note is posted in its origin
+// conversation as "No reply: note", in the same transaction, when note is not empty.
+func (s *Store) CancelExchange(ctx context.Context, id int64, note string) (DirectMessage, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return DirectMessage{}, fmt.Errorf("begin cancel exchange: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
+		`UPDATE direct_message SET state = ? WHERE id = ? AND state = ? AND reply_to_id IS NULL
+		AND origin_space_id IS NOT NULL`, DirectCancelled, id, DirectWaiting)
+	if err != nil {
+		return DirectMessage{}, fmt.Errorf("cancel exchange %d: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		_ = tx.Rollback()
+		return s.movedExchange(ctx, res, id, DirectWaiting)
+	}
+	req, err := s.DirectMessage(ctx, id)
+	if err != nil {
+		return DirectMessage{}, err
+	}
+	if note != "" && req.OriginSpaceID != nil && *req.OriginSpaceID != req.SpaceID {
+		if _, err := s.insertMessage(ctx, tx, Message{
+			SpaceID: *req.OriginSpaceID, Author: ReefAuthor, Body: "No reply: " + note, ExchangeID: &id,
+		}, time.Now().UTC()); err != nil {
+			return DirectMessage{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return DirectMessage{}, fmt.Errorf("commit cancel exchange: %w", err)
+	}
+	return s.DirectMessage(ctx, id)
+}
+
+// movedExchange returns the request of exchange id after an update that moved it, or ErrConflict
+// when the update changed no row, because the exchange is not in the state want.
+func (s *Store) movedExchange(
+	ctx context.Context, res sql.Result, id int64, want string,
+) (DirectMessage, error) {
 	n, err := res.RowsAffected()
 	if err != nil {
-		return DirectMessage{}, fmt.Errorf("move exchange %d to %s: %w", id, to, err)
+		return DirectMessage{}, fmt.Errorf("move exchange %d: %w", id, err)
 	}
 	ex, err := s.Exchange(ctx, id)
 	if err != nil {
 		return DirectMessage{}, err
 	}
 	if n == 0 {
-		return DirectMessage{}, fmt.Errorf("exchange %d is %s, not %s: %w", id, ex.Request.State, from, ErrConflict)
+		return DirectMessage{}, fmt.Errorf("exchange %d is %s, not %s: %w",
+			id, ex.Request.State, want, ErrConflict)
 	}
 	return ex.Request, nil
 }
@@ -225,13 +273,15 @@ func (s *Store) moveExchange(
 // RestartReason is the pause reason of a Space that kept wakes waiting across a restart.
 const RestartReason = "app restarted: wakes were waiting to run"
 
-// PauseWaitingExchangeSpaces pauses every open Space that holds a waiting exchange, so continue
-// delivers it after a restart.
+// PauseWaitingExchangeSpaces pauses every open Space that holds a waiting exchange or a pending
+// hold, so continue delivers it after a restart.
 func (s *Store) PauseWaitingExchangeSpaces(ctx context.Context) error {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT DISTINCT d.space_id FROM direct_message d JOIN space c ON c.id = d.space_id
-		WHERE d.reply_to_id IS NULL AND d.origin_space_id IS NOT NULL AND d.state = ?
-		AND c.paused = '' AND c.closed_at IS NULL ORDER BY d.space_id`, DirectWaiting)
+		`SELECT c.id FROM space c WHERE c.paused = '' AND c.closed_at IS NULL AND (
+		EXISTS (SELECT 1 FROM direct_message d WHERE d.space_id = c.id AND d.reply_to_id IS NULL
+			AND d.origin_space_id IS NOT NULL AND d.state = ?)
+		OR EXISTS (SELECT 1 FROM approval a WHERE a.space_id = c.id AND a.kind = ? AND a.status = ?))
+		ORDER BY c.id`, DirectWaiting, _holdKind, HoldPending)
 	if err != nil {
 		return fmt.Errorf("list Spaces with waiting exchanges: %w", err)
 	}
@@ -276,6 +326,8 @@ func claimExchange(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // postExchangeReply posts the response to an exchange as a message in its origin conversation.
+// A done reply to a Bot also stores the hold that wakes that Bot with it, in the same
+// transaction, so the reply is never left without its wake.
 func (s *Store) postExchangeReply(
 	ctx context.Context, db execer, request, response DirectMessage, state string,
 ) error {
@@ -289,8 +341,25 @@ func (s *Store) postExchangeReply(
 			body += ", " + response.Body
 		}
 	}
-	_, err := s.insertMessage(ctx, db, Message{
+	msg, err := s.insertMessage(ctx, db, Message{
 		SpaceID: *request.OriginSpaceID, Author: response.From, BotID: response.FromBotID,
 		Body: body, ExchangeID: &request.ID}, response.CreatedAt)
-	return err
+	if err != nil || response.Status != DirectDone || request.FromBotID == nil ||
+		request.Kind == ExchangeGuidance {
+		return err
+	}
+	where := "consultation"
+	if request.Kind == ExchangeQuestion {
+		where = "question to Space"
+	}
+	_, err = insertHold(ctx, db, Hold{
+		SpaceID: *request.OriginSpaceID, From: response.From, To: request.From,
+		FromBotID: response.FromBotID, ToBotID: request.FromBotID, MessageID: msg.ID,
+		Text: fmt.Sprintf("[Space %d, %s %d, exchange %d]\n%s replied: %s",
+			*request.OriginSpaceID, where, request.SpaceID, request.ID, response.From, response.Body),
+	})
+	if err != nil {
+		return fmt.Errorf("hold the reply wake of exchange %d: %w", request.ID, err)
+	}
+	return nil
 }

@@ -694,7 +694,7 @@ tool calls.
 | `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed`, `stopped` or `cancelled`), `kind`, `originSpaceId?`, `originMessageId?`, `createdAt` | 400 bad id, 404 |
 | `GET /exchanges/{id}` | | 200 `{request, response}`: the exchange request (a direct request with `originSpaceId`; `spaceId` is its destination) and its newest response, `null` until there is one | 404 |
-| `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` exchange back to `waiting` and delivers it again | 404, 409 not `failed` (two retries at once: one wins), has a `done` response, or the destination has a turn running that cannot take it |
+| `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` or `stopped` exchange back to `waiting` and delivers it again | 404, 409 not `failed` or `stopped` (two retries at once: one wins), or has a `done` response |
 | `POST /exchanges/{id}/cancel` | no body needed | 200 as `GET`; a `waiting` exchange becomes `cancelled` | 404, 409 not `waiting` |
 | `GET /search` | `?workItem=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the work item's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `work item`, missing `q` |
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
@@ -1037,8 +1037,18 @@ a chain when the Space is idle. A paused Space leaves it `waiting`, and `continu
 the held wakes. A closed Space, or a recipient that is not a member, fails it with a response that
 says why. A turn is created for an exchange only from `waiting`, moving it to `delivered` in the same
 transaction, so delivering the same exchange twice runs it once. A wake whose exchange is no longer
-`waiting` is skipped. A response, its request's state and the reply in the origin conversation are
+`waiting` is skipped: it runs no turn, and nothing is routed or woken for it. When the destination
+has a turn running that cannot take the wake (a wrap-up, a continue or refresh in progress), the
+exchange stays `waiting` and the Space is paused, so `continue` delivers it; delivery and retry
+still answer success. A response, its request's state and the reply in the origin conversation are
 stored together.
+
+The reply to a Bot asker is also stored with its wake: a hold on the origin conversation, in the same
+transaction as the response. It is released like any hold: at once when the origin is idle or running,
+when the origin is paused by `continue`, and after a restart (every open Space holding a pending hold
+is paused at start). It is claimed once, so a reply wakes its asker once. An exchange an asking turn
+created is delivered only when that turn ends well; when the turn fails or is stopped, the exchange
+is `cancelled` and the origin reads `No reply: the asking turn failed` (or `stopped`).
 
 After a restart `answered` and `failed` exchanges are unchanged. A `waiting` one stays `waiting`;
 at start, every open Space holding one is paused (`app restarted: wakes were waiting to run`) and
@@ -1115,8 +1125,8 @@ whole running turn, ahead of any Bot handoff waiting behind it (guidance among t
 order sent). The end of a tool call is not a boundary, so guidance stays `waiting` until its own
 turn starts. Ordinary user messages keep their order. A paused Space keeps guidance `waiting`
 ("Waiting for Space to resume"), sending never resumes it, and `POST /spaces/{id}/continue` runs
-it first. `POST /spaces/{id}/stop` is separate: it stops the running turn and fails waiting
-exchanges as it does for any.
+it first. `POST /spaces/{id}/stop` is separate: it stops the running turn and keeps waiting guidance
+`waiting`; the next turn the Space starts runs it first.
 
 The `To <Bot>: <text>` message is the Space's record that user guidance happened: it links the
 exchange, whose own turn holds the detail, and nothing else is copied into the conversation. Every

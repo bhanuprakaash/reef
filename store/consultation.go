@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,8 +10,8 @@ import (
 
 // Consult asks the Bot m.ToBotID, from the direct conversation m.OriginSpaceID, in a
 // consultation Space: m.SpaceID continues that one, 0 makes a new one titled title. The
-// exchange is created like CreateExchange creates one, and a key already stored returns the
-// first row and makes no Space.
+// exchange is created like CreateExchange creates one, in one transaction with the new Space,
+// and a key already stored returns the first row and makes no Space.
 func (s *Store) Consult(
 	ctx context.Context, m DirectMessage, title, originNote string,
 ) (DirectMessage, bool, error) {
@@ -40,14 +41,17 @@ func (s *Store) Consult(
 		if err := s.checkConsultation(ctx, m); err != nil {
 			return DirectMessage{}, false, err
 		}
-	} else {
-		c, err := s.CreateBotSpace(ctx, Space{Name: title, Role: m.To, Kind: KindConsultation}, *m.ToBotID)
-		if err != nil {
-			return DirectMessage{}, false, err
-		}
-		m.SpaceID = c.ID
+		return s.CreateExchange(ctx, m, originNote)
 	}
-	return s.CreateExchange(ctx, m, originNote)
+	c := Space{Name: title, Role: m.To, Kind: KindConsultation}
+	if err := c.validate(); err != nil {
+		return DirectMessage{}, false, err
+	}
+	return s.createExchange(ctx, m, originNote, func(tx *sql.Tx, m *DirectMessage) error {
+		id, err := s.insertSpaceTx(ctx, tx, c, nil, leadMember(ctx, *m.ToBotID))
+		m.SpaceID = id
+		return err
+	})
 }
 
 // checkConsultation refuses to continue a Space that is not a consultation of the Bot asked, for
