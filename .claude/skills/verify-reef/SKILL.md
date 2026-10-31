@@ -29,7 +29,7 @@ Recipes use the server's own nouns:
 - **Project**: a name and a repo folder.
 - **Work item**: a title, a description, acceptance lines, a type that is only a label (`feature`, `bug`, `incident`, `investigation`, `task`, `improvement`) and a status (`backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done`, `dropped`). A top-level item has a Team, a brief and a worktree `<data folder>/worktrees/<project id>/<work item id>` on the branch `work-item/<id>`. A sub-item has a parent, shares its Space and worktree, has no brief, and only the lead moves it.
 - **Bot**: a description, skills, a backend, a model, a face and default access rules. A **Team** is a lead and members copied from Bots, with a responsibility text; the seeded `solo` Team has the seeded `lead` Bot. A Team works one top-level item at a time: the queue starts the next one when an item reaches `review`, `done` or `dropped`, and an item in `needs_you` keeps the Team busy.
-- **Space**: free (no work item), a work item's (one active Space per item) or a conversation (one Bot, one session). Its members are Bots; `@name` or Add Bot moves a conversation to a new Space. A Space pauses at a cap and the work item goes to `needs_you`.
+- **Space**: free (no work item), a work item's (one active Space per item) or a conversation (one Bot, one session). A Space with no work item has zero or more associated Projects (context only, `features/global-chats.md`) and runs in `<data folder>/chats/<Space id>`, a folder that is no git repo. Its members are Bots; `@name` or Add Bot moves a conversation to a new Space. A Space pauses at a cap and the work item goes to `needs_you`.
 - **Review**: the lead sets sub-items done and calls `submit_for_review` with proof (ticked acceptance lines with notes, test commands and output, screenshots); the user sends the item back with a note (to the top of the queue) or sets it `done`, which approves the lead's wrap-up.
 - **Memory items** live in the scopes `work_item`, `space`, `conversation`, `project`, `bot` and `team`. Agents also have `create_sub_item`, `set_sub_item_status` (lead only), `submit_for_review` (lead only) and `propose_work_item`.
 
@@ -269,8 +269,8 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
   N` and stderr. An image in the result (`browser_screenshot`) is saved to
   `~/.reef-verify/<id>/mcp-<tool>-<ns>.png` and shows as `image/png N bytes saved to PATH`. It
   exits 0 when a tool result came back.
-- The project folder is the scratch cwd, so `reef chat` runs its agent there and `cleanup`
-  removes claude's session state for it. A Space on a work item runs in the work item's worktree,
+- The project folder is the scratch cwd, so `reef chat` on a work item's Space starts from it and `cleanup`
+  removes claude's session state for it. A Space with no work item runs in `<data folder>/chats/<Space id>`, not in the project folder. A Space on a work item runs in the work item's worktree,
   `<data folder>/worktrees/<project id>/<work item id>`, so the scratch cwd must be a git repo with a
   commit first (`features/full-team.md`, Preconditions). `cleanup` does not remove claude's
   state for those folders (the command to remove it is in `features/full-team.md`, Gotchas).
@@ -359,6 +359,7 @@ REEF_VERIFY_RUN=<id> $H ui work-item-review # a top-level item in review: Review
 REEF_VERIFY_RUN=<id> $H ui team-page # /teams/<name>: responsibility and roster with role badges, the item in progress links to its Space (REST), the queue in order and a drag to the top changes queue_position (REST), an empty queue shows the Team as idle, an item made in the window gets its Team in the edit form (prefilled from a suggestion, shown with who proposed it) and queued it starts, its started FYI is not counted as needs you on Home or in the sidebar, the editor links to the page, no horizontal scroll at 390x844
 REEF_VERIFY_RUN=<id> $H ui space-header # the Space header by kind: a Work item Space shows the item's title, status and budget used (= REST tokensUsed) with Open Work item; a free Space has Attach to Work item and Add Bot; a conversation shows its Bot's creature and Add Bot; the member list against GET /spaces/{id}/members; Attach moves the Space onto the item's page; 1280x800 and 390x844 (no agent turn runs)
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
+REEF_VERIFY_RUN=<id> $H ui global-chats # All projects in the switcher; a Bot's New chat starts an unassociated chat in <data>/chats/<id> (no git repo, no project path in its prompt), Resume chat starts nothing, a second New chat keeps the first, under a Project a chat is associated at once, and switching the Project filter changes nothing of a reopened chat (REST); needs no sqlite3
 ```
 
 `teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
@@ -585,7 +586,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|bot|team-page|space-header` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|bot|team-page|space-header|global-chats` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

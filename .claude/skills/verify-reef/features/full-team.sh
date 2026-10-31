@@ -325,8 +325,8 @@ wait_done 4 1
 q_sess=$("$H" sql "select session_id from turn where space_id = 4 order by id desc limit 1" | tail -1)
 q_file=$(session_file "$q_sess")
 quick_ok=1
-[ "$(grep -ho '"cwd":"[^"]*"' "$q_file" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/cwd\"" ] || quick_ok=0
-check tree-quick "$quick_ok" "quick session's tester session ran with cwd $S/cwd only"
+[ "$(grep -ho '"cwd":"[^"]*"' "$q_file" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/chats/4\"" ] || quick_ok=0
+check tree-quick "$quick_ok" "quick session's tester session ran with cwd $S/full/chats/4 only, never the project folder"
 
 iso_ok=1
 [ -e "$S/full/worktrees/1/1/d.txt" ] || iso_ok=0
@@ -374,7 +374,7 @@ attach_ok=1
 [ "$(echo "$sess6" | wc -l | tr -d ' ')" = 1 ] || attach_ok=0
 sess6_id=$(echo "$sess6" | head -1)
 sess6_file=$(session_file "$sess6_id")
-grep -q "\"cwd\":\"$S/cwd\"" "$sess6_file" 2>/dev/null || attach_ok=0
+grep -q "\"cwd\":\"$S/full/chats/6\"" "$sess6_file" 2>/dev/null || attach_ok=0
 grep -q "\"cwd\":\"$S/full/worktrees/1/4\"" "$sess6_file" 2>/dev/null || attach_ok=0
 wt_list3=$(git -C "$S/cwd" worktree list)
 echo "$wt_list3" | grep -q "^$S/full/worktrees/1/4 .*\[work-item/4\]" || attach_ok=0
@@ -808,7 +808,7 @@ q_chan=$("$H" sql "select id from Space where name = 'q'" | tail -1)
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
 wait_done "$q_chan" 1
 Q=$("$H" sql "select id from turn where space_id = $q_chan order by id desc limit 1" | tail -1)
-[[ "$(turn_col "$Q" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$Q$ ]] || echo "note: quick session turn $Q has no expected checkpoint" >&2
+[ -z "$(turn_col "$Q" checkpoint)" ] || echo "note: quick session turn $Q has a checkpoint" >&2
 api_call POST /work-items '{"projectId":1,"title":"FQ"}'
 api_call POST "/spaces/$q_chan/attach" '{"workItemId":4}'
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
@@ -820,15 +820,16 @@ wait_done "$q_chan" 2
 } >"$E/fq-before.txt"
 api_call POST "/turns/$Q/rollback"
 moved_ok=1
-[ "$STATUS" = 409 ] || moved_ok=0
-echo "$BODY" | grep -qF "turn $Q was checkpointed in $S/cwd, not $S/fu/worktrees/1/4: conflict" || moved_ok=0
+[ "$STATUS" = 400 ] || moved_ok=0
+echo "$BODY" | grep -qF "turn $Q has no checkpoint" || moved_ok=0
+[ -z "$(turn_col "$Q" checkpoint)" ] || moved_ok=0
 {
 	git -C "$S/fu/worktrees/1/4" rev-parse HEAD
 	git -C "$S/fu/worktrees/1/4" status --porcelain
 	ls -a "$S/fu/worktrees/1/4"
 } >"$E/fq-after.txt"
 diff "$E/fq-before.txt" "$E/fq-after.txt" >/dev/null || moved_ok=0
-check rollback-moved "$moved_ok" "rollback of the moved checkpoint $Q is 409; the fq tree is unchanged"
+check rollback-moved "$moved_ok" "rollback of a free Space's turn $Q, which has no checkpoint, is 400 after the attach too; the fq tree is unchanged"
 
 
 H0=$(git -C "$WA" rev-parse HEAD)
@@ -872,7 +873,7 @@ api_call GET "/turns?space=$freshq_chan"
 unborn_ok=1
 echo "$BODY" | grep -q '"status":"done"' || unborn_ok=0
 echo "$BODY" | grep -q '"checkpoint":null' || unborn_ok=0
-check checkpoint-unborn "$unborn_ok" "a quick session's lead turn on an unborn git repo is done with no checkpoint"
+check checkpoint-unborn "$unborn_ok" "a quick session associated with a project whose git repo has no commit: its lead turn is done with no checkpoint"
 
 rm -rf "$S/fu/worktrees/1/2"
 api_call POST /spaces/3/send '{"text":"@developer Reply with one word. Use no tools."}'

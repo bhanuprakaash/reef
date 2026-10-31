@@ -72,7 +72,12 @@ logged in and on `PATH`.
 
 - Sidebar: a top row with the brand (it opens Today) and one + menu (New Work item, New Space, New
   conversation), search, the project switcher, then Inbox with its count, Board, Spaces and
-  Conversations. Spaces lists the project's free Spaces and the Spaces of Work items that are not yet
+  Conversations. The switcher lists All projects first and then each project; the choice is a
+  filter only. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
+  associated with that project; under All projects it reads `GET /spaces`. Switching never changes a
+  Space's projects, context or sessions, and starts no chat. New Space and New conversation under
+  All projects send `POST /spaces` with no `projectId`; New Work item needs a project. Spaces lists the free
+  Spaces and the Spaces of Work items that are not yet
   in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
   eight newest conversations with the Bot's creature; its header opens `/conversations`. Each row
   shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
@@ -115,7 +120,10 @@ logged in and on `PATH`.
 - Starting a Space (the New Space form) picks one or more Crews and previews their Bots without duplicates, each with an include box, and one coordinator. Picking another Crew adds its Bots and keeps the coordinator. Start sends `POST /spaces` with `botIds` and `coordinatorBotId`.
 - Bots (`/bots`): lists bots and edits one's description, skills, backend, model, face and access
   rules (`PUT /bots/{id}`), the one place they are set. A Bot's page (`/bots/{id}`) shows its Teams, its
-  direct conversations (`GET /bots/{id}/conversations`) and its memory items.
+  direct conversations (`GET /bots/{id}/conversations`, cut to the ones `GET /spaces?project=ID` lists
+  under a project) and its memory items. Resume chat opens the newest open chat in that list;
+  New chat does `POST /spaces` with `botId`, `kind` `conversation` and the current project's id, if
+  any, and opens the new chat. Opening the page starts nothing.
 - Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
@@ -306,8 +314,8 @@ scope `bot`. Their routes still read and write them.
 | --- | --- | --- |
 | `id` | number | |
 | `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item) or `conversation` (a direct conversation with one Bot). Set by the server |
-| `projectId` | number | required on create; never changes |
-| `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the same project, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
+| `projectId` | number | the work item's project for a Space of a work item, and then it never changes. For a free Space or a conversation it is the Space's lowest-id associated project, `0` when it has none: it is optional on create and the association is kept in `space_project` (see [Space projects](#space-projects)) |
+| `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the project given with it, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
 | `name` | string | required |
 | `role` | string | the current name of the Space's lead Bot, read live so a rename shows at once. A message's or turn's own `author` or `role` stays as recorded |
 | `botId` | number? | the id of the Space's lead Bot, from its member rows. The window matches faces and working state by it, never by `role` |
@@ -318,6 +326,26 @@ scope `bot`. Their routes still read and write them.
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is dropped, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 | `movedTo` | number? | `null` unless the Space is a conversation that [moved](#spaces-live) to the Space with the id. A moved conversation takes no turn (409) |
+
+### Space projects
+
+A Space with no work item belongs to no project until it is associated with one: zero, one or
+several, in the `space_project` table (`space_id`, `project_id`). The association is context. It is
+neither a working directory nor permission to change a repository, and filters never change it.
+
+- `POST /spaces` with `projectId` associates the new Space with it at once; with no `projectId` and no
+  work item the Space starts with none. A Space of a work item is associated with the item's project.
+- `GET /spaces?project=ID` lists the Spaces associated with the project, so a Space with two projects
+  is listed under both. `GET /spaces/{id}/projects` lists a Space's projects. `PUT` and `DELETE
+  /spaces/{id}/projects/{projectId}` add and remove one (a Space of a work item is 400: it stays in its
+  work item's project). The Space's messages, turns and sessions do not change when its projects do.
+- Moving a conversation to a new Space (`@name`) copies its projects to the new Space.
+- A Space's context prompt names the projects as `Associated projects, for context only; you do not
+  work in them: <name> (<id>), ...`, never their folders. A Space with no project has no `project`
+  memory scope and cannot `propose_work_item`.
+- Attach (`POST /spaces/{id}/attach`) works with the Space's `projectId`, its lowest-id project: a
+  Space with none is 400 (`Space N has no project, associate one before attaching`), and a work item
+  of another project is 400 even when the Space is associated with that project too.
 
 ### message
 
@@ -544,7 +572,7 @@ tool calls.
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
-| `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
+| `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept; a Space with no work item stays without this project | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
@@ -587,10 +615,10 @@ tool calls.
 | `POST /teams/{name}/members` | `botId`, `lead` | 201 the role as `GET /teams/{name}` shows it | 400 unknown bot, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
-| `GET /spaces` | `?project=ID`, `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `botIds` and `coordinatorBotId` (the Space's members are exactly these Bots, de-duplicated, led by the coordinator or the first Bot; `team`, when given, only names the Crew it started from), `botId` (instead of `team`: a Space with no Team and one member, that Bot as lead; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A Space takes no `backend` or `permissionMode`: its Bots decide. A `name` is required; one that is the new-space form's default, `<team or bot name> <hh:mm>` (`solo 14:32`, `solo 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item, team or Bot, work item of another project, a field the table does not list, a role other than `lead` |
+| `GET /spaces` | `?project=ID` (the Spaces associated with the project, see [Space projects](#space-projects)), `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
+| `POST /spaces` | `projectId` (optional for a Space with no work item, which then starts with no project; required with `workItemId`), `workItemId`, `name`, `team` (a team name; default `solo`), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `botIds` and `coordinatorBotId` (the Space's members are exactly these Bots, de-duplicated, led by the coordinator or the first Bot; `team`, when given, only names the Crew it started from), `botId` (instead of `team`: a Space with no Team and one member, that Bot as lead; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A Space takes no `backend` or `permissionMode`: its Bots decide. A `name` is required; one that is the new-space form's default, `<team or bot name> <hh:mm>` (`solo 14:32`, `solo 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item, team or Bot, work item of another project, a field the table does not list, a role other than `lead` |
 | `GET /spaces/{id}` | | 200 | 404 |
-| `PUT /spaces/{id}` | `name` (required); project, work item and role stay unchanged. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or any other field, 404 |
+| `PUT /spaces/{id}` | `name` (required); work item and role stay unchanged, and so do the projects (see the project routes below). A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or any other field, 404 |
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404, 409 the Space is the proof's Space of a work item in review |
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
@@ -602,6 +630,9 @@ tool calls.
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
+| `GET /spaces/{id}/projects` | | 200 the projects the Space is associated with, by id, `[]` when none | 404 |
+| `PUT /spaces/{id}/projects/{projectId}` | no body needed | 200 the Space's projects after it; doing it twice changes nothing | 400 a Space of a work item, which stays in its work item's project; 404 Space or project |
+| `DELETE /spaces/{id}/projects/{projectId}` | | 200 the Space's projects after it; the Space, its history and its sessions stay, and so does a project it was not associated with | 400 a Space of a work item; 404 Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
 | `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
@@ -673,15 +704,18 @@ a message wakes them.
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
   of another project on the same repo) cannot be added: the start fails with `branch
   work-item/<id> is checked out at <path>; switch that checkout to another branch`. A
-  quick session runs in the project path. The work item is read at each agent
+  Space with no work item runs in `<data folder>/chats/<Space id>`, a folder of its own that
+  is made when missing and is no git repo; `DELETE /spaces/{id}` leaves it. A project the Space is associated
+  with is context only, never its folder: repository work needs a work item (attach the Space to one).
+  The work item is read at each agent
   start, so an attached Space moves to the worktree at its next wake. A project that is not
   a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
   whose error is `work items need the project folder to be a git repo with a commit: <path>:`
   and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
   made again at the next wake: an agent running in the missing folder is closed, and the
   next one resumes the session in the new worktree.
-- Before each turn of a role with `write` in a git checkout (a work item's worktree, or the
-  project path of a quick session that is a git repo), the server stores a checkpoint: a commit
+- Before each turn of a role with `write` in a git checkout (a work item's worktree; a Space's
+  own folder has none while it is no git repo), the server stores a checkpoint: a commit
   of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
   `refs/reef/checkpoints/<data folder>/<turn id>`, where `<data folder>` is the first 12 hex
   digits of the sha256 of the absolute data folder path, so two Reef copies on one repo never
@@ -695,7 +729,7 @@ a message wakes them.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
 - One write turn at a time runs on a tree, across all Spaces and processes on the data
-  folder: the work item's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
+  folder: the work item's worktree, or the Space's own folder. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
   stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
@@ -713,8 +747,7 @@ a message wakes them.
   (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
   A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
   waiting and checks the reader file, so a read-only turn of any process refuses it.
-- `POST /turns/{id}/rollback` puts the Space's tree (the work item's worktree, or the project
-  path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
+- `POST /turns/{id}/rollback` puts the Space's tree (the work item's worktree) back as the turn's checkpoint saw it: the branch the checkpoint was
   taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
   switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
   and untracked files get the content they had, the same changes are staged, and files made
@@ -744,8 +777,8 @@ a message wakes them.
   closed: pending candidates are rejected and accepted items retired, so nothing of it is left
   in `reef memory pending`. Retired and rejected items are kept and still read.
 - `DELETE /projects/{id}` does the same for every work item of the project, and deletes the
-  checkpoint refs of the turns of every Space of the project, quick sessions included (their
-  refs are taken in the project folder). It checks every worktree first: one with uncommitted
+  checkpoint refs of the turns of every Space of the project. A Space with no work item is not
+  deleted: it only loses the association, and keeps its other projects. It checks every worktree first: one with uncommitted
   changes is 409 for that work item, and nothing is removed. Then it removes all worktrees,
   deletes the project rows, and last deletes the refs, in the same order and with the same
   failure rule as a work item delete. Branches are kept. Its memory items are closed the same
@@ -1014,7 +1047,7 @@ pending wrap blocks another wrap (409 `space 2 has a wrap-up waiting for approva
 ### Attach a Space to a work item
 
 `POST /spaces/{id}/attach` gives a free Space a work item: `{"workItemId": 3}`, a work item
-of the Space's project. A Space that has a work item, and a direct conversation, are 400.
+of the Space's project (its lowest-id project, see [Space projects](#space-projects)). A Space that has a work item, and a direct conversation, are 400.
 The Space must be idle (409 while a turn runs), the project a git repo with a commit, and
 the work item without another active Space (409 `work item 3 already has an active Space`);
 a refused attach changes nothing. The attach sets the Space's `workItemId` and `kind`, moves

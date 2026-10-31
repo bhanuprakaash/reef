@@ -1,6 +1,6 @@
 # Spaces and messages
 
-A user talks to a Bot or a Team in Spaces. A free Space belongs to no work item (a quick session); a work item Space is the one
+A user talks to a Bot or a Team in Spaces. A free Space has no work item and runs in a folder of its own, never the project's (a quick session; `global-chats.md`); a work item Space is the one
 active Space of one top-level work item, where its Team works; a conversation is a Space with one Bot
 (`conversations.md`). A Space runs its agents live: the user sends, follows the events, stops, wraps up, attaches a free Space to a
 work item and decides the proposal. Messages are added to a Space and never edited or removed one by one.
@@ -8,9 +8,9 @@ Contract: `docs/server.md` (Spaces, Spaces live, Wrap-up and attach, Caps).
 
 ## Sub-features
 
-- `space-create` a free Space (`workItemId` null) and a work item Space; the work item must be of the same project. `backend` is `claude` or `codex` (it defaults to the team lead's), a request `role` is empty or `lead`, and the reply's `role` is the name of the team's lead role (`lead` in `solo`, `boss` for a team whose lead is `boss`, where `"role":"boss"` is 400 `role must be lead`), and `permissionMode` must suit the backend; the reply also has `paused` (`""`), `tokenBudget` (1000000) and `team` (`solo`); Teams are in `bots.md`.
-- `space-filter` `GET /spaces` filters by `?project=ID` and `?workItem=ID`.
-- `space-fixed` update changes the name only; project and work item stay as created.
+- `space-create` a free Space (`workItemId` null, `projectId` optional: left out it is 0) and a work item Space; the work item must be of the project given with it (a work item with no `projectId` is 400). `backend` is `claude` or `codex` (it defaults to the team lead's), a request `role` is empty or `lead`, and the reply's `role` is the name of the team's lead role (`lead` in `solo`, `boss` for a team whose lead is `boss`, where `"role":"boss"` is 400 `role must be lead`), and `permissionMode` must suit the backend; the reply also has `paused` (`""`), `tokenBudget` (1000000) and `team` (`solo`); Teams are in `bots.md`.
+- `space-filter` `GET /spaces` filters by `?project=ID` (the Spaces associated with the project) and `?workItem=ID`.
+- `space-fixed` update changes the name only; the work item stays as created, and so do the projects: they change only through `PUT` and `DELETE /spaces/{id}/projects/{projectId}` (`global-chats.md`).
 - `message-append` messages are added with `POST` and read with `GET /messages?space=ID`; `?after=ID` returns only newer ones.
 - `message-thread` a message has `parentId`: `null` at the top level, the root's id for a reply; a parent that is not a top-level message of the same Space is 400.
 - `message-append-only` `PUT`, `PATCH` and `DELETE` on a message are 405.
@@ -46,6 +46,7 @@ Messages, on a fresh server (`$H serve-stop`, then `$H serve-start --data-name s
 - **Thread parent.** `$H api POST /messages '{"spaceId":2,"parentId":1,"author":"architect","body":"Reply"}'` gives 201 id 3 with `"parentId":1`. A reply to a reply, `... "parentId":3 ...`, and an unknown parent, `... "parentId":99 ...`, give 400 `is not a top-level message of Space 2`. `$H api GET '/messages?space=2'` has `"parentId":null` on ids 1 and 2 and `1` on id 3.
 - **Append-only.** `$H api PUT /messages/1 '{"body":"edit"}'`, `$H api PATCH /messages/1 '{"body":"edit"}'` and `$H api DELETE /messages/1` give 405 `{"error":"method not allowed"}`. `$H sql "select id, body from message"` still shows the original text.
 - **Cascade.** `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"later","backend":"claude"}'` gives id 3. `$H api DELETE /spaces/2` gives 204; `$H api GET '/messages?space=2'` gives 404; `$H sql "select count(*) from message"` is 0. `$H api DELETE /work-items/1` gives 204 and `$H api GET /spaces/3` gives 404, while `$H api GET /spaces/1` (the quick session) still gives 200. `$H api POST /spaces '{"projectId":1,"name":"again","backend":"claude"}'` gives id 4, not 2.
+- **Create without a project.** `$H api POST /spaces '{"name":"loose"}'` gives 201 `"projectId":0`, `"kind":"free"`, and `$H api GET /spaces/N/projects` is `[]`; with a work item and no `projectId` it gives 400 (`global-chats.md`, Associations).
 
 Live Spaces, on a server of its own (`$H serve-stop`, then `--data-name live` as below):
 
@@ -66,7 +67,7 @@ Preconditions: baseline from the README, and a server started with the model set
 ## Gotchas
 
 - `?after=ID` compares message ids, not times; poll with the last id you saw.
-- A Space's work item is checked once, on create. A Space keeps its project and work item; attach (`live-attach`) is the one move, from a free Space to a work item.
+- A Space's work item is checked once, on create. A Space keeps its work item; attach (`live-attach`) is the one move, from a free Space to a work item, and a free Space's projects are edited through `/spaces/{id}/projects/{projectId}`.
 - Messages from author `reef` are written by the server after a restart, see `turns-recovery`.
 - `send` answers before the turn runs; poll `$H sql "select status from turn ..."` (or the events stream) before checking the reply.
 - The events stream sends a `: keepalive` comment every 15 seconds; `curl --max-time` ends it.

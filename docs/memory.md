@@ -281,14 +281,16 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      differ from what its session last got, whether it is starting or resuming, gets them again
      before the wake text, marked `Your description or skills changed:`, without the header.
    - One line: role, work item title and id, project name. A free Space says instead:
-     role, project name and folder, and that it is a free Space with no work item, so there is no brief or
-     work item items. A direct conversation says it is a direct conversation with the user.
+     the role and that it is a free Space with no work item, so there is no brief or work item items.
+     A direct conversation says it is a direct conversation with the user. Either then lists
+     `Associated projects, for context only; you do not work in them: shop (1).` when the Space has
+     any, with no folder: the agent runs in a folder of its own, not in a project.
    - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
      big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
    - The description (if set), as `Description: ...`, then `Acceptance lines:` with one line
      `1. [x] text` for each acceptance line of the work item (`[ ]` when not ticked). A free Space
      or conversation has none.
-   - When the project has a base branch, `Base branch: dev. A pull request you open targets it.`
+   - On a work item, when the project has a base branch, `Base branch: dev. A pull request you open targets it.`
 2. `## How to work`
    - When the team has two or more roles: `Your team: @lead, @architect.` It says that
      `post_to_space` and @mentions are shared (decisions, blockers, user questions and outcomes
@@ -310,7 +312,7 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      `search_sessions`), `remember` and `propose_brief`. A free Space or conversation gets a
      shorter one: details are on demand through `recall` and `read_memory`, `remember` saves to
      this Space (this conversation) by default, and scope `project` or `bot` is for what holds
-     across the project or for the role. So a free Space or conversation always has a `## How to work`.
+     across the project or for the role (only `bot` when the Space has no project). So a free Space or conversation always has a `## How to work`.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief, in full. Work items only.
    - `### In progress`: one line `sub-item N: title (type)` for each sub-item of the work item
@@ -320,7 +322,7 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    - `### Findings`: the 5 newest accepted findings, facts, conventions and lessons in the
      work item's `work_item` scope. Work items only.
    - `### Space`: the 5 newest accepted items in the Space's own scope, on a free Space only.
-   - `### Project`: the 10 newest accepted items in the project's scope.
+   - `### Project`: the 10 newest accepted items in the project's scope; none for a Space with no project.
    - `### Team`: the 5 newest accepted items in the team's scope, only when the Space's team
      is a real team: the `solo` team is no team and has none. `reef context` prints none.
    - `### Your items`: the 5 newest accepted items in the role's `bot` scope, named by the

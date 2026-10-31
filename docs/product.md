@@ -134,8 +134,8 @@ One assembler builds the first prompt of every Space in three sections: `## You`
 
 Not everything is a Work item; these places cover the rest.
 
-- **Free Spaces:** a Space under a project with no Work item, running on the main checkout. Attach it to a Work item when it turns into real work; no brief is written for it. (The context prompt calls it a quick session.)
-- **Direct conversations:** talk to one Bot about anything. Many per Bot, any can be continued, nothing splits by itself. They have no project work attached, but they can propose a Work item.
+- **Free Spaces:** a Space with no Work item, associated with zero or more projects and running in a neutral directory of its own, never the project checkout (decisions 145, 150). Attach it to a Work item when it turns into real work; no brief is written for it.
+- **Direct conversations:** talk to one Bot about anything. Many per Bot, any can be continued, nothing splits by itself. They have no project work attached, but under a Project they can propose a Work item.
 - **Project memory:** memory items in the project's scope (conventions, facts, decisions) shared by every Work item and free Space in a repo, like a smarter CLAUDE.md. The 10 newest load into every session.
 - **Bots and Teams pages:** tune a Bot (description, skills, tools, MCPs) and a Team (roster, responsibility text, queue) separately from project work.
 - **Board:** the top-level Work items of a project by status, filtered by type, Team and project. You drag a card between Backlog and Queued and reorder a Team's queue; other moves are the item's own actions.

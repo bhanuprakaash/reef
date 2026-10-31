@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar|global-chats BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'team-page': teamPage, 'space-header': spaceHeader, sidebar };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'team-page': teamPage, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar|global-chats BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -300,13 +300,12 @@ async function attach() {
   const cid = await newSpace(aside, 'New Space', 'idea chat');
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
-  const quick = sql(`select id from turn where space_id=${cid} and checkpoint is not null order by id`).split('\n');
   const checkpoints = main.getByRole('region', { name: 'Checkpoints' });
-  await checkpoints.getByText('2 checkpoints').waitFor({ timeout: 15000 });
+  const checkpointed = () => sql(`select id from turn where space_id=${cid} and checkpoint is not null order by id`);
   check(
-    quick.length === 2,
-    'a free Space in a git repo lists its two checkpoints before the attach',
-    `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
+    checkpointed() === '' && (await checkpoints.count()) === 0,
+    'a free Space runs in a folder of its own, not a git repo, so its two turns have no checkpoint and the page lists none',
+    `turns with a checkpoint: ${JSON.stringify(checkpointed())}`,
   );
   await addWorkItem('Search');
   await section.getByRole('link', { name: 'idea chat' }).click();
@@ -324,13 +323,6 @@ async function attach() {
     'the Attach to Work item button is gone once the Space has a work item',
     `space row (work_item_id|kind): ${sql(`select work_item_id,kind from space where id=${cid}`)}`,
   );
-  await page.waitForTimeout(1000);
-  const left = await checkpoints.allInnerTexts();
-  check(
-    !left.some((t) => t.includes('2 checkpoints') || quick.some((id) => t.includes(`before turn ${id} `))),
-    'the free-Space checkpoints, taken in another tree, have no Roll back button after the attach',
-    `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?space=${cid}&rollbackable=1`)).map((t) => t.id))}`,
-  );
   await section.getByRole('link', { name: '#idea chat' }).waitFor();
   check(
     sql(`select kind from space where id=${cid}`) === 'work_item',
@@ -340,13 +332,18 @@ async function attach() {
   await exchange('Go on.');
   const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
   check(lead === '3', 'the Space still answers after the attach', `lead messages: ${lead}`);
+  check(
+    sql(`select count(*) from turn where space_id=${cid} and checkpoint is not null`) === '1',
+    'the turn after the attach runs in the worktree and has a checkpoint',
+    `turns with a checkpoint: ${JSON.stringify(checkpointed())}`,
+  );
 }
 
 async function cap() {
   const section = await addProject();
   const itemId = await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'cap chat');
-  await exchange('Say hello.');
+  await exchange('Describe a reef.');
   sql(`update work_item set token_budget=1 where id=${itemId}`, true);
   await send('Say hello again.');
   const banner = page.getByRole('alert');
@@ -808,7 +805,7 @@ async function rollback() {
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
 
-  await exchange('Say hello.');
+  await exchange('Describe a reef.');
   writeFileSync(path.join(tree, 'mine.txt'), 'my notes\n');
   const before = state();
   await send('Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
@@ -1102,7 +1099,7 @@ async function memory() {
   await sessionDialog.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
   check(
-    sql(`select count(*) from Space where project_id=${pid} and work_item_id is null and name='${session}'`) === '1',
+    sql(`select count(*) from Space where id in (select space_id from space_project where project_id=${pid}) and work_item_id is null and name='${session}'`) === '1',
     'New free Space on the project page stores a Space with no Work item and opens it',
   );
   await page.goto(`${base}/projects/${pid}`);
@@ -2518,7 +2515,7 @@ async function conversation() {
   const second = await start();
   await exchange('Did I give you a codeword? Answer with the codeword, or none if I did not.');
   await named(second, 'other chat');
-  const kinds = sql(`select id, kind, team_id is null from Space where project_id=${project} order by id`);
+  const kinds = sql(`select id, kind, team_id is null from Space where id in (select space_id from space_project where project_id=${project}) order by id`);
   check(kinds === `${first}|conversation|1\n${second}|conversation|1`, 'each start makes its own conversation with no Team', kinds);
   const sessions = sql(`select space_id, session_id from turn where space_id in (${first}, ${second}) order by id`).split('\n');
   check(sessions.length === 2 && sessions[0].split('|')[1] !== sessions[1].split('|')[1], 'the two conversations have their own session', sessions.join(' ; '));
@@ -3297,13 +3294,13 @@ async function sidebar() {
   const topDown = [search, link(/^Inbox/), link(/^Board/), link('Spaces'), link('Conversations')];
   const ys = [];
   for (const loc of topDown) ys.push(await y(loc));
-  const bottom = [link('Teammates'), link('Teams'), link('Settings')];
+  const bottom = [link('Bots'), link('Crews'), link('Settings')];
   const bottomY = await y(bottom[0]);
   const bottomX = [];
   for (const loc of bottom) bottomX.push(await x(loc));
   check(
     ys.every((v, i) => i === 0 || v > ys[i - 1]) && ys[ys.length - 1] < bottomY && bottomX.every((v, i) => i === 0 || v > bottomX[i - 1]),
-    'the sidebar lists Search, Inbox, Board, Spaces, Conversations top to bottom, then Teammates, Teams, Settings at the bottom',
+    'the sidebar lists Search, Inbox, Board, Spaces, Conversations top to bottom, then Bots, Crews, Settings at the bottom',
     `y: ${ys.join(',')}; bottom y ${bottomY}; bottom x: ${bottomX.join(',')}`,
   );
   check((await aside.getByRole('link', { name: /^Tasks/ }).count()) === 0 && (await aside.getByText('New channel').count()) === 0, 'no Tasks link and no New channel in the sidebar');
@@ -3314,8 +3311,8 @@ async function sidebar() {
     [link(/^Board/), '/board', 'Board'],
     [link('Spaces'), '/spaces', 'Spaces'],
     [link('Conversations'), '/conversations', 'Conversations'],
-    [link('Teammates'), '/bots', 'Teammates'],
-    [link('Teams'), '/teams', 'Teams'],
+    [link('Bots'), '/bots', 'Bots'],
+    [link('Crews'), '/teams', 'Crews'],
     [link('Settings'), '/settings', 'Settings'],
   ];
   for (const [loc, route, heading] of visits) {
@@ -3338,14 +3335,14 @@ async function sidebar() {
   await aside.getByLabel('Name', { exact: true }).fill('free room');
   await aside.getByRole('button', { name: 'Start' }).click();
   await main.getByRole('heading', { name: 'free room', level: 1 }).waitFor();
-  const free = sql(`select id,kind,work_item_id is null from space where project_id=${project} and name='free room'`);
+  const free = sql(`select id,kind,work_item_id is null from space where id in (select space_id from space_project where project_id=${project}) and name='free room'`);
   check(urlPath() === `/spaces/${free.split('|')[0]}` && free.endsWith('|free|1'), '+ New Space stores a free Space and opens it', `${free} at ${urlPath()}`);
   await section.getByRole('link', { name: 'free room' }).waitFor();
 
   await plus('New conversation');
   await page.getByRole('button', { name: 'sidebar-sam', exact: true }).click();
   await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith(`/${free.split('|')[0]}`));
-  const conversation = sql(`select id,kind,team_id is null from space where project_id=${project} and kind='conversation'`);
+  const conversation = sql(`select id,kind,team_id is null from space where id in (select space_id from space_project where project_id=${project}) and kind='conversation'`);
   check(urlPath() === `/spaces/${conversation.split('|')[0]}` && conversation.endsWith('|conversation|1'), '+ New conversation stores a conversation and opens it', `${conversation} at ${urlPath()}`);
   await call('PUT', `/spaces/${conversation.split('|')[0]}`, { name: 'sam chat' });
   const convoRow = section.getByRole('link', { name: /sam chat/ });
@@ -3361,7 +3358,7 @@ async function sidebar() {
   check(true, 'Search filters the Space and conversation rows');
 
   const own = Number(item.split('|')[0]);
-  const room = await (await call('POST', '/spaces', { projectId: project, name: 'review room', workItemId: own, backend: 'claude' })).json();
+  const room = await (await call('POST', '/spaces', { projectId: project, name: 'review room', workItemId: own })).json();
   const roomRow = section.getByRole('link', { name: '#review room' });
   await roomRow.waitFor({ timeout: 15000 });
   sql(`update work_item set status='in_progress', closed_at=null where id=${own}`, true);
@@ -3472,12 +3469,12 @@ async function bot() {
   check((await convoCard.getByRole('link').first().innerText()).includes('newer chat'), 'the newer conversation is first');
   await shot('desktop-1280x800');
 
-  await main.getByRole('button', { name: 'Start conversation' }).click();
+  await main.getByRole('button', { name: 'New chat' }).click();
   await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname));
   const spaceId = page.url().split('/').pop();
   const row = sql(`select kind, team_id is null from Space where id=${spaceId}`);
   const members = sql(`select bot_id from space_member where space_id=${spaceId}`);
-  check(row === 'conversation|1' && members === String(sam.id), 'Start conversation opens a new conversation with the Bot and no Team', `${row} members ${members}`);
+  check(row === 'conversation|1' && members === String(sam.id), 'New chat opens a new conversation with the Bot and no Team', `${row} members ${members}`);
   check(!(await restOrder()).slice(1).includes(spaceId) && (await restOrder())[0] === spaceId, 'REST lists it first', (await restOrder()).join());
   await page.goto(`${base}/bots/${sam.id}`);
   await convoCard.getByRole('link').nth(2).waitFor();
@@ -4184,6 +4181,104 @@ async function spaceHeader() {
   await spaces.getByRole('link', { name: new RegExp(`free-space-${suffix}`) }).waitFor();
   check((await getJson(`/spaces?workItem=${itemB.id}`)).map((s) => s.id).join() === String(freeSpace.id), "the Space is on the item's page and in GET /spaces?workItem=", `${itemB.id}`);
   await shot('desktop-item-page');
+}
+
+async function globalChats() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  await addProject();
+  const a = (await getJson('/projects')).at(-1);
+  const otherDir = mkdtempSync(path.join(tmpdir(), 'reef-ui-other-'));
+  const b = await call('POST', '/projects', { name: `other-${suffix}`, path: otherDir });
+  const bot = await call('POST', '/bots', { name: `chatter-${suffix}`, backend: 'claude', write: false });
+  const botPage = `${base}/bots/${bot.id}`;
+  const resume = main.getByRole('link', { name: 'Resume chat' });
+  const newChat = main.getByRole('button', { name: 'New chat' });
+  const spaceCount = async () => (await getJson('/spaces')).length;
+  const filter = async (name) => {
+    await aside.getByRole('button', { name: 'Switch project' }).click();
+    await page.getByRole('menuitem', { name, exact: true }).click();
+    await aside.getByRole('region', { name }).waitFor();
+  };
+  const startChat = async () => {
+    const was = page.url();
+    await newChat.click();
+    await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
+    return Number(page.url().split('/').pop());
+  };
+  const state = async (id) => ({
+    space: { ...(await getJson(`/spaces/${id}`)), tokensUsed: undefined },
+    projects: (await getJson(`/spaces/${id}/projects`)).map((p) => p.id),
+    sessions: [...new Set((await getJson(`/turns?space=${id}`)).map((t) => t.sessionId))],
+    messages: (await getJson(`/messages?space=${id}`)).length,
+  });
+
+  await filter('All projects');
+  check((await aside.getByRole('region', { name: 'All projects' }).count()) === 1, 'the project switcher offers All projects and the sidebar names it');
+  await page.goto(botPage);
+  await main.getByRole('heading', { name: bot.name, level: 1 }).waitFor();
+  await newChat.waitFor();
+  check((await resume.count()) === 0, 'under All projects a Bot with no chat offers only New chat');
+  const first = await startChat();
+  check((await state(first)).projects.length === 0 && (await getJson(`/spaces/${first}`)).projectId === 0, 'New chat under All projects starts unassociated (no projects, projectId 0)', JSON.stringify((await state(first)).projects));
+  await exchange('Describe a reef.');
+  const dir = path.join(data, 'chats', String(first));
+  const repo = (d) => { try { execFileSync('git', ['-C', d, 'rev-parse', '--is-inside-work-tree'], { stdio: 'pipe' }); return true; } catch { return false; } };
+  let ancestor = '';
+  for (let d = dir; d !== path.dirname(d); d = path.dirname(d)) if (existsSync(path.join(d, '.git'))) ancestor = d;
+  check(existsSync(dir) && !repo(dir) && ancestor === '', 'the chat ran in its own folder under the data folder: not a git repo, no .git in it or above', `${dir} ancestor .git: ${ancestor || 'none'}`);
+  const sessions = (await state(first)).sessions;
+  const logged = (process.env.REEF_FAKE_LOG ? readFileSync(process.env.REEF_FAKE_LOG, 'utf8') : '').split('\n').filter((l) => sessions.some((s) => l.includes(`session=${s} `)));
+  check(logged.length === 1 && logged[0].includes(` cwd=${dir} `), 'the agent process started in that folder (fake claude log)', logged[0]?.split(' args=')[0]);
+  const prompt = (await getJson(`/spaces/${first}/inspector`)).turns[0].prompt;
+  check(![a.path, b.path, 'Base branch'].some((x) => prompt.includes(x)), 'its first prompt has no project path and no base branch', prompt.split('\n').slice(0, 3).join(' / '));
+  await shot('all-projects-chat');
+
+  await page.goto(botPage);
+  await resume.waitFor();
+  const before = await spaceCount();
+  check((await resume.getAttribute('href')) === `/spaces/${first}`, 'reopening the Bot page offers Resume chat for the latest chat and starts nothing', `${await resume.getAttribute('href')} spaces ${before}`);
+  await page.waitForTimeout(1000);
+  check((await spaceCount()) === before, 'no chat was started by opening the page', String(await spaceCount()));
+  const second = await startChat();
+  await exchange('Describe another reef.');
+  const list = (await getJson(`/bots/${bot.id}/conversations`)).map((c) => c.id);
+  check(second !== first && list.includes(first) && list.includes(second), 'New chat made a separate chat and the older one is still listed', `${first} and ${second}: ${list.join()}`);
+  const ids = await Promise.all([first, second].map(async (id) => (await state(id)).sessions[0]));
+  check(ids[0] !== ids[1] && (await state(first)).messages === 2, 'the two chats have their own sessions and the older one kept its two messages', ids.join(' vs '));
+  await shot('new-chat-second');
+
+  await filter(a.name);
+  check((await getJson(`/spaces?project=${a.id}`)).length === 0, 'GET /spaces?project= lists neither global chat under a Project they are not associated with');
+  await page.goto(botPage);
+  await newChat.waitFor();
+  check((await resume.count()) === 0, 'under a Project with no associated chat the Bot offers only New chat');
+  const third = await startChat();
+  const thirdProjects = (await state(third)).projects;
+  check(thirdProjects.join() === String(a.id), 'New chat under a Project is associated with it at once', JSON.stringify(thirdProjects));
+  await exchange('Describe a reef near the project.');
+  const thirdSession = (await state(third)).sessions[0];
+  const thirdLog = (process.env.REEF_FAKE_LOG ? readFileSync(process.env.REEF_FAKE_LOG, 'utf8') : '').split('\n').find((l) => l.includes(`session=${thirdSession} `));
+  check(thirdLog?.includes(` cwd=${path.join(data, 'chats', String(third))} `) === true, 'it runs in a folder of its own too, never the project folder', thirdLog?.split(' args=')[0]);
+  await page.goto(botPage);
+  await resume.waitFor();
+  check((await resume.getAttribute('href')) === `/spaces/${third}`, 'under the Project, Resume chat opens the latest associated chat, not the global ones', await resume.getAttribute('href'));
+
+  await page.goto(`${base}/spaces/${first}`);
+  await main.getByRole('heading', { level: 1 }).waitFor();
+  const url = page.url();
+  const was = await state(first);
+  const count = await spaceCount();
+  for (const name of [b.name, a.name, 'All projects']) await filter(name);
+  const now = await state(first);
+  check(JSON.stringify(was) === JSON.stringify(now), 'switching the Project filter changes nothing of the reopened chat: space, associations, sessions, messages', `projects ${JSON.stringify(now.projects)} sessions ${now.sessions.join()}`);
+  check(page.url() === url && (await spaceCount()) === count, 'the page stays on the chat and starts no other chat', page.url());
+  await shot('filter-switched');
 }
 
 try {
