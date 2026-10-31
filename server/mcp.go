@@ -801,6 +801,9 @@ func (m *mcpServer) proposeWorkItem(
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
+	if c.ProjectID == 0 {
+		return nil, store.WorkItem{}, errors.New("this Space has no project, so it cannot propose a work item")
+	}
 	w := store.WorkItem{
 		ProjectID: c.ProjectID, Type: in.Type, Title: in.Title, Description: in.Description,
 		ProposedBy: name,

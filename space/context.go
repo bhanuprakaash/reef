@@ -27,8 +27,9 @@ const (
 		"read_thread and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 	_quickToolsLine = "Details are on demand through the reef MCP tools recall and read_memory. " +
-		"remember saves to this %s by default; use scope project or bot for what holds " +
-		"across the project or for you."
+		"remember saves to this %s by default; use scope %s."
+	_quickProjectScopes = "project or bot for what holds across the project or for you"
+	_quickBotScope      = "bot for what holds for you"
 )
 
 var _findingKinds = []string{
@@ -98,8 +99,10 @@ func botScopes(ch store.Space, bot string) []memory.Ref {
 	default:
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)})
 	}
-	scopes = append(scopes,
-		memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
+	if ch.ProjectID != 0 {
+		scopes = append(scopes,
+			memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
+	}
 	if ch.Team != "" && ch.Team != store.SoloTeam {
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
@@ -196,10 +199,6 @@ func firstPrompt(
 	ctx context.Context, st *store.Store, ms *memory.Store, projectID int64, workItemID *int64,
 	spaceID int64, team store.Team, r store.Role,
 ) (string, error) {
-	p, err := st.Project(ctx, projectID)
-	if err != nil {
-		return "", err
-	}
 	who, err := profileLine(ctx, st)
 	if err != nil {
 		return "", err
@@ -222,16 +221,38 @@ func firstPrompt(
 		if ch.Kind == store.KindConversation {
 			kind, scope = "a direct conversation with the user", "conversation"
 		}
-		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
+		fmt.Fprintf(&b, "You are the %s.\n"+
 			"This is %s: it has no work item, so there is no brief or work item items.\n",
-			r.Name, p.Name, p.Path, kind)
-		how += fmt.Sprintf(_quickToolsLine, scope) + "\n"
+			r.Name, kind)
+		scopes := _quickBotScope
+		if projectID != 0 {
+			scopes = _quickProjectScopes
+		}
+		how += fmt.Sprintf(_quickToolsLine, scope, scopes) + "\n"
+		if spaceID != 0 {
+			projects, err := st.SpaceProjects(ctx, spaceID)
+			if err != nil {
+				return "", err
+			}
+			if len(projects) > 0 {
+				names := make([]string, len(projects))
+				for i, p := range projects {
+					names[i] = fmt.Sprintf("%s (%d)", p.Name, p.ID)
+				}
+				fmt.Fprintf(&b, "Associated projects, for context only; you do not work in them: %s.\n",
+					strings.Join(names, ", "))
+			}
+		}
 		b.WriteString(who)
 		if know, err = itemParts(ctx, st, ms, nil, ch, r); err != nil {
 			return "", err
 		}
 	} else {
 		f, err := st.WorkItem(ctx, *workItemID)
+		if err != nil {
+			return "", err
+		}
+		p, err := st.Project(ctx, projectID)
 		if err != nil {
 			return "", err
 		}
@@ -252,12 +273,12 @@ func firstPrompt(
 				fmt.Fprintf(&b, "%d. [%s] %s\n", l.Position, tick, l.Text)
 			}
 		}
+		if p.BaseBranch != "" {
+			fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
+		}
 		if know, err = workItemKnow(ctx, st, ms, f, ch, r); err != nil {
 			return "", err
 		}
-	}
-	if p.BaseBranch != "" {
-		fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
 	}
 
 	if how != "" {

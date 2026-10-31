@@ -968,6 +968,26 @@ func TestMCPProposeWorkItem(t *testing.T) {
 	}
 }
 
+func TestMCPProposeWorkItemNeedsAProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	chat, err := st.CreateBotSpace(ctx, store.Space{Name: "chat", Kind: store.KindConversation}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := testToken(t, st, ctx, chat.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, isErr := callTool(t, st, tok)("propose_work_item", map[string]any{
+		"type": "task", "title": "Rename the export", "description": "Call it archive.",
+	})
+	if want := "this Space has no project, so it cannot propose a work item"; got != want || !isErr {
+		t.Errorf("propose_work_item = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
 func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)

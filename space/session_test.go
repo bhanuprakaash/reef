@@ -15,6 +15,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 type recordingAgent struct {
@@ -210,8 +211,9 @@ func TestOpen_QuickSession(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
+	dir := t.TempDir()
 
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,15 +222,12 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, err := st.Project(ctx, f.ProjectID)
-	if err != nil {
-		t.Fatal(err)
+	if want := filepath.Join(dir, "chats", "1"); ag.cfg.Cwd != want {
+		t.Errorf("Cwd = %q, want %q: an associated project is not the folder", ag.cfg.Cwd, want)
 	}
-	if ag.cfg.Cwd != p.Path {
-		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
-	}
-	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
+	want := "## You\nYou are the architect.\n" +
 		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
+		"Associated projects, for context only; you do not work in them: shop (1).\n" +
 		"\n## How to work\n" +
 		"Details are on demand through the reef MCP tools recall and read_memory. " +
 		"remember saves to this Space by default; use scope project or bot for what holds " +
@@ -236,6 +235,67 @@ func TestOpen_QuickSession(t *testing.T) {
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
+	}
+}
+
+func TestWorkDir_NoWorkItem(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	dir := t.TempDir()
+	for _, quick := range []bool{true, false} {
+		ch := sessionSpace(t, st, f, quick)
+		got, key, err := WorkDir(ctx, st, dir, ch.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if quick {
+			if want := filepath.Join(dir, "chats", "1"); got != want || key != "" {
+				t.Errorf("WorkDir of a Space with no work item = %q, %q, want %q and no key", got, key, want)
+			}
+		} else if want := filepath.Join(dir, "worktrees", "1", "1"); got != want || key != "1" {
+			t.Errorf("WorkDir of a work item Space = %q, %q, want %q and key 1", got, key, want)
+		}
+	}
+}
+
+func TestOpen_ChatWithoutProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := openStore(t)
+	id := testBotID(t, st, "architect")
+	ch, err := st.CreateBotSpace(ctx, store.Space{Name: "chat", Role: "architect"}, *id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	dir := t.TempDir()
+
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := sendAs(ctx, st, ch.ID, s.Run, "hi", discard); err != nil {
+		t.Fatal(err)
+	}
+
+	want := filepath.Join(dir, "chats", "1")
+	if ag.cfg.Cwd != want {
+		t.Errorf("Cwd = %q, want %q", ag.cfg.Cwd, want)
+	}
+	if _, err := os.Stat(filepath.Join(want, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat .git in %s = %v, want not exist", want, err)
+	}
+	if worktree.IsRepo(ctx, want) {
+		t.Errorf("%s is a git repo, want none", want)
+	}
+	wantPrompt := "## You\nYou are the architect.\n" +
+		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
+		"\n## How to work\n" +
+		"Details are on demand through the reef MCP tools recall and read_memory. " +
+		"remember saves to this Space by default; use scope bot for what holds for you.\n" +
+		"\n\nhi"
+	if len(ag.prompts) != 1 || ag.prompts[0] != wantPrompt {
+		t.Errorf("prompts = %q, want [%q]", ag.prompts, wantPrompt)
 	}
 }
 

@@ -159,10 +159,15 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t st
 }
 
 // checkpointTrees is the directory the checkpoint of t was taken in, and the directory its
-// Space ch runs in now. They differ for a free Space's turn after an attach.
+// Space ch runs in now. They differ for a free Space's turn after an attach. A Space with no
+// project has no checkpoint to compare with.
 func (s *server) checkpointTrees(
 	ctx context.Context, ch store.Space, t store.Turn,
 ) (from, dir string, err error) {
+	if ch.ProjectID == 0 {
+		return "", "", fmt.Errorf("%w: Space %d has no project, so no checkpoint to restore",
+			store.ErrConflict, ch.ID)
+	}
 	dir, _, err = space.WorkDir(ctx, s.st, s.dataDir, ch.ID)
 	if err != nil {
 		return "", "", err

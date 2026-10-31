@@ -285,7 +285,7 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `## You
-You are the lead in project "shop" (` + p.Path + `).
+You are the lead.
 This is a free Space: it has no work item, so there is no brief or work item items.
 
 ## How to work
@@ -310,9 +310,9 @@ Details are on demand through the reef MCP tools recall and read_memory. remembe
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a free Space: " +
+		"## You\nYou are the lead.\nThis is a free Space: " +
 			"it has no work item, so there is no brief or work item items.\nYou work with Ada.\n" +
-			"Base branch: dev. A pull request you open targets it.\n\n## How to work\nYour team: @lead, @architect. ",
+			"\n## How to work\nYour team: @lead, @architect. ",
 		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
 			"1 of 1; recall(..., scope=project)\n\n" +
 			"### Your items\nlesson 2: Ask before renaming. (lead, " + day + ")\n" +

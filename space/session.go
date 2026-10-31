@@ -30,7 +30,6 @@ type Session struct {
 	exe      string
 	ch       store.Space
 	leadID   int64
-	project  store.Project
 	mk       func(backend string) (agent.Agent, error)
 	lock     *os.File
 	onPrompt func(prompt string)
@@ -105,10 +104,6 @@ func Open(
 	if err != nil {
 		return nil, err
 	}
-	p, err := st.Project(ctx, ch.ProjectID)
-	if err != nil {
-		return nil, err
-	}
 	lock, err := lockChat(dataDir, spaceID)
 	if err != nil {
 		return nil, err
@@ -123,7 +118,7 @@ func Open(
 		return nil, fmt.Errorf("%w: Space %d has no members", store.ErrConflict, spaceID)
 	}
 	s := &Session{
-		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].BotID, project: p, mk: mk, lock: lock,
+		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].BotID, mk: mk, lock: lock,
 		members: map[int64]*member{}, trees: trees,
 	}
 	defer func() {
@@ -531,8 +526,12 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	var preamble string
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && key != "" {
+		var c store.Space
 		var p store.Project
-		if p, err = s.st.Project(wctx, s.project.ID); err == nil {
+		if c, err = s.st.Space(wctx, s.ch.ID); err == nil {
+			p, err = s.st.Project(wctx, c.ProjectID)
+		}
+		if err == nil {
 			err = EnsureWorktree(ctx, s.trees, p, cwd, key)
 		}
 	}
@@ -618,9 +617,11 @@ func sameAccess(a, b agent.Config) bool {
 		slices.Equal(a.Tools, b.Tools) && slices.Equal(a.DisallowedTools, b.DisallowedTools)
 }
 
-// WorkDir is where an agent of Space spaceID runs: the worktree of its work item, or the
-// project for a quick session. The work item is read now, as an attach may have given it one
-// since the Space opened. key is the work item's tree key, empty for a quick session.
+// WorkDir is where an agent of Space spaceID runs: the worktree of its work item, or else a
+// folder of its own under the data folder, made when it is missing. That folder is no
+// repository, and a project the Space is associated with is not its folder. The work item is
+// read now, as an attach may have given it one since the Space opened. key is the work item's
+// tree key, empty for a Space with no work item.
 func WorkDir(
 	ctx context.Context, st *store.Store, dataDir string, spaceID int64,
 ) (dir, key string, err error) {
@@ -628,12 +629,13 @@ func WorkDir(
 	if err != nil {
 		return "", "", err
 	}
+	if ch.WorkItemID == nil {
+		dir = filepath.Join(dataDir, "chats", strconv.FormatInt(spaceID, 10))
+		return dir, "", os.MkdirAll(dir, 0o700)
+	}
 	p, err := st.Project(ctx, ch.ProjectID)
 	if err != nil {
 		return "", "", err
-	}
-	if ch.WorkItemID == nil {
-		return p.Path, "", nil
 	}
 	f, err := st.WorkItem(ctx, *ch.WorkItemID)
 	if err != nil {

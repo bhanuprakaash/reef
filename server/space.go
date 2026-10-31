@@ -366,6 +366,10 @@ func (s *server) attachSpace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (store.Space, error) {
+	if ch.ProjectID == 0 {
+		return store.Space{}, fmt.Errorf("%w: Space %d has no project, associate one before attaching",
+			store.ErrInvalid, ch.ID)
+	}
 	p, err := s.st.Project(ctx, ch.ProjectID)
 	if err != nil {
 		return store.Space{}, err
