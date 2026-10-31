@@ -35,6 +35,8 @@ type Runner struct {
 	DataDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
+	// NoReply, when set, stores no message for the agent's reply, which stays on the turn.
+	NoReply bool
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
@@ -251,7 +253,7 @@ func (r *Runner) Run(
 				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if (posted && r.direct == nil) || (r.direct != nil && r.direct.ReplyToID != nil) {
+				if (posted && r.direct == nil) || r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil) {
 					turn.Reply = reply.String()
 				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
@@ -464,7 +466,7 @@ func (r *Runner) keepReply(
 		_, err := r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.botID, r.role, reply)
 		return err
 	}
-	if reply == "" {
+	if reply == "" || r.NoReply {
 		return nil
 	}
 	_, err := r.st.CreateMessage(ctx, store.Message{

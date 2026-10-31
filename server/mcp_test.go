@@ -643,6 +643,47 @@ func TestMCPMemoryScopes(t *testing.T) {
 	}
 }
 
+func TestMCPRetireOwnMemory(t *testing.T) {
+	st, tok := mcpFixture(t)
+	other, err := testToken(t, st, context.Background(), 3, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "lesson", "body": "run tests first", "scope": "bot"})
+	callTool(t, st, other)("remember", map[string]any{"kind": "lesson", "body": "tests first, always", "scope": "bot"})
+	call("remember", map[string]any{"kind": "lesson", "body": "old tip", "scope": "bot"})
+	call("remember", map[string]any{"kind": "fact", "body": "shared fact", "scope": "project"})
+
+	call("remember", map[string]any{
+		"kind": "lesson", "body": "run tests first", "scope": "bot", "replaces": []int{1, 2},
+	})
+	got, isErr := call("read_memory", map[string]any{"id": 5})
+	want := `{"author":"architect","body":"run tests first","botId":2,"createdAt":"T","id":5,"kind":"lesson",` +
+		`"links":[{"rel":"source","to":"space:1"},{"rel":"replaces","to":"memory:1"},` +
+		`{"rel":"replaces","to":"memory:2"},{"rel":"source","to":"space:3"}],` +
+		`"replacedBy":null,"retiredAt":null,"role":"architect","scope":"bot:2","status":"accepted","why":""}`
+	if got != want || isErr {
+		t.Errorf("consolidated item = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("read_memory", map[string]any{"id": 1})
+	if !strings.Contains(got, `"replacedBy":5`) || !strings.Contains(got, `"status":"retired"`) || isErr {
+		t.Errorf("replaced item = %q (error %v), want retired and replaced by 5", got, isErr)
+	}
+	got, isErr = call("retire_memory", map[string]any{"id": 3})
+	want = `{"author":"architect","body":"old tip","botId":2,"createdAt":"T","id":3,"kind":"lesson",` +
+		`"links":[{"rel":"source","to":"space:1"}],"replacedBy":null,"retiredAt":"T","role":"architect",` +
+		`"scope":"bot:2","status":"retired","why":""}`
+	if got != want || isErr {
+		t.Errorf("retire_memory of a bot item = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("retire_memory", map[string]any{"id": 4})
+	want = "memory 4: not found"
+	if got != want || !isErr {
+		t.Errorf("retire_memory of a project item = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
 func TestMCPProposeBrief(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)

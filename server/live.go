@@ -50,6 +50,7 @@ type session interface {
 	RunDirectBot(ctx context.Context, botID int64, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
+	Maintain(ctx context.Context, botID int64, onEvent func(agent.Event)) error
 	Refresh(ctx context.Context, botID int64) error
 	SetOnNote(f func())
 	Close() error
@@ -1347,6 +1348,8 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		end, ok := s.runOne(c.ctx, c.id, l, sess, kind, w)
 		if !ok || c.ctx.Err() != nil {
 			s.failSent(context.WithoutCancel(c.ctx), c.id, w.botID, afterDirect, c.ctx.Err() != nil)
+		} else if w.botID != nil {
+			s.reviewMemory(sess, *w.botID)
 		}
 		var stall error
 		var again *retry

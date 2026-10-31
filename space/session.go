@@ -81,6 +81,12 @@ const (
 		"works together; the user approves those. Use recall to find stale or duplicate " +
 		"items: pass retire with their ids, and replaces on a new item that amends older " +
 		"ones. Then reply with one line saying it is proposed."
+	_maintainPrompt = "Review your own memory. Use recall with scope bot to list the items you keep " +
+		"for yourself, and read_memory for the full ones. Where several say the same, call " +
+		"remember with scope bot and replaces listing their ids, once for the group, with one item " +
+		"that says it all. Call retire_memory on a lesson that is stale or no longer true. Change " +
+		"only your own bot items: leave project, work item and every other shared scope as they " +
+		"are, and post nothing to any Space. Then reply with one line saying what you changed."
 	_maxDirectLines = 100
 	_maxDirectRunes = 1000
 
@@ -419,6 +425,23 @@ func (s *Session) failTurn(
 // Run, a cancelled ctx still stores the turn.
 func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	return s.propose(ctx, _wrapPrompt, onEvent)
+}
+
+// Maintain runs a turn of Bot botID that reviews its own memory, in a copy of its session, as
+// Wrap does, with the settings the Bot adopted in this Space. The turn keeps no wake and posts no
+// message. It touches no Session state, so it can run beside the Session's own turns.
+func (s *Session) Maintain(ctx context.Context, botID int64, onEvent func(agent.Event)) error {
+	m, err := s.member(ctx, "", runInput{botID: &botID, fork: true})
+	if err != nil {
+		return err
+	}
+	m.run.NoWake, m.run.NoReply = true, true
+	defer func() {
+		if err := m.close(s.st); err != nil {
+			log.Printf("close memory review copy of Bot %d in Space %d: %v", botID, s.ch.ID, err)
+		}
+	}()
+	return s.turn(ctx, m, runInput{text: _maintainPrompt, onEvent: onEvent})
 }
 
 // Close ends the Session.

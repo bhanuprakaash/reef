@@ -58,6 +58,7 @@ var _scenarios = []scenario{
 	{"loop-architect", "architect", pat(`lead wrote: @architect take a look|lead wrote privately: pong`)},
 	{"loop-lead", "lead", pat(`architect wrote privately: ping`)},
 	{"wrap-propose", "", pat(`Wrap up this Space\.`)},
+	{"memory-review", "", pat(`Review your own memory\.`)},
 	{"lockout-note", "", pat(`note: we decided to lock an account after 5 failed logins`)},
 	{"propose-brief", "", pat(`Call the propose_brief tool once`)},
 	{"design-codeword", "lead", pat(`codeword kiwi-77`)},

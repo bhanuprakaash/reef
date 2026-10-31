@@ -213,7 +213,9 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		case status == StatusCandidate:
 			err = checkLive(ctx, tx, old)
 		default:
-			err = retire(ctx, tx, old, &id, now)
+			if err = retire(ctx, tx, old, &id, now); err == nil {
+				err = carrySources(ctx, tx, old, id)
+			}
 		}
 		if err != nil {
 			return Result{}, fmt.Errorf("replace %d: %w", old, err)
@@ -551,6 +553,21 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 		return nil
 	}
 	return checkLive(ctx, q, id)
+}
+
+// carrySources copies the source links of the replaced item from to the item to that replaced
+// it, so what the old one came from stays reachable from the live one.
+func carrySources(ctx context.Context, q querier, from, to int64) error {
+	_, err := q.ExecContext(ctx,
+		`INSERT INTO memory_link (from_id, rel, to_kind, to_id)
+		 SELECT ?, rel, to_kind, to_id FROM memory_link o WHERE o.from_id = ? AND o.rel = ?
+		 AND NOT EXISTS (SELECT 1 FROM memory_link n WHERE n.from_id = ? AND n.rel = o.rel
+		   AND n.to_kind = o.to_kind AND n.to_id = o.to_id)`,
+		to, from, RelSource, to)
+	if err != nil {
+		return fmt.Errorf("carry sources of %d: %w", from, err)
+	}
+	return nil
 }
 
 // checkShelf fails unless id is an item in scope.

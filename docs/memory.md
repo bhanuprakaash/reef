@@ -202,6 +202,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, `space`, `conversation`, `project` or `bot`; the default is the Space's own shelf: `work_item` on a work item's Space, `space` on a free Space, `conversation` in a direct conversation), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role name when written), `botId` (the token's Bot), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's work item, `space` and `conversation` the token's own Space, `project` one of the Projects the Space is associated with or its work item's (`projectId` names it, and is required when there are several), `bot` the token's Bot on every work item. A Bot's own experience about a Project stays in `bot` with an `about` of `project:N`; it is not copied into the Project. Author, `botId` and `source` are on the item, so adding or removing a Project association changes none of them. Attaching a free Space to a work item moves its `space` items to `work_item`. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or a Bot writes a `convention` in a shared scope (`work_item`, `space`, `conversation`, `project`), or a Bot passes `replaces` in a shared scope, whatever the kind. Nothing a Bot does retires a shared item before the user approves; a Bot's own `bot` scope never waits. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. A Crew has no memory: there is no `team` scope | `invalid: scope "team" is not work_item, space, conversation, project or bot`, `this space has no work item` (`work_item` on a Space with none), `invalid: you have no "space" scope here` (`space` on a work item's Space, `conversation` outside a direct conversation), `invalid: this Space has several Projects (1, 2); say which with projectId`, `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
 | `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `space`, `conversation`, `project` or `bot`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A work item's `work_item` items are read only on that work item; `space` only on its own free Space. The `conversation` items of every direct conversation the role's Bot has had are read from any Space, and only here and in `read_memory`: they are never loaded at wake. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "space" scope here` |
 | `read_memory` | `id` (required) | the item as `remember` returns it, with its `links` | `memory 99: not found`, also for an item in a scope the token cannot read |
+| `retire_memory` | `id` (required) | the item as `read_memory` returns it, now retired. Needs no approval | `memory 3: not found` for an item that is not in the token's own `bot` scope |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"spaceId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the work item's Spaces that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any Space of the work item, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
 | `read_thread` | `spaceId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the Space's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `space 9: not found`, also for a Space of another work item or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the Space |
 | `find_bots` | `query` (words for the expertise needed; omit to list every other Bot), `ids` (Bot ids already held, to check they still exist) | `{"note", "bots": [{"id", "name", "description", "capabilities": {"backend", "model", "write", "permissionMode", "skills", "tools", "mcp"}}]}`: with `query`, the other Bots whose name, description or skills contain a word, best match first; the caller is left out. With `ids`, one card per id, `{"id", "missing": true}` for a Bot that is gone. `mcp` is name and label only. Capabilities are configuration, not a grant: finding a Bot adds it to no Space and starts no work | |
@@ -535,6 +536,30 @@ Flags:
 - `--debug` prints each prompt it sends to stderr, between `--- prompt ---` and `---`.
   Use it to see the context prompt.
 - `--name` is only for a new Space.
+
+## Personal memory maintenance
+
+A Bot's own `bot` scope is reviewed once every seven days, by the Bot, with no approval: the user
+decides shared memory only. Under `reef serve`, when a turn of a Bot ends well in any Space and its
+reply is stored, the server asks the store to claim that Bot's review. Each Bot has one marker,
+`memory_reviewed_at`, and a claim, `memory_review_started_at`, on its `bot` row, so the interval is
+per Bot, not per chat, and survives a restart. A Bot that has none gets the marker set to now at its first
+activity: its seven days start then. The claim is one `UPDATE` that changes a row for one caller only, so
+turns that end together in several Spaces start one review; a claim older than an hour is stale and can be
+taken again.
+
+The review runs in the background after the activating turn, so it holds up neither that turn nor the
+Space's next one. It is one turn of the Bot in a copy of its session in the activating Space, with the
+settings the Bot adopted there (as a wrap-up turn does), on the `reef` MCP server only. The turn keeps no
+wake and stores no message: its reply stays on the turn. The prompt asks the Bot to read its own items with
+`recall` (scope `bot`) and `read_memory`, to merge duplicates with `remember` (scope `bot`, `replaces`) and
+to retire stale lessons with `retire_memory`. Retirement is never a delete: an item is marked `retired`
+with `retired_at` and `replaced_by`, and a replacing item gets a copy of the `source` links of the items it
+replaces. A change in a shared scope is refused by the memory rule, not by the prompt: a `replaces` there
+makes a candidate, and `retire_memory` fails outside the Bot's own scope.
+
+When the review ends well the marker moves to now and the claim clears. When it fails or times out
+(ten minutes) the claim clears and the marker stays, so the Bot's next activity tries again.
 
 ## Wrap-up
 

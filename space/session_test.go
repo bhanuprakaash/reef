@@ -1089,6 +1089,33 @@ func TestSession_Wrap(t *testing.T) {
 	}
 }
 
+func TestSession_MaintainPostsNothingAndKeepsNoWake(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	ag := newRecordingAgent()
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if err := s.Maintain(ctx, s.leadID, discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(ag.prompts[0], _maintainPrompt) || !ag.closed || len(s.members) != 0 {
+		t.Errorf("prompt = %q, closed = %v, members = %d, want the review prompt on a closed copy",
+			ag.prompts[0], ag.closed, len(s.members))
+	}
+	if msgs, err := st.Messages(ctx, ch.ID, 0); err != nil || len(msgs) != 0 {
+		t.Errorf("messages = %+v, %v, want none", msgs, err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
+	if err != nil || len(turns) != 1 || turns[0].WakeText != "" || turns[0].Reply != "ok" {
+		t.Errorf("turns = %+v, %v, want one done turn with no wake that kept its reply", turns, err)
+	}
+}
+
 func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
