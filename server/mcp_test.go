@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bhanuprakaash/reef/agent"
 	"net"
 	"os"
 	"path/filepath"
@@ -1221,4 +1222,43 @@ func TestMCPBrowserScreenshot(t *testing.T) {
 	if img.MIMEType != "image/png" {
 		t.Errorf("mime type = %q, want image/png", img.MIMEType)
 	}
+}
+
+func TestMCPFindBots(t *testing.T) {
+	st, _ := mcpFixture(t)
+	lead, developer := leadAndDeveloper(t, st)
+	ctx := context.Background()
+	call := callTool(t, st, lead)
+	tester, err := st.CreateBot(ctx, store.Bot{
+		Name: "tester", Backend: "claude", Description: "Breaks code with real browsers", Skills: []string{"verify"},
+		Tools: []string{"Read"}, MCPServers: []agent.MCPServer{{Command: "pw", Env: map[string]string{"KEY": "sk-secret"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, isErr := call("find_bots", map[string]any{"query": "browsers"})
+	want := fmt.Sprintf(`{"bots":[{"capabilities":{"backend":"claude","mcp":[{"label":"pw","name":"mcp1"}],`+
+		`"skills":["verify"],"tools":["Read"],"write":false},"description":"Breaks code with real browsers",`+
+		`"id":%d,"name":"tester"}],"note":"Capabilities are what each Bot is configured with, not permission for `+
+		`you or anyone to use them."}`, tester.ID)
+	if got != want || isErr || strings.Contains(got, "sk-secret") {
+		t.Errorf("find_bots browsers = %q (error %v), want %q", got, isErr, want)
+	}
+
+	if got, _ := call("find_bots", map[string]any{"query": "lead"}); strings.Contains(got, `"name":"lead"`) {
+		t.Errorf("find_bots returned the caller: %q", got)
+	}
+
+	if _, err := st.UpdateBot(ctx, store.Bot{ID: tester.ID, Name: "qa", Backend: "claude", Description: "Breaks code with real browsers"}); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = call("find_bots", map[string]any{"ids": []int64{tester.ID, 99}})
+	if !strings.Contains(got, fmt.Sprintf(`"id":%d,"name":"qa"`, tester.ID)) || !strings.Contains(got, `{"id":99,"missing":true}`) {
+		t.Errorf("find_bots ids = %q, want the renamed Bot by id and 99 missing", got)
+	}
+	if members, err := st.SpaceTeam(ctx, lead.SpaceID); err != nil || len(members.Roles) != 2 {
+		t.Errorf("Space members after discovery = %+v, %v, want unchanged (2)", members, err)
+	}
+	_ = developer
 }

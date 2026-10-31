@@ -172,6 +172,30 @@ type (
 		Ref  string `json:"ref" jsonschema:"a ref from browser_snapshot, such as e12"`
 		Text string `json:"text" jsonschema:"the text to type"`
 	}
+	findBotsIn struct {
+		Query string  `json:"query,omitempty" jsonschema:"words describing the expertise you need; omit to list every other Bot"`
+		IDs   []int64 `json:"ids,omitempty" jsonschema:"Bot ids you already hold, to check each still exists"`
+	}
+	botCard struct {
+		ID           int64         `json:"id"`
+		Name         string        `json:"name,omitempty"`
+		Description  string        `json:"description,omitempty"`
+		Missing      bool          `json:"missing,omitempty"`
+		Capabilities *capabilities `json:"capabilities,omitempty"`
+	}
+	capabilities struct {
+		Backend        string    `json:"backend"`
+		Model          string    `json:"model,omitempty"`
+		Write          bool      `json:"write"`
+		PermissionMode string    `json:"permissionMode,omitempty"`
+		Skills         []string  `json:"skills"`
+		Tools          []string  `json:"tools"`
+		MCP            []mcpView `json:"mcp"`
+	}
+	findBotsOut struct {
+		Note string    `json:"note"`
+		Bots []botCard `json:"bots"`
+	}
 	browserTextOut struct {
 		Text string `json:"text"`
 	}
@@ -215,6 +239,13 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "Read the messages of one of this work item's Spaces, oldest first. " +
 			"Give root, a top-level message id, to read just that message and its replies.",
 	}, m.readThread)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "find_bots",
+		Description: "Find other Bots by expertise, or check that Bot ids you hold still exist. " +
+			"Each result has the Bot's stable id, name, description and configured capabilities. " +
+			"Finding a Bot adds it to no Space, gives it nothing to do and grants no access: " +
+			"recommend it to the user, who decides.",
+	}, m.findBots)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "post_to_space",
 		Description: "Post a message to this Space as yourself. Start a line with @name to wake " +
@@ -797,6 +828,69 @@ func (m *mcpServer) proposeWorkItem(
 		return nil, store.WorkItem{}, err
 	}
 	return nil, w, nil
+}
+
+func (m *mcpServer) findBots(
+	ctx context.Context, _ *mcp.CallToolRequest, in findBotsIn,
+) (*mcp.CallToolResult, findBotsOut, error) {
+	bots, err := m.st.Bots(ctx)
+	if err != nil {
+		return nil, findBotsOut{}, err
+	}
+	out := findBotsOut{
+		Note: "Capabilities are what each Bot is configured with, not permission for you or anyone to use them.",
+		Bots: []botCard{},
+	}
+	card := func(b store.Bot) botCard {
+		return botCard{ID: b.ID, Name: b.Name, Description: b.Description, Capabilities: &capabilities{
+			Backend: b.Backend, Model: b.Model, Write: b.Write, PermissionMode: b.PermissionMode,
+			Skills: nonNilStrings(b.Skills), Tools: nonNilStrings(b.Tools), MCP: viewMCP(b.MCPServers),
+		}}
+	}
+	if len(in.IDs) > 0 {
+		for _, id := range in.IDs {
+			i := slices.IndexFunc(bots, func(b store.Bot) bool { return b.ID == id })
+			if i < 0 {
+				out.Bots = append(out.Bots, botCard{ID: id, Missing: true})
+				continue
+			}
+			out.Bots = append(out.Bots, card(bots[i]))
+		}
+		return nil, out, nil
+	}
+	words := strings.Fields(strings.ToLower(in.Query))
+	type hit struct {
+		bot   store.Bot
+		score int
+	}
+	var hits []hit
+	for _, b := range bots {
+		if m.tok.BotID != nil && b.ID == *m.tok.BotID {
+			continue
+		}
+		text := strings.ToLower(b.Name + " " + b.Description + " " + strings.Join(b.Skills, " "))
+		score := 0
+		for _, w := range words {
+			if strings.Contains(text, w) {
+				score++
+			}
+		}
+		if len(words) == 0 || score > 0 {
+			hits = append(hits, hit{b, score})
+		}
+	}
+	slices.SortStableFunc(hits, func(a, b hit) int { return b.score - a.score })
+	for _, h := range hits {
+		out.Bots = append(out.Bots, card(h.bot))
+	}
+	return nil, out, nil
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func (m *mcpServer) listSubItems(
