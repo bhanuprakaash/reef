@@ -15,11 +15,14 @@ func TestRefreshBot_WaitsForTheRunningTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	url := env.url + "/spaces/1/bots/" + strconv.FormatInt(team.Roles[0].BotID, 10) + "/refresh"
+	path := "/spaces/1/bots/" + strconv.FormatInt(team.Roles[0].BotID, 10) + "/refresh"
+	if _, err := env.st.AdoptBotSession(context.Background(), 1, team.Roles[0].BotID); err != nil {
+		t.Fatal(err)
+	}
 
 	env.send(t, "block")
 	<-env.fake.started
-	status, body := do(t, http.MethodPost, url, `{"model":"opus"}`)
+	status, body := do(t, http.MethodPost, env.url+path, `{"model":"opus"}`)
 	if status != 202 || body != `{"pending":true}` {
 		t.Fatalf("refresh during a turn = %d %q, want 202 pending", status, body)
 	}
@@ -28,6 +31,7 @@ func TestRefreshBot_WaitsForTheRunningTurn(t *testing.T) {
 	}
 	env.fake.release <- struct{}{}
 	env.waitIdle(t, 1)
+	env.restart(t)
 
 	env.send(t, "next")
 	env.waitIdle(t, 1)
@@ -39,11 +43,43 @@ func TestRefreshBot_WaitsForTheRunningTurn(t *testing.T) {
 		t.Errorf("bot = %s, want the model switch kept", body)
 	}
 
-	status, body = do(t, http.MethodPost, url, "")
+	status, body = do(t, http.MethodPost, env.url+path, "")
 	if status != 200 || body != `{"pending":false}` {
 		t.Errorf("refresh while idle = %d %q, want 200 not pending", status, body)
 	}
 	if got := env.ranTexts(); got[len(got)-1] != "refresh" {
 		t.Errorf("ran = %q, want the idle refresh applied at once", got)
 	}
+}
+
+func TestRefreshBot_FailureStaysPendingAndSparesOtherBots(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamSpace(t)
+	lead, architect := *testServerBot(t, env.st, "lead"), *testServerBot(t, env.st, "architect")
+	for _, botID := range []int64{lead, architect} {
+		if _, err := env.st.AdoptBotSession(ctx, int64(id), botID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env.fake.refreshFail = map[int64]bool{lead: true}
+
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	for _, botID := range []int64{lead, architect} {
+		status, _ := do(t, http.MethodPost, env.url+"/spaces/2/bots/"+strconv.FormatInt(botID, 10)+"/refresh", "")
+		if status != 202 {
+			t.Fatalf("refresh of Bot %d during a turn = %d, want 202", botID, status)
+		}
+	}
+	env.fake.release <- struct{}{}
+	env.waitIdle(t, id)
+	env.sendTo(t, id, "next")
+	env.waitIdle(t, id)
+
+	if got, err := env.st.RefreshPendingBots(ctx, int64(id)); err != nil || !slices.Equal(got, []int64{lead}) {
+		t.Errorf("pending = %v, %v, want only the lead's failed refresh", got, err)
+	}
+	env.wantMessages(t, id, "user: block", "user: next",
+		"reef: lead could not refresh and keeps its earlier settings for now: model unavailable")
 }

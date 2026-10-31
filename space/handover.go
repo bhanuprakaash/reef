@@ -16,14 +16,9 @@ const (
 	_handoverDecisions = 10
 )
 
-// renewAt is the input tokens a backend session may have used before the Bot's next turn starts
-// a new backend context in its place.
-var renewAt int64 = 800_000
-
-// renewed reports whether the backend session of last has used renewAt input tokens.
-func renewed(last store.Turn) bool {
-	return last.SessionUsage != nil && last.SessionUsage.InputTokens >= renewAt
-}
+// _renewTokens is the context size at which the Bot's next turn starts a new backend context in
+// place of the one that reached it.
+const _renewTokens = 150_000
 
 // replacement reports about the backend context that starts for the Bot's BotSession botSessionID
 // when no session is left to resume: whether the Bot has finished turns in the Space, whose

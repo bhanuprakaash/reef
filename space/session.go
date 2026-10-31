@@ -36,6 +36,8 @@ type Session struct {
 	onNote   func()
 	members  map[int64]*member
 	trees    *Trees
+	// renewTokens is the context size that has the Bot's next turn start a new backend context.
+	renewTokens int64
 }
 
 type member struct {
@@ -123,7 +125,7 @@ func Open(
 	}
 	s := &Session{
 		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].BotID, mk: mk, lock: lock,
-		members: map[int64]*member{}, trees: trees,
+		members: map[int64]*member{}, trees: trees, renewTokens: _renewTokens,
 	}
 	defer func() {
 		if err != nil {
@@ -494,11 +496,11 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	if err != nil {
 		return nil, err
 	}
-	renew := !in.fork && renewed(last)
+	renew := !in.fork && last.ContextTokens >= s.renewTokens
 	if m, ok := s.members[r.BotID]; ok && !in.fork {
 		m.run.endWatch()
 		_, err := os.Stat(m.dir)
-		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone && !renew {
+		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone && !renew && *m.run.botSessID == bs.ID {
 			m.run.role = role
 			return m, nil
 		}
@@ -640,6 +642,11 @@ func (s *Session) Refresh(ctx context.Context, botID int64) error {
 	if _, err := AdoptBotSession(ctx, s.st, s.dataDir, s.ch.ID, botID); err != nil {
 		return err
 	}
+	return s.Drop(botID)
+}
+
+// Drop closes the Bot's agent, if it has one open, so its next turn starts one again.
+func (s *Session) Drop(botID int64) error {
 	if m, ok := s.members[botID]; ok {
 		delete(s.members, botID)
 		return m.close(s.st)

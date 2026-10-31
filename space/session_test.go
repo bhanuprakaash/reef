@@ -36,6 +36,8 @@ type recordingAgent struct {
 	// exitText, when set, makes Resume leave it as an error event and close Events, and Send
 	// fail with it as claude's does.
 	exitText string
+	// usage is sent as one usage event per model call of each turn.
+	usage []agent.Usage
 
 	cfg     agent.Config
 	started bool
@@ -100,6 +102,9 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 		a.events <- agent.Event{Kind: agent.KindSession, SessionID: id}
 	}
 	a.events <- agent.Event{Kind: agent.KindText, Text: "ok"}
+	for _, u := range a.usage {
+		a.events <- agent.Event{Kind: agent.KindUsage, Usage: &u}
+	}
 	a.events <- agent.Event{Kind: agent.KindTurnEnd}
 	return nil
 }

@@ -477,7 +477,14 @@ its first turn: a first message that goes to a specialist starts no lead.
   not, and also deletes the Bot's tokens, so a running `reef mcp` of the Bot fails its next
   call; it posts its own notice and the refreshed notice does not follow. A
   session the backend no longer has starts a new context under the same adopted settings. So
-  does a session whose last turn reports `renewAt` input tokens or more (800,000). A context
+  does a session whose last turn ended with a context of 150,000 tokens or more: the input of its
+  last model call, cached input included (claude's input, cache read and cache write; codex's
+  `last` usage of `thread/tokenUsage/updated`). A refresh that arrives during a turn is kept on
+  the active settings (`refresh_pending`), also over a restart, and applied per Bot before the
+  next turn of the Space; one that fails stays pending and posts a notice, and fails no turn. A
+  revoke stops only the revoked Bot: its own running turn is interrupted and the other Bots'
+  turns go on; its agent closes at once when the Space is idle, else before the next turn, and
+  a Session never reuses an agent whose adopted settings are no longer the active ones. A context
   whose start fails leaves a failed turn and no notice; the next turn starts it again with
   the handover. Once the new backend reports its session, the Space gets the notice
   `<Bot> refreshed: <backend>, <model>`, only after a refresh.

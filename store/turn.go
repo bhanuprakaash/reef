@@ -34,7 +34,7 @@ const (
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
 		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
 		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
-		"session_cache_write_tokens, scopes, compacted, wake_message_id, bot_id, bot_session_id"
+		"session_cache_write_tokens, scopes, compacted, wake_message_id, bot_id, bot_session_id, context_tokens"
 )
 
 // Turn is one agent run in a Space. It starts running and ends once, as
@@ -91,6 +91,9 @@ type Turn struct {
 	Compacted bool   `json:"-"`
 	// BotSessionID is the BotSession whose settings the turn ran with.
 	BotSessionID *int64 `json:"botSessionId,omitempty"`
+	// ContextTokens is the size of the session's context at the turn's last model call: its input,
+	// cached input included. Hidden from Turn's own JSON.
+	ContextTokens int64 `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil SpaceID or empty Status matches everything. Retryable
@@ -309,13 +312,13 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 		session_id = COALESCE(NULLIF(?, ''), session_id), ended_at = ?,
 		model = ?, cost_usd = ?, prompt = ?, reply = ?, session_cost_usd = ?,
 		session_input_tokens = ?, session_output_tokens = ?, session_cache_read_tokens = ?,
-		session_cache_write_tokens = ?, compacted = ?
+		session_cache_write_tokens = ?, compacted = ?, context_tokens = ?
 		WHERE id = ? AND status = ?`,
 		t.Status, t.Error, t.Usage.InputTokens, t.Usage.OutputTokens,
 		t.Usage.CacheReadTokens, t.Usage.CacheWriteTokens, t.SessionID,
 		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt, t.Reply,
 		t.SessionCostUSD, session.input, session.output, session.cacheRead, session.cacheWrite,
-		t.Compacted, t.ID, _turnRunning)
+		t.Compacted, t.ContextTokens, t.ID, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("end turn: %w", err)
 	}
@@ -594,7 +597,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
 		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
 		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
-		&t.Scopes, &t.Compacted, &t.WakeMessageID, &t.BotID, &t.BotSessionID); err != nil {
+		&t.Scopes, &t.Compacted, &t.WakeMessageID, &t.BotID, &t.BotSessionID, &t.ContextTokens); err != nil {
 		return Turn{}, err
 	}
 	if session.input != nil {

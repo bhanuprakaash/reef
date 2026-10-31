@@ -156,13 +156,11 @@ func TestSession_RenewalKeepsAdoptedSettingsAndHandsOver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	turn.Status, turn.SessionUsage = "done", &agent.Usage{InputTokens: 900}
+	turn.Status, turn.ContextTokens = "done", 152_006
 	if _, err := st.EndTurn(ctx, turn); err != nil {
 		t.Fatal(err)
 	}
 	editBot(t, st, "architect", func(b *store.Bot) { b.Model = "opus" })
-	defer func(v int64) { renewAt = v }(renewAt)
-	renewAt = 500
 
 	ag := newRecordingAgent()
 	s := openRefreshSession(t, st, ch, t.TempDir(), ag.factory)
@@ -177,5 +175,83 @@ func TestSession_RenewalKeepsAdoptedSettingsAndHandsOver(t *testing.T) {
 	}
 	if notes := messageBodies(t, st, ch.ID); strings.Contains(strings.Join(notes, "\n"), "refreshed") {
 		t.Errorf("messages = %q, want no refreshed notice for a renewal", notes)
+	}
+}
+
+func TestSession_ReplacedBotSessionIsNotReusedFromAnotherProcess(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	architect := testBotID(t, st, "architect")
+	first, second := newRecordingAgent(), newRecordingAgent()
+	ags := []*recordingAgent{first, second}
+	mk := func(string) (agent.Agent, error) {
+		ag := ags[0]
+		ags = ags[1:]
+		return ag, nil
+	}
+	s := openRefreshSession(t, st, ch, t.TempDir(), mk)
+	if err := sendAs(ctx, st, ch.ID, s.Run, "one", discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, err := st.RevokeBot(ctx, *architect); err != nil {
+		t.Fatal(err)
+	}
+	if err := sendAs(ctx, st, ch.ID, s.Run, "two", discard); err != nil {
+		t.Fatal(err)
+	}
+	if !first.closed || !second.started || len(first.prompts) != 1 {
+		t.Errorf("first closed = %v, second started = %v, first prompts = %d; want the revoked context closed and replaced",
+			first.closed, second.started, len(first.prompts))
+	}
+}
+
+func TestSession_RenewsWhenTheLastModelCallReadAFullContext(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		usage []agent.Usage
+		renew bool
+	}{
+		{"claude below", []agent.Usage{
+			{InputTokens: 5, CacheReadTokens: 22_898, CacheWriteTokens: 1_100},
+			{InputTokens: 6, CacheReadTokens: 54_002, CacheWriteTokens: 2_000},
+		}, false},
+		{"claude above", []agent.Usage{
+			{InputTokens: 5, CacheReadTokens: 22_898},
+			{InputTokens: 6, CacheReadTokens: 140_000, CacheWriteTokens: 12_000},
+		}, true},
+		{"codex above", []agent.Usage{
+			{InputTokens: 20_000, CacheReadTokens: 140_000, OutputTokens: 900},
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			ch := sessionSpace(t, st, f, false)
+			first, second := newRecordingAgent(), newRecordingAgent()
+			first.usage = tc.usage
+			ags := []*recordingAgent{first, second}
+			mk := func(string) (agent.Agent, error) {
+				ag := ags[0]
+				if len(ags) > 1 {
+					ags = ags[1:]
+				}
+				return ag, nil
+			}
+			s := openRefreshSession(t, st, ch, t.TempDir(), mk)
+			for _, text := range []string{"one", "two"} {
+				if err := sendAs(ctx, st, ch.ID, s.Run, text, discard); err != nil {
+					t.Fatal(err)
+				}
+			}
+			wantFirst := 2
+			if tc.renew {
+				wantFirst = 1
+			}
+			if second.started != tc.renew || len(first.prompts) != wantFirst {
+				t.Errorf("second agent started = %v, first agent prompts = %d, want %v and %d",
+					second.started, len(first.prompts), tc.renew, wantFirst)
+			}
+		})
 	}
 }

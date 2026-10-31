@@ -10,7 +10,8 @@ import (
 const _toolStopped = "stopped: the Bot was revoked; the call may or may not have finished"
 
 // RevokeBot ends every active BotSession of the Bot as revoked, deletes every token of the Bot and
-// gives the tool calls of those sessions that have no result a stopped result, in one transaction.
+// gives the tool calls of running turns of those sessions that have no result a stopped result, in
+// one transaction.
 // It returns the Spaces whose BotSession it ended and how many tokens and tool calls it changed.
 func (s *Store) RevokeBot(ctx context.Context, botID int64) (spaces []int64, tokens, tools int64, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -33,8 +34,8 @@ func (s *Store) RevokeBot(ctx context.Context, botID int64) (spaces []int64, tok
 	res, err := tx.ExecContext(ctx,
 		"UPDATE tool_call SET result = ? WHERE result = '' AND turn_id IN (SELECT turn.id FROM turn "+
 			"JOIN bot_session ON bot_session.id = turn.bot_session_id "+
-			"WHERE bot_session.bot_id = ? AND bot_session.status = ?)",
-		_toolStopped, botID, BotSessionActive)
+			"WHERE bot_session.bot_id = ? AND bot_session.status = ? AND turn.status = ?)",
+		_toolStopped, botID, BotSessionActive, _turnRunning)
 	if err != nil {
 		return nil, 0, 0, fmt.Errorf("stop tool calls: %w", err)
 	}

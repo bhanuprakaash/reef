@@ -101,6 +101,12 @@ type Usage struct {
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
 }
 
+// Context is the input of the model call u counts, cached input included: the size of the
+// context the call read.
+func (u Usage) Context() int64 {
+	return u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
+}
+
 // Sub takes v's counts off u's, each count stopping at zero.
 func (u *Usage) Sub(v Usage) {
 	u.InputTokens = max(u.InputTokens-v.InputTokens, 0)

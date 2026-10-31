@@ -50,6 +50,11 @@ type fakeSession struct {
 	say    func()
 	onNote func()
 
+	// dropped is the Bots whose agent was closed, and refreshFail the Bots whose Refresh fails.
+	// They are guarded by mu.
+	dropped     []int64
+	refreshFail map[int64]bool
+
 	// directStart receives a signal each time a direct turn starts, so tests can
 	// synchronize on direct-turn execution without sleeping. It is buffered so a start
 	// is never lost.
@@ -214,9 +219,21 @@ func (f *fakeSession) maintain(ctx context.Context, _, botID int64, _ func(agent
 	return nil
 }
 
-func (f *fakeSession) Refresh(context.Context, int64) error {
+func (f *fakeSession) Refresh(ctx context.Context, botID int64) error {
 	f.mu.Lock()
 	f.ran = append(f.ran, "refresh")
+	fail := f.refreshFail[botID]
+	f.mu.Unlock()
+	if fail {
+		return errors.New("model unavailable")
+	}
+	_, err := f.st.AdoptBotSession(ctx, f.spaceID.Load(), botID)
+	return err
+}
+
+func (f *fakeSession) Drop(botID int64) error {
+	f.mu.Lock()
+	f.dropped = append(f.dropped, botID)
 	f.mu.Unlock()
 	return nil
 }

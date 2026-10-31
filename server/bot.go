@@ -163,8 +163,9 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 }
 
 // revokeBot ends every session of the Bot and deletes its tokens. A Space with a live session
-// stops its turn and closes its agents, and every Space the Bot had a session in gets a notice. The
-// Bot's next turn in a Space adopts the Bot's current settings and starts a new backend context.
+// stops the Bot's own turn and closes the Bot's agent, never another Bot's, and every Space the Bot
+// had a session in gets a notice. The Bot's next turn in a Space adopts the Bot's current settings
+// and starts a new backend context.
 func (s *server) revokeBot(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -185,7 +186,7 @@ func (s *server) revokeBot(w http.ResponseWriter, r *http.Request) {
 		"finished or not; revoking does not undo its effects."
 	for _, spaceID := range spaces {
 		if l := s.lookup(spaceID); l != nil {
-			s.stopLive(l)
+			s.dropBot(r.Context(), spaceID, l, id)
 		}
 		if _, err := s.st.CreateMessage(r.Context(), store.Message{
 			SpaceID: spaceID, Author: store.ReefAuthor, Body: body,

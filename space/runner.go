@@ -238,6 +238,7 @@ func (r *Runner) Run(
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
+					turn.ContextTokens = ev.Usage.Context()
 					if err := r.st.SetTurnUsage(wctx, turn.ID, turn.Usage); err != nil {
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 					}
@@ -425,6 +426,7 @@ drain:
 			switch {
 			case ev.Kind == agent.KindUsage && ev.Usage != nil:
 				turn.Usage.Add(*ev.Usage)
+				turn.ContextTokens = ev.Usage.Context()
 			case ev.Kind == agent.KindCompacted:
 				turn.Compacted, r.firstPromptSent = true, false
 			}

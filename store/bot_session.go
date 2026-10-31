@@ -155,6 +155,31 @@ func (s *Store) SetBotSessionSkills(ctx context.Context, id int64, skills []Adop
 		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))
 }
 
+// SetRefreshPending marks the Bot's active BotSession in the Space as waiting for a refresh. A
+// Bot with no active BotSession has nothing to refresh: its next turn adopts the current settings.
+func (s *Store) SetRefreshPending(ctx context.Context, spaceID, botID int64) error {
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE bot_session SET refresh_pending = 1 WHERE space_id = ? AND bot_id = ? AND status = ?",
+		spaceID, botID, BotSessionActive); err != nil {
+		return fmt.Errorf("set refresh pending: %w", err)
+	}
+	return nil
+}
+
+// RefreshPendingBots returns the Bots of the Space whose active BotSession waits for a refresh.
+// Adopting a new BotSession ends the wait.
+func (s *Store) RefreshPendingBots(ctx context.Context, spaceID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT bot_id FROM bot_session WHERE space_id = ? AND status = ? AND refresh_pending = 1 ORDER BY bot_id",
+		spaceID, BotSessionActive)
+	if err != nil {
+		return nil, fmt.Errorf("read pending refreshes: %w", err)
+	}
+	return scanAll(rows, func(r interface{ Scan(...any) error }) (id int64, err error) {
+		return id, r.Scan(&id)
+	})
+}
+
 // EndBotSession marks the active BotSession with the id replaced or revoked, or returns ErrNotFound
 // when it is not active.
 func (s *Store) EndBotSession(ctx context.Context, id int64, status string) error {
