@@ -118,7 +118,28 @@ func block(
 	} else {
 		b.WriteString(last.Author + " wrote: " + last.Body)
 	}
+	for _, m := range unread {
+		refs, err := st.MessageRefs(ctx, m.ID)
+		if err != nil {
+			return "", 0, err
+		}
+		for _, r := range refs {
+			b.WriteString("\n" + refLine(r))
+		}
+	}
 	return b.String(), last.ID, nil
+}
+
+func refLine(r store.SpaceRef) string {
+	if !r.Available {
+		return fmt.Sprintf("Referenced Space %d is unavailable: it was deleted.", r.SpaceID)
+	}
+	state := r.Kind
+	if r.Closed {
+		state += ", closed"
+	}
+	return fmt.Sprintf("Referenced Space %d '%s' (%s); read it with read_space, which starts no work there.",
+		r.SpaceID, r.Name, state)
 }
 
 // readThrough maps a thread root, or 0 for the top level, to the newest message that role's

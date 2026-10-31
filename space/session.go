@@ -172,9 +172,13 @@ func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Me
 	if err := ch.Writable(); err != nil {
 		return store.Message{}, err
 	}
-	return s.st.CreateMessage(ctx, store.Message{
+	msg, err := s.st.CreateMessage(ctx, store.Message{
 		SpaceID: s.ch.ID, ParentID: parent, Author: _userAuthor, Body: body,
 	})
+	if err != nil {
+		return store.Message{}, err
+	}
+	return msg, s.st.SaveMessageRefs(ctx, msg.ID, store.ParseSpaceRefs(body))
 }
 
 // Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(). The reply is a

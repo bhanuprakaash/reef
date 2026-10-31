@@ -1067,6 +1067,21 @@ The consultation is an ordinary Space for the rest: its history stays readable, 
 is refreshed and revoked with the Bot's others, and a restart fails a cut consultation turn with
 the interruption note and does not replay it.
 
+### Space references
+
+A user message can refer to a Space with the token `#[Name](space:ID)`. The composer writes it
+when the user picks a Space after `#` (work item, free and consultation Spaces, never personal
+chats); the id is the identity, so two Spaces with the same name are two different references. On
+`POST /spaces/{id}/send` the server stores each referenced id in `message_ref(message_id,
+space_id)`. The row has no foreign key on the Space: when the Space is later deleted the reference
+stays and resolves as unavailable. The window renders the token as a chip linking `/spaces/{id}`.
+
+A reference supplies context only. It adds no Bot or Project to either Space, does not move a
+personal chat (only a line that starts with `@name` does), gives no execution authority and starts
+no turn, session or workspace in the referenced Space. The wake text of the message lists each
+reference (`Referenced Space N 'Name' (kind, closed)`, or `unavailable: it was deleted`) and points
+at `read_space` ([docs/memory.md](memory.md#reef-mcp)).
+
 ### Space names
 
 A Space created with the new-space form's default name has `space.name_auto` set to 1.

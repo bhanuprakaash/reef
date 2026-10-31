@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2785,6 +2785,46 @@ async function consult() {
   const own = sql(`select count(*) from space_member m join Space s on s.id = m.space_id where s.kind = 'conversation' and m.bot_id = (select id from bot where name = 'kit')`);
   check(own === '0', 'the consultation makes no chat of kit', own);
   await shot('desktop-consultation');
+}
+
+async function spaceRef() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  const call = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const projectId = sql('select max(id) from project');
+  await call('POST', '/bots', { name: 'sam', backend: 'claude' });
+  await call('POST', '/spaces', { projectId: Number(projectId), name: 'Login' });
+  await call('POST', '/spaces', { projectId: Number(projectId), name: 'Login' });
+  await call('POST', '/messages', { spaceId: 1, author: 'user', body: 'We chose sessions, not JWT, for login.' });
+  const before = sql('select (select count(*) from turn where space_id=1), (select count(*) from bot_session where space_id=1), (select count(*) from space_member where space_id=1), (select count(*) from space_project where space_id=1)');
+  await page.goto(base + '/');
+  await plus('New conversation');
+  await page.getByRole('button', { name: 'sam', exact: true }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith('/spaces/1') && !u.pathname.endsWith('/spaces/2'));
+  const chat = page.url().split('/').pop();
+  const box = page.getByLabel('Message');
+  await box.click();
+  await page.keyboard.type('Why did we choose sessions in #Lo');
+  const options = page.getByRole('listbox', { name: 'Space', exact: true }).getByRole('option');
+  await options.first().waitFor();
+  const shown = (await options.allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+  check(shown.length === 2 && shown.every((t) => t.startsWith('Login')) && new Set(shown).size === 2, 'the # picker lists the two Spaces named Login with different ids', shown.join(' / '));
+  await shot('picker');
+  await options.filter({ hasText: /· 1$/ }).click();
+  await page.keyboard.type('?');
+  await box.press('Enter');
+  const chip = main.getByRole('link', { name: '#Login' });
+  await chip.waitFor();
+  check((await chip.getAttribute('href')) === '/spaces/1', 'the message shows a chip linking the Space by id', await chip.getAttribute('href'));
+  await main.getByText('Sessions, not JWT (Space 1, message 1).').waitFor({ timeout: 30000 });
+  await shot('chip-answer');
+  const after = sql('select (select count(*) from turn where space_id=1), (select count(*) from bot_session where space_id=1), (select count(*) from space_member where space_id=1), (select count(*) from space_project where space_id=1)');
+  check(before === after && before.startsWith('0|0|'), 'the referenced Space got no turn, session, member or project', `${before} -> ${after}`);
+  const shape = sql(`select kind, moved_to is null, (select count(*) from space_member where space_id=${chat}) from space where id=${chat}`);
+  check(shape === 'conversation|1|1', 'the chat stays one conversation with one member', shape);
+  const ref = sql(`select r.space_id from message_ref r join message m on m.id = r.message_id where m.space_id=${chat}`);
+  check(ref === '1', 'the reference is stored by Space id', ref);
 }
 
 async function hovercard() {

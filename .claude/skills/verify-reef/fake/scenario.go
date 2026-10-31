@@ -41,6 +41,7 @@ var _scenarios = []scenario{
 	{"sent-back-lead", "lead", pat(`^Sent back from review by the user:`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
+	{"read-space", "sam", pat(`Why did we choose sessions in #\[Login\]\(space:1\)`)},
 	{"consult-ask", "sam", pat(`CONSULT kit about the login plan`)},
 	{"consult-answer", "kit", pat(`sam wrote privately: Please review the login plan`)},
 	{"consult-relay", "sam", pat(`^kit replied: `)},
