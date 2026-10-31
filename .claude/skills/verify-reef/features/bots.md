@@ -11,7 +11,7 @@ Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 
 ## Sub-features
 
-- `bot-rest` `POST /bots` makes a Bot (201, its `write` false unless given); the same name is 409, a backend other than `claude` or `codex` is 400; `GET /bots` lists them (the seeded `lead` first); `PUT /bots/{id}` replaces every field; `DELETE` is 204, and 400 naming the Team while the Bot is in one.
+- `bot-rest` `POST /bots` makes a Bot (201, its `write` false unless given); the same name is 409, a backend other than `claude` or `codex` is 400; `GET /bots` lists them (sorted by name); `PUT /bots/{id}` replaces every field; `DELETE` is 204, and 400 naming the Team while the Bot is in one.
 - `team-members` `PUT /teams/{name}` with a `responsibility` and one lead makes a Team; `POST /teams/{name}/members` adds a Bot by `botId` (201), twice is 409, a second lead is 400; a member holds no access of its own, so `PUT /teams/{name}/members/{id}` changes only `lead` and the Bot's access is unchanged; `DELETE` of the member is 204.
 - `team-delete` `DELETE /teams/{name}` is 204 and the Team is then 404; `DELETE /teams/solo` is 400. A team with a queued work item deletes too (204), the item stays with no `teamId`, and the Team's Bots and its Spaces' members are unchanged.
 - `crew-roster` a team with no lead is 201 (`roles` carry no `lead`); `POST /spaces/{id}/members` with `{"crew":"name"}` adds only the Bots not yet in the Space and keeps the coordinator; `POST /spaces` with `botIds` (one repeated) and `coordinatorBotId` makes a Space with those Bots once each and that coordinator; a Crew edit or delete changes no Space's members.

@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar|global-chats BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'team-page': teamPage, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar|global-chats BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -127,10 +127,11 @@ async function addWorkItem(name) {
   return page.url().split('/').pop();
 }
 // Starts a claude Space from the form in `box` and returns its id. The sidebar (`aside`) opens it from the + menu.
-async function newSpace(box, openName, name, team) {
+async function newSpace(box, openName, name, team, coordinator) {
   if (box === aside) await plus(openName);
   else await box.getByRole('button', { name: openName }).click();
   if (team) await box.getByRole('button', { name: team, exact: true }).click();
+  if (coordinator) await box.getByLabel(`${coordinator} coordinates`).check();
   await box.getByLabel('Name', { exact: true }).fill(name);
   await box.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
@@ -222,17 +223,17 @@ async function teamManagement() {
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await page.goto(base + '/teams');
-  await main.getByRole('heading', { name: 'Teams', level: 1 }).waitFor();
+  await main.getByRole('heading', { name: 'Crews', level: 1 }).waitFor();
 
   const name = `delivery-${Date.now().toString(36)}`;
-  await main.getByRole('button', { name: 'New team' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New team' });
+  await main.getByRole('button', { name: 'New crew' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New crew' });
   await dialog.getByLabel('Name', { exact: true }).fill(name);
   await pick('Start from', 'full', dialog);
-  await dialog.getByLabel('Responsibility').fill('Own desktop releases.');
-  await dialog.getByRole('button', { name: 'Create team' }).click();
+  await dialog.getByLabel('Description').fill('Own desktop releases.');
+  await dialog.getByRole('button', { name: 'Create crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === name);
-  await main.getByLabel('Team name').waitFor();
+  await main.getByLabel('Crew name').waitFor();
 
   let saved = await getJson(`/teams/${name}`);
   check(
@@ -242,8 +243,8 @@ async function teamManagement() {
   );
   check(saved.responsibility === 'Own desktop releases.', 'the responsibility entered at creation round-trips', saved.responsibility);
 
-  await main.getByLabel('Responsibility').fill('Own desktop releases and rollback.');
-  await main.getByRole('button', { name: 'Save team' }).click();
+  await main.getByLabel('Description').fill('Own desktop releases and rollback.');
+  await main.getByRole('button', { name: 'Save crew' }).click();
   await main.getByText('Saved').waitFor();
   saved = await getJson(`/teams/${name}`);
   check(saved.responsibility === 'Own desktop releases and rollback.', 'editing responsibility saves through REST', saved.responsibility);
@@ -252,7 +253,7 @@ async function teamManagement() {
   await page.setViewportSize({ width: 390, height: 844 });
   const width = await page.evaluate(() => document.documentElement.scrollWidth);
   check(width <= 390, 'the Team editor has no horizontal scroll at 390x844', `${width} px`);
-  await main.getByLabel('Responsibility').scrollIntoViewIfNeeded();
+  await main.getByLabel('Description').scrollIntoViewIfNeeded();
   await shot('team-390x844');
 
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -265,10 +266,10 @@ async function teamManagement() {
   check(turn === 'lead|done', 'the new Team runs a Space', turn);
 
   await page.goto(`${base}/teams?team=${encodeURIComponent(name)}`);
-  await main.getByLabel('Team name').waitFor();
+  await main.getByLabel('Crew name').waitFor();
   await main.getByRole('button', { name: 'Delete' }).click();
   const confirm = page.getByRole('dialog', { name: `Delete ${name}?` });
-  await confirm.getByRole('button', { name: 'Delete team' }).click();
+  await confirm.getByRole('button', { name: 'Delete crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === 'solo');
   check(sql(`select count(*) from team where name = '${name}'`) === '0', 'Delete team removes the Team while its Space keeps its Bots');
   check(Number(sql(`select count(*) from space_member where space_id = ${id}`)) >= 2, "the deleted Team's Space still has its Bots");
@@ -409,8 +410,8 @@ async function capture() {
   // Talk to a Teammate instead: the text is the conversation's first message and no Work item is made.
   await page.goto(base + '/capture');
   await pick('Capture project', name);
-  await page.getByRole('switch', { name: 'Talk to a Teammate' }).click();
-  await pick('Capture teammate', 'sam');
+  await page.getByRole('switch', { name: 'Talk to a Bot' }).click();
+  await pick('Capture Bot', 'sam');
   await page.getByLabel('Capture text').fill('Did I give you a codeword? Answer none.');
   await shot('desktop-talk');
   await page.setViewportSize({ width: 390, height: 844 });
@@ -801,7 +802,7 @@ async function rollback() {
   ensureRepo();
   const section = await addProject();
   const itemId = await addWorkItem('Login');
-  const cid = await newSpace(main, 'New Space', 'rollback chat', await writerTeam());
+  const cid = await newSpace(main, 'New Space', 'rollback chat', await writerTeam(), 'writer');
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
 
@@ -1383,8 +1384,9 @@ async function inbox() {
     'the turns are lead done, architect done and no approval row exists',
     sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`),
   );
-  const badge = await aside.getByLabel(/waiting$/).textContent();
-  check(badge === '1', 'the Inbox link shows a count badge of 1', badge);
+  const group = (await getJson('/inbox')).find((i) => i.kind === 'waiting')?.group;
+  const badges = await aside.getByLabel(/waiting$/).count();
+  check(group === 'fyi' && badges === 0, 'a waiting item is FYI, so the Inbox link shows no needs-you badge', `group ${group}, ${badges} badges`);
   await page.waitForTimeout(3000);
   const fired = await notes();
   check(fired.length === 1 && /^Waiting: inbox room$/.test(fired[0].title), 'one notification fired for the item', JSON.stringify(fired));
@@ -1702,10 +1704,10 @@ async function workshop() {
   await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
   const row = (col) => sql(`select ${col} from team_member m join bot on bot.id = m.bot_id where m.team_id = (select id from team where name = 'full') and bot.name = 'developer'`);
 
-  // The developer's Teammate on the Teammates page: persona, creature, skills and backend.
+  // The developer's Bot panel: description, creature, skills and backend.
   const mate = row('bot.name');
-  await page.goto(`${base}/bots?teammate=${row('bot.id')}`);
-  const personaBox = main.getByLabel(`${mate} persona`);
+  await page.goto(`${base}/bots?bot=${row('bot.id')}`);
+  const personaBox = main.getByLabel(`${mate} description`);
   await personaBox.waitFor();
   const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
   const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
@@ -1730,64 +1732,52 @@ async function workshop() {
   await page.keyboard.press('Escape');
   await pick(`${mate} backend`, 'Claude Code', main);
   await pick(`${mate} permission mode`, 'acceptEdits', main);
-  await main.getByRole('button', { name: 'Save teammate' }).click();
+  await main.getByRole('button', { name: 'Save Bot' }).click();
   await page.getByText('Saved').waitFor();
   await shot('persona-saved');
-  check(row('bot.persona') === persona, "saving the developer's persona on the Teammates page updates its teammate row");
+  check(row('bot.description') === persona, "saving the developer's persona on the Teammates page updates its teammate row");
   check(row('bot.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
   check(row('bot.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('bot.skills'));
   check(row('bot.mcp_servers') === mcpBefore, "the developer's mcpServers, left out of the Teammate panel, are unchanged");
 
-  // The developer's place in the Team: lead, tools and MCP servers in the team editor.
-  await page.goto(`${base}/teams?team=full`);
-  // Two leads: the same error reef team apply gives.
-  await main.getByRole('button', { name: /^architect/ }).click();
-  await main.getByLabel('architect lead').check();
-  await main.getByRole('button', { name: 'Save team' }).click();
-  const twoLeads = await errorText(/needs exactly one lead role, has 2/);
-  await shot('two-leads-error');
-  check(!!twoLeads, 'an invalid team (two leads) shows the reef team apply error', twoLeads ?? '(not shown)');
-  await main.getByLabel('architect lead').uncheck();
-
-  // Unrestricted Bash on a role without write: the same error reef team apply gives.
+  // Unrestricted Bash on a Bot without write: the server's error shows in the Bot panel.
+  await page.goto(`${base}/bots?bot=${sql("select id from bot where name = 'architect'")}`);
   const bashBox = main.getByLabel('architect tool Bash');
-  check(await bashBox.isDisabled(), 'the Bash checkbox of a read-only role is disabled', await bashBox.locator('..').getAttribute('title'));
+  check(await bashBox.isDisabled(), 'the Bash checkbox of a read-only Bot is disabled', await bashBox.locator('..').getAttribute('title'));
   await main.getByLabel('architect add tool').fill('Bash(*)');
   await main.getByLabel('architect add tool').press('Enter');
-  await main.getByRole('button', { name: 'Save team' }).click();
+  await main.getByRole('button', { name: 'Save Bot' }).click();
   const badTool = await errorText(/cannot have unrestricted Bash/);
   await shot('bad-tool-error');
-  check(!!badTool, 'an invalid team (unrestricted Bash without write) shows the reef team apply error', badTool ?? '(not shown)');
-  await main.getByRole('button', { name: 'Remove Bash(*)', exact: true }).click();
-  await main.getByRole('button', { name: 'Save team' }).click();
-  await page.getByText('Saved').waitFor();
+  check(!!badTool, 'an invalid Bot (unrestricted Bash without write) shows the server error', badTool ?? '(not shown)');
 
-  // Allowed tools are picked in the window and save; removing an MCP server removes it.
-  await main.getByRole('button', { name: /^developer/ }).click();
-  check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the role\'s tools');
-  check(await main.getByLabel('developer tool mcp__mcp1__*').count() === 1, 'the tool picker has one entry for the role\'s MCP server');
+  // Allowed tools are picked in the Bot panel and save; the MCP server stays.
+  await page.goto(`${base}/bots?bot=${row('bot.id')}`);
+  await main.getByLabel('developer tool Read').waitFor();
+  check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the Bot\'s tools');
+  check(await main.getByLabel('developer tool mcp__mcp1__*').count() === 1, 'the tool picker has one entry for the Bot\'s MCP server');
   await main.getByLabel('developer tool WebFetch').check();
   await main.getByLabel('developer add tool').fill('Bash(git log:*)');
   await main.getByLabel('developer add tool').press('Enter');
   await main.getByLabel('developer tool Write').uncheck();
   await shot('role-tools-mcp');
-  await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
-  await main.getByRole('button', { name: 'Save team' }).click();
+  await main.getByRole('button', { name: 'Save Bot' }).click();
   await page.getByText('Saved').waitFor();
-  check(row('bot.tools').includes('Bash(git log:*)') && row('bot.tools').includes('"WebFetch"') && !row('bot.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the team member row", row('bot.tools'));
-  check(row('bot.mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its team member row", row('bot.mcp_servers'));
+  check(row('bot.tools').includes('Bash(git log:*)') && row('bot.tools').includes('"WebFetch"') && !row('bot.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the Bot", row('bot.tools'));
+  check(row('bot.mcp_servers') === mcpBefore, "the Bot's MCP server is unchanged by the panel", row('bot.mcp_servers'));
 
-  // Duplicate makes a new team `reef team list` (the same store) shows.
+  // Duplicate makes a new Crew `reef team list` (the same store) shows.
+  await page.goto(`${base}/teams?team=full`);
   const copyName = `workshop-copy-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'Duplicate' }).click();
-  const dup = page.getByRole('dialog', { name: 'New team' });
+  const dup = page.getByRole('dialog', { name: 'New crew' });
   await dup.getByLabel('Name', { exact: true }).fill(copyName);
-  await dup.getByRole('button', { name: 'Create team' }).click();
+  await dup.getByRole('button', { name: 'Create crew' }).click();
   await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
   await shot('copied');
   check(
     sql(`select count(*) from team where name = '${copyName}'`) === '1',
-    'Duplicate makes a new team',
+    'Duplicate makes a new Crew',
   );
 
   // The next developer wake uses the new persona.
@@ -2438,7 +2428,7 @@ async function naming() {
 
   const first = await startUnnamed();
   const placeholder = row(first);
-  check(/^claude \d.*\|1$/.test(placeholder), 'a Space started with an empty name has a placeholder name and waits for a proposal', placeholder);
+  check(/^\w+ \d.*\|1$/.test(placeholder), 'a Space started with an empty name has a placeholder name and waits for a proposal', placeholder);
   await shot('placeholder');
   await send(probe);
   await working();
@@ -2456,7 +2446,7 @@ async function naming() {
   await working();
   await idle();
   await settled(second);
-  check(/^claude \d.*\|0$/.test(row(second)), 'a failed proposal keeps the placeholder name', row(second));
+  check(/^\w+ \d.*\|0$/.test(row(second)), 'a failed proposal keeps the placeholder name', row(second));
   await exchange('Say it again.');
   const done = sql(`select count(*) from turn where space_id=${second} and status='done'`);
   check(done === '2', 'the Space keeps working after a failed proposal', `done turns: ${done}`);
@@ -2563,7 +2553,7 @@ async function conversationMove() {
     for (let i = 0; i < 150 && (await movedTo(id)) === null; i++) await page.waitForTimeout(200);
     return movedTo(id);
   };
-  const members = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).join();
+  const members = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).sort().join();
   const kitAnswered = async (id) => {
     for (let i = 0; i < 150 && sql(`select count(*) from message where space_id=${id} and author='kit'`) === '0'; i++) await page.waitForTimeout(200);
     return sql(`select count(*) from message where space_id=${id} and author='kit'`) !== '0';
@@ -2579,7 +2569,7 @@ async function conversationMove() {
   const link = main.getByRole('link', { name: 'Open the Space' });
   check((await link.getAttribute('href')) === `/spaces/${typedTo}`, 'the conversation links to the new Space', await link.getAttribute('href'));
   check((await page.getByLabel('Message').count()) === 0, 'the moved conversation has no message box', String(await page.getByLabel('Message').count()));
-  check((await main.getByRole('button', { name: 'Add Teammate' }).count()) === 0, 'the moved conversation has no Add Teammate button');
+  check((await main.getByRole('button', { name: 'Add Bot' }).count()) === 0, 'the moved conversation has no Add Bot button');
   check((await members(typedTo)) === 'sam*,kit', 'the new Space has sam leading and kit', await members(typedTo));
   const shape = sql(`select kind, team_id is null from Space where id=${typedTo}`);
   check(shape === 'free|1', 'the new Space is free and has no Team', shape);
@@ -2596,19 +2586,19 @@ async function conversationMove() {
   const clicked = await start();
   await exchange(login);
   await page.setViewportSize({ width: 390, height: 844 });
-  await main.getByRole('button', { name: 'Add Teammate' }).waitFor();
+  await main.getByRole('button', { name: 'Add Bot' }).waitFor();
   const header = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-  check(header <= 0, 'the conversation with the Add Teammate button has no horizontal scroll at 390 px', String(header));
+  check(header <= 0, 'the conversation with the Add Bot button has no horizontal scroll at 390 px', String(header));
   await shot('phone-add-teammate');
   await page.setViewportSize({ width: 1280, height: 800 });
-  await main.getByRole('button', { name: 'Add Teammate' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add a Teammate' });
+  await main.getByRole('button', { name: 'Add Bot' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a Bot' });
   await dialog.getByRole('button', { name: 'kit', exact: true }).waitFor();
   check((await dialog.getByRole('button', { name: 'sam', exact: true }).count()) === 0, "the dialog does not offer the conversation's own Teammate");
   await shot('desktop-add-teammate');
   await dialog.getByRole('button', { name: 'kit', exact: true }).click();
   const clickedTo = await moved(clicked);
-  check(clickedTo !== null, 'Add Teammate marks the conversation moved', `movedTo ${clickedTo}`);
+  check(clickedTo !== null, 'Add Bot marks the conversation moved', `movedTo ${clickedTo}`);
   check((await members(clickedTo)) === 'sam*,kit', 'the new Space has sam leading and kit', await members(clickedTo));
   await main.getByText('This conversation moved to a new Space').waitFor();
 
@@ -2982,11 +2972,11 @@ async function providers() {
   const mateId = (await res.json()).id;
   const roleOf = () => getJson(`/bots/${mateId}`);
   const openMate = async () => {
-    await page.goto(`${base}/bots?teammate=${mateId}`);
+    await page.goto(`${base}/bots?bot=${mateId}`);
     await page.getByRole('combobox', { name: `${mate} provider`, exact: true }).waitFor();
   };
   const saveMate = async () => {
-    await main.getByRole('button', { name: 'Save teammate' }).click();
+    await main.getByRole('button', { name: 'Save Bot' }).click();
     await page.getByText('Saved').waitFor();
   };
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -3079,7 +3069,7 @@ async function providers() {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${base}/settings?section=providers`);
   await added.getByRole('button', { name: `Remove ${name}` }).click();
-  const inUse = await errorText(new RegExp(`used by teammate ${mate}`), 15000);
+  const inUse = await errorText(new RegExp(`used by bot ${mate}`), 15000);
   check(!!inUse && (await getJson('/providers')).some((p) => p.name === name), 'Remove of an install a Teammate uses shows the server conflict and keeps it', inUse ?? '(not shown)');
   await shot('desktop-dark-in-use');
   await openMate();
@@ -3149,17 +3139,17 @@ async function bots() {
   check(bot.description === `${description} Edited.` && bot.tools.join() === 'Read' && bot.model === 'sonnet', 'editing the description leaves model, tools and permission mode as they were', bot.description);
 
   await page.goto(`${base}/teams`);
-  await main.getByRole('button', { name: 'New team' }).click();
-  const newTeam = page.getByRole('dialog', { name: 'New team' });
+  await main.getByRole('button', { name: 'New crew' }).click();
+  const newTeam = page.getByRole('dialog', { name: 'New crew' });
   await newTeam.getByLabel('Name', { exact: true }).fill(teamName);
-  await newTeam.getByRole('button', { name: 'Create team' }).click();
+  await newTeam.getByRole('button', { name: 'Create crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === teamName);
-  await main.getByLabel('Team name').waitFor();
+  await main.getByLabel('Crew name').waitFor();
   await main.getByRole('button', { name: 'Add a Bot' }).click();
   const picker = page.getByRole('dialog', { name: 'Add a Bot' });
   await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
-  const roles = main.getByRole('region', { name: 'Roles' });
-  const leadSwitch = roles.getByRole('switch', { name: `${mate} lead` });
+  const roles = main.getByRole('region', { name: 'Bots' });
+  const leadSwitch = roles.getByRole('switch', { name: `${mate} suggested coordinator` });
   await leadSwitch.waitFor();
   const member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
   check(member && !member.lead && member.name === mate, 'adding a Bot from the picker puts it in the Team by Bot id', JSON.stringify(member && { botId: member.botId, name: member.name, lead: member.lead }));
@@ -3179,7 +3169,7 @@ async function bots() {
   for (const route of ['/bots', `/teams?team=${teamName}`, `/bots?bot=${id}`, `/bots/${id}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
-    await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Roles' })).first().waitFor();
+    await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Bots' })).first().waitFor();
     check(await noOverflow(), `${route} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
   }
@@ -3227,7 +3217,7 @@ async function creatures() {
 
   const faceIn = async (team, roleName) => {
     await page.goto(`${base}/teams?team=${team}`);
-    const button = main.getByRole('region', { name: 'Roles' }).getByRole('button', { name: new RegExp(`^${roleName}`) });
+    const button = main.getByRole('region', { name: 'Bots' }).getByRole('button', { name: new RegExp(`^${roleName}`) });
     await button.waitFor();
     return button.locator('svg').first().innerHTML();
   };
@@ -3645,153 +3635,6 @@ async function board() {
   });
   check(o.page <= 0 && o.main <= 0, 'the board has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
   check(await page.getByRole('navigation', { name: 'Tabs' }).getByRole('link', { name: 'Board' }).isVisible(), 'the phone tab bar has a Board tab');
-}
-
-async function teamPage() {
-  const section = await addProject();
-  const name = (await section.getAttribute('aria-label')) ?? '';
-  const pid = Number(sql(`select id from project where name='${name}'`));
-  const call = async (method, route, body) => {
-    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
-    return res.json();
-  };
-  const suffix = Date.now().toString(36);
-  const makeTeam = async (prefix, responsibility) => {
-    const mate = await call('POST', '/bots', { name: `${prefix}-lead-${suffix}`, backend: 'claude' });
-    return call('POST', '/teams', { name: `${prefix}-${suffix}`, responsibility, roles: [{ botId: mate.id, lead: true }] });
-  };
-  const crew = await makeTeam('crew', 'Owns the login flow');
-  const idle = await makeTeam('idle', 'Waits for work');
-  const items = async () => (await getJson('/work-items')).filter((i) => i.teamId === crew.id);
-  const eventually = async (ok) => {
-    const end = Date.now() + 15000;
-    while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
-    return ok();
-  };
-
-  // The first item queued starts at once: its Space opens and the scripted lead answers.
-  const make = (title) => call('POST', '/work-items', { projectId: pid, title, teamId: crew.id });
-  const first = await make('login form');
-  await call('PATCH', `/work-items/${first.id}`, { status: 'queued' });
-  check(await eventually(async () => (await items()).some((i) => i.id === first.id && i.status === 'in_progress')), 'the first queued item starts at once');
-  for (const t of ['logout', 'signup', 'archive']) {
-    const w = await make(t);
-    await call('PATCH', `/work-items/${w.id}`, { status: 'queued' });
-  }
-  const spaceOf = async () => (await getJson('/spaces')).filter((s) => s.workItemId === first.id && s.closedAt === null);
-  check(await eventually(async () => (await spaceOf()).length === 1), 'it has one open Space');
-  const space = (await spaceOf())[0];
-
-  const queuedTitles = () => main.getByRole('region', { name: 'Queued', exact: true }).getByRole('link').allInnerTexts().then((ts) => ts.map((t) => t.split('\n').filter((l) => !/^\d+$/.test(l))[0]));
-  const order = async () => (await items()).filter((i) => i.status === 'queued').sort((a, b) => a.queuePosition - b.queuePosition).map((i) => `${i.queuePosition}:${i.title}`).join(', ');
-
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`${base}/teams/${crew.name}`);
-  await main.getByRole('heading', { name: crew.name, level: 1 }).waitFor();
-  await main.getByRole('region', { name: 'Queued', exact: true }).getByRole('link', { name: 'logout' }).waitFor();
-  check((await main.innerText()).includes('Owns the login flow'), 'the page shows the responsibility text');
-  const roster = main.getByRole('region', { name: 'Roster', exact: true });
-  const rosterText = await roster.innerText();
-  check(/lead/.test(rosterText) && /answers by default/.test(rosterText), 'the roster lists the lead with its role badge', rosterText.replace(/\s+/g, ' '));
-  const now = main.getByRole('region', { name: 'Now', exact: true });
-  const nowText = (await now.innerText()).replace(/\s+/g, ' ');
-  check(/^In progress/.test(nowText) && nowText.includes('login form'), 'the item in progress is shown as In progress', nowText);
-  const href = await now.getByRole('link', { name: /login form/ }).getAttribute('href');
-  check(href === `/spaces/${space.id}`, 'the item in progress links to its Space (REST)', `${href} vs /spaces/${space.id}`);
-  check((await queuedTitles()).join(', ') === 'logout, signup, archive', 'the queue lists items in order', (await queuedTitles()).join(', '));
-  await shot('1280x800');
-
-  await main.getByRole('link', { name: 'archive' }).dragTo(main.getByRole('link', { name: 'logout' }));
-  check(await eventually(async () => (await order()) === '1:archive, 2:logout, 3:signup'), 'dragging an item to the top changes its queue position (REST)', await order());
-  await page.waitForFunction(() => [...document.querySelectorAll('section[aria-label="Queued"] li a')].map((a) => a.textContent).join('|').startsWith('1archive'));
-  check((await queuedTitles()).join(', ') === 'archive, logout, signup', 'the page shows the new order', (await queuedTitles()).join(', '));
-  await shot('reordered');
-
-  await now.getByRole('link', { name: /login form/ }).click();
-  await page.waitForURL(`**/spaces/${space.id}`);
-  check(true, 'clicking the item in progress opens its Space', page.url());
-
-  await page.goto(`${base}/teams/${idle.name}`);
-  await main.getByRole('heading', { name: idle.name, level: 1 }).waitFor();
-  const idleText = (await main.getByRole('region', { name: 'Now', exact: true }).innerText()).replace(/\s+/g, ' ');
-  const queueless = (await getJson('/work-items')).filter((i) => i.teamId === idle.id && ['queued', 'in_progress', 'needs_you'].includes(i.status));
-  check(queueless.length === 0 && /^Idle/.test(idleText), 'a Team with an empty queue shows as idle (REST: no queued or running item)', idleText);
-  check((await main.getByRole('region', { name: 'Queued', exact: true }).innerText()).includes('Nothing is queued.'), 'its queue says nothing is queued');
-  await shot('idle');
-
-  // An item made in the window is queued only after its Team is set there; its start leaves an
-  // FYI in the inbox, which is not "needs you".
-  const fresh = await makeTeam('fresh', 'Takes new work');
-  const suggestion = await call('POST', '/work-items', { projectId: pid, title: 'suggested one', proposedBy: 'lead', suggestedTeamId: fresh.id });
-  await page.goto(`${base}/work-items/${suggestion.id}`);
-  await main.getByRole('heading', { name: 'suggested one', level: 1 }).waitFor();
-  const proposal = await main.getByText(/^proposed by/).innerText();
-  check(proposal === `proposed by lead · suggested Team ${fresh.name}`, 'the page shows who proposed the item and the suggested Team', proposal);
-  await main.getByRole('button', { name: 'Edit', exact: true }).click();
-  const suggestedEdit = page.getByRole('dialog', { name: 'Edit Work item' });
-  const prefilled = await suggestedEdit.getByRole('combobox', { name: 'Team', exact: true }).innerText();
-  check(prefilled.includes(fresh.name), 'the edit form prefills its Team from the suggestion', prefilled);
-  await suggestedEdit.getByRole('button', { name: 'Cancel' }).click();
-
-  const madeId = Number(await addWorkItem('window item'));
-  await main.getByRole('button', { name: 'Edit', exact: true }).click();
-  const edit = page.getByRole('dialog', { name: 'Edit Work item' });
-  await pick('Team', fresh.name, edit);
-  await edit.getByRole('button', { name: 'Save' }).click();
-  await edit.waitFor({ state: 'hidden' });
-  check(await eventually(async () => (await getJson(`/work-items/${madeId}`)).teamId === fresh.id), 'the Team set in the edit form is saved (REST)', JSON.stringify((await getJson(`/work-items/${madeId}`)).teamId));
-  await page.setViewportSize({ width: 1600, height: 900 });
-  await page.goto(`${base}/board`);
-  const madeCard = main.getByRole('link', { name: 'window item' });
-  await madeCard.waitFor();
-  await main.getByRole('region', { name: 'Backlog', exact: true }).evaluate((el) => {
-    const board = el.parentElement;
-    board.scrollLeft += el.getBoundingClientRect().left - board.getBoundingClientRect().left;
-  });
-  await madeCard.dragTo(main.getByRole('region', { name: 'Queued', exact: true }));
-  check(await eventually(async () => (await getJson(`/work-items/${madeId}`)).status === 'in_progress'), 'dragging the item with its Team set to Queued starts it', (await getJson(`/work-items/${madeId}`)).status);
-
-  const inbox = await getJson('/inbox');
-  const needsYou = inbox.filter((i) => i.group === 'needs_you').length;
-  check(inbox.some((i) => i.kind === 'started' && i.group === 'fyi' && i.workItemId === madeId), 'the start left a started item in the inbox, group fyi (REST)', JSON.stringify(inbox.map((i) => [i.kind, i.group])));
-  await page.goto(`${base}/`);
-  await main.getByRole('heading', { name: 'Needs you', level: 2 }).waitFor();
-  await page.waitForTimeout(500);
-  const heading = (await main.getByRole('heading', { name: 'Needs you', level: 2 }).innerText()).replace(/\s+/g, ' ');
-  check(heading === (needsYou > 0 ? `Needs you · ${needsYou}` : 'Needs you'), 'Home counts only the needs-you items, not the started FYI', `${heading} (REST needs_you ${needsYou} of ${inbox.length})`);
-  const badge = await aside.getByLabel(/\d+ waiting/).count();
-  check(badge === (needsYou > 0 ? 1 : 0), 'the sidebar Inbox badge counts only the needs-you items', `${badge} badge, needs_you ${needsYou}`);
-
-  await page.goto(`${base}/teams?team=${crew.name}`);
-  await page.getByRole('link', { name: 'Queue', exact: true }).click();
-  await page.waitForURL(`**/teams/${crew.name}`);
-  check(true, 'the team editor links to the Team page', page.url());
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${base}/teams/${crew.name}`);
-  await main.getByRole('heading', { name: crew.name, level: 1 }).waitFor();
-  await shot('390x844');
-  const o = await page.evaluate(() => {
-    const m = document.querySelector('main');
-    return { page: document.documentElement.scrollWidth - innerWidth, main: m.scrollWidth - m.clientWidth };
-  });
-  check(o.page <= 0 && o.main <= 0, 'the Team page has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
-
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`${base}/work-items/${first.id}`);
-  await main.getByRole('button', { name: 'Drop' }).click();
-  await page.getByRole('dialog', { name: 'Drop Work item' }).waitFor();
-  await shot('drop-dialog');
-  await page.getByRole('dialog', { name: 'Drop Work item' }).getByRole('button', { name: 'Drop Work item' }).click();
-  await main.getByRole('button', { name: 'Drop' }).waitFor({ state: 'hidden' });
-  const nextOf = async () => (await items()).find((i) => i.title === 'archive');
-  check(await eventually(async () => (await getJson(`/work-items/${first.id}`)).status === 'dropped'), 'Drop moves the item in progress to dropped (REST)', (await getJson(`/work-items/${first.id}`)).status);
-  check(sql(`select closed_at is not null from Space where id=${space.id}`) === '1', 'Drop closes its Space', sql(`select closed_at from Space where id=${space.id}`));
-  check(await eventually(async () => (await nextOf()).status === 'in_progress'), 'the next queued item starts (REST)', JSON.stringify(await nextOf().then((w) => [w.status, w.queuePosition])));
-  const next = await nextOf();
-  check(await eventually(async () => (await getJson('/spaces')).some((s) => s.workItemId === next.id && s.closedAt === null)), 'a Space opens for it (REST)');
-  await shot('dropped');
 }
 
 async function workItem() {
@@ -4279,6 +4122,87 @@ async function globalChats() {
   check(JSON.stringify(was) === JSON.stringify(now), 'switching the Project filter changes nothing of the reopened chat: space, associations, sessions, messages', `projects ${JSON.stringify(now.projects)} sessions ${now.sessions.join()}`);
   check(page.url() === url && (await spaceCount()) === count, 'the page stays on the chat and starts no other chat', page.url());
   await shot('filter-switched');
+}
+
+async function navigate() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  await addProject();
+  const project = (await getJson('/projects')).at(-1);
+  const make = async (route, body) => {
+    const res = await sendJson('POST', route, body);
+    if (res.status !== 201) throw new Error(`POST ${route}: ${res.status} ${JSON.stringify(res.body)}`);
+    return res.body;
+  };
+  const sam = await make('/bots', { name: `sam-${suffix}`, backend: 'claude' });
+  const kit = await make('/bots', { name: `kit-${suffix}`, backend: 'claude' });
+  const chat = await make('/spaces', { projectId: project.id, name: `chat-${suffix}`, botId: sam.id, kind: 'conversation' });
+  const room = await make('/spaces', { projectId: project.id, name: `room-${suffix}`, botIds: [sam.id, kit.id], coordinatorBotId: sam.id });
+  const item = await make('/work-items', { projectId: project.id, title: `item-${suffix}` });
+  const pins = async () => (await getJson('/pins')).map((p) => `${p.kind}:${p.id}`).sort().join();
+  const spaceCount = async () => (await getJson('/spaces')).length;
+  await page.goto(base + '/');
+  const rowOf = (name) => aside.locator('div.group').filter({ hasText: name });
+
+  // Pin one of each kind: the Bot page, a chat row and a Space row.
+  await page.goto(`${base}/bots/${sam.id}`);
+  await main.getByRole('heading', { name: sam.name, level: 1 }).waitFor();
+  await main.getByRole('button', { name: 'Pin', exact: true }).first().click();
+  for (const name of [chat.name, room.name]) {
+    const row = rowOf(name);
+    await row.first().hover();
+    await row.first().getByRole('button', { name: 'Pin', exact: true }).click();
+  }
+  const want = [`bot:${sam.id}`, `chat:${chat.id}`, `space:${room.id}`].sort().join();
+  for (let i = 0; i < 20 && (await pins()) !== want; i++) await page.waitForTimeout(250);
+  check((await pins()) === want, 'a Bot, a chat and a Space each pin through their own button (GET /pins)', await pins());
+  const pinned = aside.getByRole('region', { name: 'Pinned' });
+  await pinned.waitFor();
+  const labels = (await pinned.getByRole('listitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  check(labels.length === 3 && [sam.name, chat.name, room.name].every((n) => labels.some((l) => l.includes(n))) && ['Bot', 'Chat', 'Space'].every((k) => labels.some((l) => l.endsWith(k))), 'the Pinned section lists the three with their kind', labels.join(' | '));
+  await page.reload();
+  await aside.getByRole('region', { name: 'Pinned' }).waitFor();
+  check((await aside.getByRole('region', { name: 'Pinned' }).getByRole('listitem').count()) === 3, 'the pins survive a reload');
+  await shot('pinned');
+
+  // Search finds all four kinds by name; a result opens its resource.
+  const search = aside.getByRole('searchbox', { name: 'Search' });
+  await search.fill(suffix);
+  const results = aside.getByRole('region', { name: 'Search results' });
+  await results.getByRole('listitem').nth(4).waitFor();
+  const found = (await results.getByRole('listitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  check(found.length === 5 && [[sam.name, 'Bot'], [chat.name, 'Chat'], [room.name, 'Space'], [item.title, 'Work item']].every(([n, k]) => found.some((f) => f.includes(n) && f.endsWith(k))), 'search finds a Bot, a chat, a Space and a Work item', found.join(' | '));
+  await shot('search');
+  await results.getByRole('link', { name: new RegExp(item.title) }).click();
+  await page.waitForURL((u) => u.pathname === `/work-items/${item.id}`);
+  check(true, 'a Work item result opens its page');
+
+  // A Bot with no chat opens its page, and only New chat starts one.
+  await search.fill(kit.name);
+  await results.getByRole('link', { name: new RegExp(kit.name) }).click();
+  await page.waitForURL((u) => u.pathname === `/bots/${kit.id}`);
+  const before = await spaceCount();
+  await main.getByRole('button', { name: 'New chat' }).waitFor();
+  await page.waitForTimeout(1000);
+  check((await main.getByRole('link', { name: 'Resume chat' }).count()) === 0 && (await spaceCount()) === before, 'a Bot with no chat opens its page with New chat and no chat is created', `spaces ${before} -> ${await spaceCount()}`);
+  await search.fill(sam.name);
+  await results.getByRole('link', { name: new RegExp(sam.name) }).click();
+  await page.waitForURL((u) => u.pathname === `/spaces/${chat.id}`);
+  check(true, "a Bot with a chat opens that chat");
+
+  // Unpin removes the row.
+  await page.goto(`${base}/bots/${sam.id}`);
+  await main.getByRole('button', { name: 'Unpin', exact: true }).first().click();
+  for (let i = 0; i < 20 && (await pins()).includes('bot:'); i++) await page.waitForTimeout(250);
+  check(!(await pins()).includes('bot:') && (await pins()).split(',').length === 2, 'Unpin removes the Bot pin and keeps the other two', await pins());
+
+  // The coordinator changes without changing anything else of the Space.
+  const members = async () => (await getJson(`/spaces/${room.id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).sort().join();
+  check((await members()) === `${kit.name},${sam.name}*`, 'the Space starts with the coordinator it was given', await members());
+  const set = await sendJson('PUT', `/spaces/${room.id}/coordinator`, { botId: kit.id });
+  check(set.status === 200 && (await members()) === `${kit.name}*,${sam.name}`, 'PUT /spaces/{id}/coordinator moves the coordinator and keeps both members', `${set.status} ${await members()}`);
+  const outsider = await make('/bots', { name: `out-${suffix}`, backend: 'claude' });
+  check((await sendJson('PUT', `/spaces/${room.id}/coordinator`, { botId: outsider.id })).status === 400, 'a Bot that is not a member cannot be made coordinator');
 }
 
 try {

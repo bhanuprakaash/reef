@@ -34,7 +34,7 @@ api_call() {
 # session_file SESSION_ID: path of claude's session jsonl, wherever its project folder is.
 session_file() { ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1; }
 
-turn_col() { "$H" sql "select $2 from turn where id = $1" | tail -1; } # turn_col ID COLUMN(S)
+turn_col() { "$H" sql "select $2 from turn where id = $1" | sed 1d | tail -1; } # turn_col ID COLUMN(S)
 
 run_ui() { # run_ui ID SCENARIO
 	local id=$1 scenario=$2 out rc
