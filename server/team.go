@@ -3,16 +3,17 @@ package server
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
-// their args, env and url may carry keys.
+// teamView is a team as REST shows it.
 type teamView struct {
 	ID             int64      `json:"id"`
 	Name           string     `json:"name"`
@@ -21,24 +22,45 @@ type teamView struct {
 }
 
 type roleView struct {
-	BotID          int64     `json:"botId,omitempty"`
-	Name           string    `json:"name"`
-	Lead           bool      `json:"lead"`
-	Write          bool      `json:"write"`
-	Backend        string    `json:"backend"`
-	PermissionMode string    `json:"permissionMode"`
-	Description    string    `json:"description"`
-	Skills         []string  `json:"skills"`
-	Face           string    `json:"face,omitempty"`
-	Colour         string    `json:"colour,omitempty"`
-	Model          string    `json:"model,omitempty"`
-	Provider       string    `json:"provider,omitempty"`
-	Tools          []string  `json:"tools"`
-	MCP            []mcpView `json:"mcp"`
+	BotID          int64        `json:"botId,omitempty"`
+	Name           string       `json:"name"`
+	Lead           bool         `json:"lead"`
+	Write          bool         `json:"write"`
+	Backend        string       `json:"backend"`
+	PermissionMode string       `json:"permissionMode"`
+	Description    string       `json:"description"`
+	Skills         []string     `json:"skills"`
+	Face           string       `json:"face,omitempty"`
+	Colour         string       `json:"colour,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Provider       string       `json:"provider,omitempty"`
+	Tools          []string     `json:"tools"`
+	Connections    []int64      `json:"connections"`
+	Session        *sessionView `json:"session,omitempty"`
 }
 
-// mcpView names one of a role's MCP servers as the agent sees it (mcp1, mcp2, ...) and labels it
-// by its command, or the host of its url.
+// sessionView is what a Bot's active session in a Space runs with. Stale says the Bot's own
+// settings have changed since. Connections are names only: the session's env and urls stay out.
+type sessionView struct {
+	Backend        string             `json:"backend"`
+	Model          string             `json:"model,omitempty"`
+	PermissionMode string             `json:"permissionMode"`
+	Write          bool               `json:"write"`
+	Tools          []string           `json:"tools"`
+	Skills         []sessionSkillView `json:"skills"`
+	Connections    []string           `json:"connections"`
+	RefreshPending bool               `json:"refreshPending"`
+	Stale          bool               `json:"stale"`
+}
+
+type sessionSkillView struct {
+	Ref        string `json:"ref"`
+	Compatible bool   `json:"compatible"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// mcpView names a connection as the agent sees its MCP server and labels it by its command, or
+// the host of its url.
 type mcpView struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
@@ -148,14 +170,14 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewTeam(applied))
 }
 
-func viewMCP(servers []agent.MCPServer) []mcpView {
-	views := make([]mcpView, len(servers))
-	for i, srv := range servers {
-		label := srv.Command
-		if u, err := url.Parse(srv.URL); label == "" && err == nil {
+func viewMCP(connections []store.Connection) []mcpView {
+	views := make([]mcpView, len(connections))
+	for i, c := range connections {
+		label := c.Command
+		if u, err := url.Parse(c.URL); label == "" && err == nil {
 			label = u.Host
 		}
-		views[i] = mcpView{Name: mcpName(i), Label: label}
+		views[i] = mcpView{Name: c.Name, Label: label}
 	}
 	return views
 }
@@ -172,8 +194,56 @@ func viewRole(r store.Role) roleView {
 	return roleView{
 		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
 		PermissionMode: r.PermissionMode, Description: r.Description, Skills: r.Skills, Face: r.Face,
-		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
+		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools,
+		Connections: connectionIDs(r.Connections),
 	}
 }
 
-func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
+func viewSession(bs store.BotSession, live store.Role, library []store.Skill, pending bool) *sessionView {
+	v := &sessionView{
+		Backend: bs.Backend, Model: bs.Model, PermissionMode: bs.PermissionMode, Write: bs.Write,
+		Tools: nonNil(bs.Tools), Skills: make([]sessionSkillView, len(bs.Skills)),
+		Connections: make([]string, len(bs.Connections)), RefreshPending: pending,
+	}
+	for i, k := range bs.Skills {
+		v.Skills[i] = sessionSkillView{Ref: k.Ref, Compatible: k.Compatible, Reason: k.Reason}
+	}
+	for i, c := range bs.Connections {
+		v.Connections[i] = c.Name
+	}
+	adopted := bs.Apply(live)
+	v.Stale = bs.Backend != live.Backend || bs.Provider != live.Provider || bs.Model != live.Model ||
+		bs.Description != live.Description || bs.Write != live.Write ||
+		bs.PermissionMode != live.PermissionMode || !slices.Equal(bs.Tools, live.Tools) ||
+		!slices.Equal(adopted.Skills, live.Skills) ||
+		!slices.EqualFunc(bs.Connections, live.Connections, sameConnection) ||
+		slices.ContainsFunc(bs.Skills, func(k store.AdoptedSkill) bool { return outdated(k, library) })
+	return v
+}
+
+func sameConnection(a, b store.Connection) bool {
+	return a.ID == b.ID && a.Name == b.Name && a.Command == b.Command && a.URL == b.URL &&
+		slices.Equal(a.Args, b.Args) && maps.Equal(a.Env, b.Env)
+}
+
+// outdated says a Reef skill's library version has moved on since the session adopted it. A skill
+// read from disk is not compared: its folder is only read when a session adopts.
+func outdated(k store.AdoptedSkill, library []store.Skill) bool {
+	name, ok := strings.CutPrefix(k.Ref, "reef:")
+	if !ok {
+		return false
+	}
+	i := slices.IndexFunc(library, func(l store.Skill) bool { return l.Name == name })
+	if i < 0 {
+		return k.Version != ""
+	}
+	return strconv.Itoa(library[i].Version) != k.Version
+}
+
+func connectionIDs(cs []store.Connection) []int64 {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids
+}

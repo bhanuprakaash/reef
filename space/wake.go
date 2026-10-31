@@ -35,7 +35,7 @@ func wakeText(
 	var blocks []string
 	var sent store.Scopes
 	for _, sc := range scopes {
-		b, newest, err := block(ctx, st, spaceID, botID, sc, read)
+		b, newest, err := block(ctx, st, spaceID, botID, sc, read, sessionID == "")
 		if err != nil {
 			return "", nil, err
 		}
@@ -50,7 +50,7 @@ func wakeText(
 
 func block(
 	ctx context.Context, st *store.Store, spaceID, botID int64, sc store.Scope,
-	read map[int64]int64,
+	read map[int64]int64, fresh bool,
 ) (text string, newest int64, err error) {
 	var msgs []store.Message
 	if sc.Thread != 0 {
@@ -60,6 +60,12 @@ func block(
 	}
 	if err != nil {
 		return "", 0, err
+	}
+	var posted int64
+	for _, m := range msgs {
+		if m.BotID != nil && *m.BotID == botID && m.ParentID == nil {
+			posted = max(posted, m.ID)
+		}
 	}
 	unread := slices.DeleteFunc(msgs, func(m store.Message) bool {
 		switch {
@@ -75,9 +81,14 @@ func block(
 		return "", 0, nil
 	}
 	omitted := 0
+	if fresh && sc.Thread == 0 {
+		last, before := unread[len(unread)-1], len(unread)
+		unread = slices.DeleteFunc(unread, func(m store.Message) bool { return m.ID <= posted && m.ID != last.ID })
+		omitted = before - len(unread)
+	}
 	if read[sc.Thread] == 0 && len(unread) > _firstWake {
-		omitted = len(unread) - _firstWake
-		unread = unread[omitted:]
+		omitted += len(unread) - _firstWake
+		unread = unread[len(unread)-_firstWake:]
 	}
 
 	last := unread[len(unread)-1]

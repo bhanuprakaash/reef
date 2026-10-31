@@ -52,6 +52,13 @@ func TestCLI_MemoryItems(t *testing.T) {
 		{"recall a rejected item", "", []string{"memory", "recall", "pairs"}},
 		{"pending after reject", "4  candidate  convention  project:1  Indent with tabs\n",
 			[]string{"memory", "pending"}},
+		{"add a replacement candidate", "6  candidate  decision  project:1  Use sessions in redis\n",
+			[]string{"memory", "add", "decision", "Use sessions in redis", "--scope", "project:1",
+				"--needs-approval", "--replaces", "2"}},
+		{"pending shows what it replaces",
+			"4  candidate  convention  project:1  Indent with tabs\n" +
+				"6  candidate  decision  project:1  Use sessions in redis  replaces 2\n",
+			[]string{"memory", "pending"}},
 	}
 	for _, s := range steps {
 		if got := mustReef(t, dir, s.args...); got != s.want {
@@ -75,7 +82,7 @@ func TestCLI_MemoryItems(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"memory", "approve", "2"}, "invalid: memory 2 is not a candidate"},
+		{[]string{"memory", "approve", "5"}, "invalid: memory 5 is not a candidate"},
 		{[]string{"memory", "retire", "3"}, "invalid: memory 3 is already retired"},
 		{[]string{"memory", "retire", "4"}, "invalid: memory 4 is a candidate"},
 		{[]string{"memory", "retire", "5"}, "invalid: memory 5 is rejected"},

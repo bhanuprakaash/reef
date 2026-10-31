@@ -36,6 +36,8 @@ type Session struct {
 	onNote   func()
 	members  map[int64]*member
 	trees    *Trees
+	// renewTokens is the context size that has the Bot's next turn start a new backend context.
+	renewTokens int64
 }
 
 type member struct {
@@ -45,7 +47,6 @@ type member struct {
 	// write and dir say which tree the role's turns hold, one at a time.
 	write bool
 	dir   string
-	cfg   agent.Config
 }
 
 type runInput struct {
@@ -78,10 +79,15 @@ const (
 		"saved with remember yet: decisions, findings, facts, lessons and conventions, each " +
 		"with its scope (work_item by default; project for what holds across the project; " +
 		"bot for what only you should recall). Skip what you already saved with " +
-		"remember. If you are the team lead, you may add team lessons about how this team " +
-		"works together; the user approves those. Use recall to find stale or duplicate " +
+		"remember. Use recall to find stale or duplicate " +
 		"items: pass retire with their ids, and replaces on a new item that amends older " +
 		"ones. Then reply with one line saying it is proposed."
+	_maintainPrompt = "Review your own memory. Use recall with scope bot to list the items you keep " +
+		"for yourself, and read_memory for the full ones. Where several say the same, call " +
+		"remember with scope bot and replaces listing their ids, once for the group, with one item " +
+		"that says it all. Call retire_memory on a lesson that is stale or no longer true. Change " +
+		"only your own bot items: leave project, work item and every other shared scope as they " +
+		"are, and post nothing to any Space. Then reply with one line saying what you changed."
 	_maxDirectLines = 100
 	_maxDirectRunes = 1000
 
@@ -119,7 +125,7 @@ func Open(
 	}
 	s := &Session{
 		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].BotID, mk: mk, lock: lock,
-		members: map[int64]*member{}, trees: trees,
+		members: map[int64]*member{}, trees: trees, renewTokens: _renewTokens,
 	}
 	defer func() {
 		if err != nil {
@@ -260,7 +266,11 @@ func (s *Session) readScopes(ctx context.Context, r store.Role, scopes store.Sco
 		}
 		sessionID = m.run.sessionID
 	} else {
-		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, r.BotID, r.Backend)
+		bs, err := s.botSession(ctx, r.BotID)
+		if err != nil {
+			return false
+		}
+		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, r.BotID, bs.ID)
 		if err != nil {
 			return false
 		}
@@ -372,6 +382,16 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 	return m.run.Run(ctx, text, parent, in.onEvent)
 }
 
+// botSession is the active BotSession of the Bot in the Space: the settings it adopted. A Bot with
+// none adopts its current settings now.
+func (s *Session) botSession(ctx context.Context, botID int64) (store.BotSession, error) {
+	bs, err := s.st.ActiveBotSession(ctx, s.ch.ID, botID)
+	if errors.Is(err, store.ErrNotFound) {
+		return AdoptBotSession(ctx, s.st, s.dataDir, s.ch.ID, botID)
+	}
+	return bs, err
+}
+
 // failTurn stores a failed turn of role for a turn that never started and returns cause
 // joined with the error of storing it. The turn keeps the wake it was for, so retry can run
 // it again; a ctx cancelled by then makes the turn interrupted.
@@ -383,8 +403,14 @@ func (s *Session) failTurn(
 		reason = "interrupted"
 	}
 	ctx = context.WithoutCancel(ctx)
+	var botSessionID *int64
+	if botID != nil {
+		if bs, err := s.st.ActiveBotSession(ctx, s.ch.ID, *botID); err == nil {
+			botSessionID = &bs.ID
+		}
+	}
 	t, err := s.st.CreateTurn(ctx, store.Turn{
-		SpaceID: s.ch.ID, BotID: botID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
+		SpaceID: s.ch.ID, BotID: botID, BotSessionID: botSessionID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
 		DirectMessageID: in.direct.IDRef(), WakeMessageID: in.messageID, Scopes: in.scopes,
 	})
 	if err != nil {
@@ -417,9 +443,10 @@ func (s *Session) closeMembers() error {
 	return errors.Join(errs...)
 }
 
-// member returns the agent session of role, starting or resuming it from the role's own
-// newest turn with a session id on the role's backend. A new session reads the Space's members
-// from the store, and its first prompt reads them and the role again when it is built. An agent that fails to start, for any
+// member returns the agent session of role, starting or resuming it from the newest turn with a
+// session id of the role's active BotSession. The role runs with the settings that BotSession
+// adopted, not the Bot's current ones. A new session reads the Space's members from the store,
+// and its first prompt reads them when it is built. An agent that fails to start, for any
 // reason, leaves a failed turn for the role that keeps the wake it was starting for, and so
 // does a ctx cancelled before it starts: the turn is interrupted. The store is read even
 // then, as Run stores its turn. A role the team no longer has leaves one too, on the
@@ -458,24 +485,22 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			return nil, err
 		}
 	}
-	backend = r.Backend
 	botID = &r.BotID
+	bs, err := s.botSession(wctx, r.BotID)
+	if err != nil {
+		return nil, err
+	}
+	r = bs.Apply(r)
+	backend = r.Backend
+	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.BotID, bs.ID)
+	if err != nil {
+		return nil, err
+	}
+	renew := !in.fork && last.ContextTokens >= s.renewTokens
 	if m, ok := s.members[r.BotID]; ok && !in.fork {
 		m.run.endWatch()
 		_, err := os.Stat(m.dir)
-		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
-			sameAccess(m.cfg, roleConfig(r, m.dir)) {
-			// Before its first turn m has no session id and nothing sent to compare against: its
-			// first prompt is built with the role as it is when the turn runs.
-			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
-				sent, err := introSent(wctx, s.st, s.ch.ID, r.BotID, r.Backend, m.run.sessionID)
-				if err != nil {
-					return nil, err
-				}
-				if !strings.HasPrefix(sent, intro) {
-					m.run.preamble = updatedRoleIntro(r)
-				}
-			}
+		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone && !renew && *m.run.botSessID == bs.ID {
 			m.run.role = role
 			return m, nil
 		}
@@ -495,12 +520,17 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 	}()
 
-	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.BotID, r.Backend)
-	if err != nil {
-		return nil, err
-	}
 	if in.fork && r.Backend != "claude" {
 		last = store.Turn{} // only claude can resume a copy of a session
+	}
+	if renew {
+		last = store.Turn{}
+	}
+	var history, refreshed bool
+	if last.SessionID == "" && !in.fork {
+		if history, refreshed, err = replacement(wctx, s.st, s.ch.ID, r.BotID, bs.ID); err != nil {
+			return nil, err
+		}
 	}
 	tok, err := s.st.CreateToken(wctx, s.ch.ID, r.BotID)
 	if err != nil {
@@ -512,18 +542,19 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		Args:    []string{"mcp", "--data", s.dataDir},
 		Env:     map[string]string{TokenEnv: tok.Token},
 	}}
-	for i, srv := range r.MCPServers {
-		servers["mcp"+strconv.Itoa(i+1)] = srv
+	for _, c := range r.Connections {
+		servers[c.Name] = c.Server()
 	}
 	cwd, key, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
 	if err != nil {
 		return nil, err
 	}
 	m.dir = cwd
-	cfg := roleConfig(r, cwd)
+	cfg := roleConfig(r, cwd, bs.Skills)
 	cfg.MCPServers = servers
-	m.cfg = cfg
-	var preamble string
+	if skillsPrompt(bs.Skills) != "" {
+		cfg.AddDirs = []string{BotSkillsDir(s.dataDir, bs.ID)}
+	}
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && key != "" {
 		var c store.Space
@@ -540,15 +571,6 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case last.SessionID != "":
-		if intro := roleIntro(r); intro != "" {
-			sent, serr := introSent(wctx, s.st, s.ch.ID, r.BotID, r.Backend, last.SessionID)
-			if serr != nil {
-				return nil, serr
-			}
-			if !strings.HasPrefix(sent, intro) {
-				preamble = updatedRoleIntro(r)
-			}
-		}
 		cfg.Fork = in.fork
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
@@ -557,8 +579,8 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	if err != nil {
 		return nil, err
 	}
-	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
-	m.run.botID = &r.BotID
+	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, "")
+	m.run.botID, m.run.botSessID = &r.BotID, &bs.ID
 	m.run.sessionID = last.SessionID
 	if last.SessionID != "" {
 		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, r.BotID, last.SessionID)
@@ -586,7 +608,19 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		if r.BotID == 0 {
 			return "", fmt.Errorf("%w: Bot %d is not in Space", store.ErrNotFound, *m.run.botID)
 		}
-		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, r)
+		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, bs.Apply(r))
+	}
+	if history {
+		m.run.Handover = func(ctx context.Context) (string, error) {
+			ch, err := s.st.Space(ctx, s.ch.ID)
+			if err != nil {
+				return "", err
+			}
+			return handover(ctx, s.st, s.ms, ch, r.BotID, cwd)
+		}
+	}
+	if refreshed {
+		m.run.refreshNote = refreshNote(r)
 	}
 	m.run.OnPrompt = s.onPrompt
 	m.run.Memory = s.ms
@@ -601,20 +635,43 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	return m, nil
 }
 
-func roleConfig(r store.Role, cwd string) agent.Config {
+// Refresh ends the Bot's BotSession in the Space and adopts the Bot's current settings. Its agent
+// is closed, so its next turn starts a new backend context, with a handover, and never resumes the
+// earlier one. Call it only between turns.
+func (s *Session) Refresh(ctx context.Context, botID int64) error {
+	if _, err := AdoptBotSession(ctx, s.st, s.dataDir, s.ch.ID, botID); err != nil {
+		return err
+	}
+	return s.Drop(botID)
+}
+
+// Drop closes the Bot's agent, if it has one open, so its next turn starts one again.
+func (s *Session) Drop(botID int64) error {
+	if m, ok := s.members[botID]; ok {
+		delete(s.members, botID)
+		return m.close(s.st)
+	}
+	return nil
+}
+
+func refreshNote(r store.Role) string {
+	settings := r.Backend
+	if r.Model != "" {
+		settings += ", " + r.Model
+	}
+	return r.Name + " refreshed: " + settings
+}
+
+func roleConfig(r store.Role, cwd string, skills []store.AdoptedSkill) agent.Config {
 	mode, tools, denied := access(r, claudeSkills(r, cwd))
 	return agent.Config{
 		Cwd:             cwd,
 		PermissionMode:  mode,
 		Model:           r.Model,
+		Instructions:    Instructions(r, skills),
 		Tools:           append(tools, "mcp__reef__*"),
 		DisallowedTools: denied,
 	}
-}
-
-func sameAccess(a, b agent.Config) bool {
-	return a.PermissionMode == b.PermissionMode && a.Model == b.Model &&
-		slices.Equal(a.Tools, b.Tools) && slices.Equal(a.DisallowedTools, b.DisallowedTools)
 }
 
 // ChatDir is the neutral folder of Space spaceID, which has no work item.
@@ -718,8 +775,9 @@ func changesFiles(tool string) bool {
 
 // access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.
 // A write role on claude also gets Task to run parallel subagents. On codex a permission
-// mode the role sets stays when the role writes, so it may narrow it. A claude role may use only
-// the skills it picked, if it picked any: onDisk names the skills on disk, and each one not picked is denied.
+// mode the role sets stays when the role writes, so it may narrow it. A claude role that picked
+// skills never loads a skill from disk through claude's Skill tool, picked or not: onDisk names
+// the skills on disk and each is denied, so the role uses the copy its instructions list.
 func access(r store.Role, onDisk []string) (mode string, tools, denied []string) {
 	mode, tools = r.PermissionMode, slices.Clone(r.Tools)
 	switch {
@@ -738,14 +796,9 @@ func access(r store.Role, onDisk []string) (mode string, tools, denied []string)
 		})
 	}
 	if r.Backend == "claude" && len(r.Skills) > 0 {
-		for _, name := range r.Skills {
-			tools = append(tools, "Skill("+name+")")
-		}
 		denied = slices.Clone(denied)
 		for _, name := range onDisk {
-			if !slices.Contains(r.Skills, name) {
-				denied = append(denied, "Skill("+name+")")
-			}
+			denied = append(denied, "Skill("+name+")")
 		}
 	}
 	return mode, tools, denied
@@ -822,7 +875,9 @@ func (m *member) close(st *store.Store) error {
 	}
 	errs := []error{m.ag.Interrupt()}
 	if m.token != "" {
-		errs = append(errs, st.DeleteToken(context.Background(), m.token))
+		if err := st.DeleteToken(context.Background(), m.token); !errors.Is(err, store.ErrNotFound) {
+			errs = append(errs, err)
+		}
 	}
 	return errors.Join(errs...)
 }
@@ -851,8 +906,10 @@ func failStaleTurns(ctx context.Context, st *store.Store, spaceID int64) error {
 	return nil
 }
 
+// newestSessionTurn is the newest turn of the BotSession botSessionID that holds the session to
+// resume, or none when the session is gone.
 func newestSessionTurn(
-	ctx context.Context, st *store.Store, spaceID, botID int64, backend string,
+	ctx context.Context, st *store.Store, spaceID, botID, botSessionID int64,
 ) (store.Turn, error) {
 	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID, BotID: &botID})
 	if err != nil {
@@ -861,7 +918,7 @@ func newestSessionTurn(
 	var last store.Turn
 	for _, t := range turns {
 		switch {
-		case t.Backend != backend:
+		case t.BotSessionID == nil || *t.BotSessionID != botSessionID:
 		case sessionMissing(t.Error):
 			last = store.Turn{}
 		case t.WakeText == "":
@@ -878,35 +935,6 @@ func newestSessionTurn(
 func sessionMissing(msg string) bool {
 	return strings.Contains(msg, "No conversation found") ||
 		strings.Contains(msg, "no rollout found for thread id")
-}
-
-// introSent is the role intro its session (same session id) in the Space was last given:
-// the session's first turn always carries one, from firstPrompt, after its "## You" header,
-// and a later turn carries one when the role's description or skills changed since, from
-// updatedRoleIntro. Empty when neither applies, so a prefix check against it never matches a
-// non-empty roleIntro.
-func introSent(
-	ctx context.Context, st *store.Store, spaceID, botID int64, backend, sessionID string,
-) (string, error) {
-	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &spaceID, BotID: &botID})
-	if err != nil {
-		return "", err
-	}
-	var sent string
-	first := true
-	for _, t := range turns {
-		if t.Backend != backend || t.SessionID != sessionID {
-			continue
-		}
-		if first {
-			sent, first = strings.TrimPrefix(t.Prompt, _youHeader), false
-			continue
-		}
-		if after, ok := strings.CutPrefix(t.Prompt, _introChangedPrefix); ok {
-			sent = after
-		}
-	}
-	return sent, nil
 }
 
 // NewAgent returns the agent of backend, claude or codex.

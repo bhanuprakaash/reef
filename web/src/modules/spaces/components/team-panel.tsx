@@ -1,12 +1,15 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
+import { useRefreshBot } from '@/modules/spaces/api/refresh-bot';
 import { useSetCoordinator } from '@/modules/spaces/api/set-coordinator';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import { SpaceProjects } from '@/modules/spaces/components/space-projects';
-import type { Project, Role } from '@/types/api';
+import type { Project, Role, RoleSession } from '@/types/api';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
+import { TextField } from '@/components/text-field';
 import { Creature, type CreatureState } from '@/components/creature';
 
 type Props = {
@@ -29,6 +32,33 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
+function SessionSummary({ session }: { session: RoleSession }) {
+  const incompatible = session.skills.filter((s) => !s.compatible);
+  const facts = [
+    session.model || 'default model',
+    session.permissionMode || 'default permissions',
+    session.write ? 'can write' : 'read-only',
+    session.tools.length > 0 ? `tools: ${session.tools.join(', ')}` : '',
+    session.skills.length > 0 ? `skills: ${session.skills.map((s) => s.ref).join(', ')}` : '',
+    session.connections.length > 0 ? `connections: ${session.connections.join(', ')}` : '',
+  ].filter(Boolean);
+  return (
+    <div className="basis-full pl-[42px] text-[12.5px] text-muted">
+      <p>Session runs with {facts.join(' · ')}</p>
+      {incompatible.map((s) => (
+        <p key={s.ref}>
+          {s.ref} is not available here: {s.reason}
+        </p>
+      ))}
+      {session.refreshPending ? (
+        <p>Refresh applies before this Bot's next turn.</p>
+      ) : (
+        session.stale && <p>Bot settings changed. Refresh to adopt edits.</p>
+      )}
+    </div>
+  );
+}
+
 export function TeamPanel({
   spaceId,
   workItemId,
@@ -40,6 +70,8 @@ export function TeamPanel({
 }: Props) {
   const inspector = useInspector(spaceId, true);
   const setCoordinator = useSetCoordinator(spaceId);
+  const refresh = useRefreshBot(spaceId);
+  const [models, setModels] = useState<Record<number, string>>({});
 
   function stateOf(role: Role): CreatureState {
     if (role.botId === working) return 'working';
@@ -74,11 +106,12 @@ export function TeamPanel({
         <ul className="space-y-0.5">
           {roles.map((role) => {
             const state = stateOf(role);
+            const shown = role.session ?? role;
             const usage = inspector.data?.roles.find((r) => r.botId === role.botId)?.usage;
             return (
               <li
                 key={role.botId}
-                className={`flex items-center gap-3 rounded-field px-1.5 py-2 ${state === 'working' ? 'bg-card' : ''}`}
+                className={`flex flex-wrap items-center gap-3 rounded-field px-1.5 py-2 ${state === 'working' ? 'bg-card' : ''}`}
               >
                 <Creature look={role} state={state} size={30} animate />
                 <span className="min-w-0 flex-1">
@@ -91,7 +124,7 @@ export function TeamPanel({
                     {role.lead && <Chip className="h-5 px-2 text-[11px]">coordinator</Chip>}
                   </span>
                   <span className="block text-[12.5px] text-muted">
-                    {[backendLabel[role.backend] ?? role.backend, stateLabel[state]]
+                    {[backendLabel[shown.backend] ?? shown.backend, stateLabel[state]]
                       .filter(Boolean)
                       .join(' · ')}
                   </span>
@@ -111,10 +144,36 @@ export function TeamPanel({
                     {formatTokens(usage.inputTokens + usage.outputTokens)} tokens
                   </span>
                 )}
+                {role.session && <SessionSummary session={role.session} />}
+                <div className="flex basis-full gap-2 pl-[42px]">
+                  <TextField
+                    aria-label={`Model for ${role.name}`}
+                    placeholder={shown.model || 'model'}
+                    value={models[role.botId] ?? ''}
+                    onChange={(e) => setModels({ ...models, [role.botId]: e.target.value })}
+                    className="w-36"
+                  />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={refresh.isPending}
+                    onClick={() => refresh.mutate({ botId: role.botId, model: models[role.botId] })}
+                  >
+                    Refresh
+                  </Button>
+                </div>
               </li>
             );
           })}
         </ul>
+        {refresh.isError && <p className="mt-1.5 text-sm text-danger">{refresh.error.message}</p>}
+        {refresh.isSuccess && (
+          <p className="mt-1.5 text-sm text-muted">
+            {refresh.data.pending
+              ? "Refresh applies before this Bot's next turn."
+              : 'Refresh requested: the next message starts a new session.'}
+          </p>
+        )}
         {setCoordinator.isError && (
           <p className="mt-1.5 text-sm text-danger">{setCoordinator.error.message}</p>
         )}

@@ -35,9 +35,11 @@ type Config struct {
 	Bin             string               // backend executable; empty is claude or codex from PATH
 	PermissionMode  string               // backend-specific value, passed through
 	Model           string               // backend-specific model name; empty is the backend's default
+	Instructions    string               // standing instructions the backend keeps on top of its own, for the whole session
 	Tools           []string             // tools allowed without asking; codex ignores it
 	DisallowedTools []string             // tools denied whatever settings allow; codex ignores it
 	MCPServers      map[string]MCPServer // extra MCP servers, by name
+	AddDirs         []string             // extra folders the backend may read; codex ignores it
 	Env             []string             // extra "KEY=value" on top of os.Environ
 	Fork            bool                 // Resume continues in a copy of the session, which gets a new id; claude only
 }
@@ -97,6 +99,12 @@ type Usage struct {
 	OutputTokens     int64 `json:"outputTokens"`
 	CacheReadTokens  int64 `json:"cacheReadTokens"`
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+}
+
+// Context is the input of the model call u counts, cached input included: the size of the
+// context the call read.
+func (u Usage) Context() int64 {
+	return u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
 }
 
 // Sub takes v's counts off u's, each count stopping at zero.

@@ -7,22 +7,21 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// botView is a Bot as REST shows it. Its MCP servers show only a name and a label,
-// like a role's: their args, env and url may carry keys.
+// botView is a Bot as REST shows it.
 type botView struct {
-	ID             int64     `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Skills         []string  `json:"skills"`
-	Backend        string    `json:"backend"`
-	Model          string    `json:"model,omitempty"`
-	Provider       string    `json:"provider,omitempty"`
-	Face           string    `json:"face,omitempty"`
-	Colour         string    `json:"colour,omitempty"`
-	Tools          []string  `json:"tools"`
-	MCP            []mcpView `json:"mcp"`
-	Write          bool      `json:"write"`
-	PermissionMode string    `json:"permissionMode"`
+	ID             int64    `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Skills         []string `json:"skills"`
+	Backend        string   `json:"backend"`
+	Model          string   `json:"model,omitempty"`
+	Provider       string   `json:"provider,omitempty"`
+	Face           string   `json:"face,omitempty"`
+	Colour         string   `json:"colour,omitempty"`
+	Tools          []string `json:"tools"`
+	Connections    []int64  `json:"connections"`
+	Write          bool     `json:"write"`
+	PermissionMode string   `json:"permissionMode"`
 }
 
 type addMemberBody struct {
@@ -38,6 +37,8 @@ func (s *server) botRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /bots/{id}", s.putBot)
 	mux.HandleFunc("DELETE /bots/{id}", s.deleteBot)
 	mux.HandleFunc("/bots/{id}", methodNotAllowed)
+	mux.HandleFunc("POST /bots/{id}/revoke", s.revokeBot)
+	mux.HandleFunc("/bots/{id}/revoke", methodNotAllowed)
 	mux.HandleFunc("GET /bots/{id}/conversations", s.listConversations)
 	mux.HandleFunc("/bots/{id}/conversations", methodNotAllowed)
 }
@@ -123,8 +124,7 @@ func (s *server) getBot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewBot(t))
 }
 
-// putBot replaces every field of the Bot. A body that omits mcpServers keeps the
-// stored ones, since REST never shows them; `"mcpServers": []` clears them.
+// putBot replaces every field of the Bot.
 func (s *server) putBot(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -141,14 +141,6 @@ func (s *server) putBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	if in.MCPServers == nil {
-		cur, err := s.st.Bot(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		in.MCPServers = cur.MCPServers
-	}
 	t, err := s.st.UpdateBot(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
@@ -168,6 +160,46 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// revokeBot ends every session of the Bot and deletes its tokens. A Space with a live session
+// stops the Bot's own turn and closes the Bot's agent, never another Bot's, and every Space the Bot
+// had a session in gets a notice. The Bot's next turn in a Space adopts the Bot's current settings
+// and starts a new backend context.
+func (s *server) revokeBot(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	bot, err := s.st.Bot(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	spaces, tokens, tools, err := s.st.RevokeBot(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	s.stopReview(id)
+	body := bot.Name + " was revoked: its sessions stopped. Tool activity that was running may have " +
+		"finished or not; revoking does not undo its effects."
+	for _, spaceID := range spaces {
+		if l := s.lookup(spaceID); l != nil {
+			s.dropBot(r.Context(), spaceID, l, id)
+		}
+		if _, err := s.st.CreateMessage(r.Context(), store.Message{
+			SpaceID: spaceID, Author: store.ReefAuthor, Body: body,
+		}); err != nil {
+			writeError(w, err)
+			return
+		}
+		s.notify(spaceID, "note")
+	}
+	writeJSON(w, http.StatusOK, map[string]int64{
+		"sessions": int64(len(spaces)), "tokens": tokens, "toolCalls": tools,
+	})
 }
 
 // addMember puts a Bot in the team.
@@ -222,6 +254,6 @@ func viewBot(t store.Bot) botView {
 	return botView{
 		ID: t.ID, Name: t.Name, Description: t.Description, Skills: t.Skills, Backend: t.Backend,
 		Model: t.Model, Provider: t.Provider, Face: t.Face, Colour: t.Colour, Tools: t.Tools,
-		MCP: viewMCP(t.MCPServers), Write: t.Write, PermissionMode: t.PermissionMode,
+		Connections: t.Connections, Write: t.Write, PermissionMode: t.PermissionMode,
 	}
 }

@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bhanuprakaash/reef/agent"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -62,7 +62,7 @@ func testServerTeam(t *testing.T, st *store.Store, ctx context.Context, team sto
 	for i, role := range team.Roles {
 		if role.BotID == 0 {
 			id := *testServerBot(t, st, role.Name)
-			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, Connections: connectionIDs(role.Connections), Write: role.Write, PermissionMode: role.PermissionMode}
 			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
@@ -81,7 +81,7 @@ func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, te
 	for i, role := range team.Roles {
 		if role.BotID == 0 {
 			id := *testServerBot(t, st, role.Name)
-			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, Connections: connectionIDs(role.Connections), Write: role.Write, PermissionMode: role.PermissionMode}
 			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
@@ -644,6 +644,112 @@ func TestMCPMemoryScopes(t *testing.T) {
 	}
 }
 
+func TestMCPRetireOwnMemory(t *testing.T) {
+	st, tok := mcpFixture(t)
+	other, err := testToken(t, st, context.Background(), 3, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "lesson", "body": "run tests first", "scope": "bot"})
+	callTool(t, st, other)("remember", map[string]any{"kind": "lesson", "body": "tests first, always", "scope": "bot"})
+	call("remember", map[string]any{"kind": "lesson", "body": "old tip", "scope": "bot"})
+	call("remember", map[string]any{"kind": "fact", "body": "shared fact", "scope": "project"})
+
+	call("remember", map[string]any{
+		"kind": "lesson", "body": "run tests first", "scope": "bot", "replaces": []int{1, 2},
+	})
+	got, isErr := call("read_memory", map[string]any{"id": 5})
+	want := `{"author":"architect","body":"run tests first","botId":2,"createdAt":"T","id":5,"kind":"lesson",` +
+		`"links":[{"rel":"source","to":"space:1"},{"rel":"replaces","to":"memory:1"},` +
+		`{"rel":"replaces","to":"memory:2"},{"rel":"source","to":"space:3"}],` +
+		`"replacedBy":null,"retiredAt":null,"role":"architect","scope":"bot:2","status":"accepted","why":""}`
+	if got != want || isErr {
+		t.Errorf("consolidated item = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("read_memory", map[string]any{"id": 1})
+	if !strings.Contains(got, `"replacedBy":5`) || !strings.Contains(got, `"status":"retired"`) || isErr {
+		t.Errorf("replaced item = %q (error %v), want retired and replaced by 5", got, isErr)
+	}
+	got, isErr = call("retire_memory", map[string]any{"id": 3})
+	want = `{"author":"architect","body":"old tip","botId":2,"createdAt":"T","id":3,"kind":"lesson",` +
+		`"links":[{"rel":"source","to":"space:1"}],"replacedBy":null,"retiredAt":"T","role":"architect",` +
+		`"scope":"bot:2","status":"retired","why":""}`
+	if got != want || isErr {
+		t.Errorf("retire_memory of a bot item = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("retire_memory", map[string]any{"id": 4})
+	want = "memory 4: not found"
+	if got != want || !isErr {
+		t.Errorf("retire_memory of a project item = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPReviewTokenOnlyTouchesOwnMemory(t *testing.T) {
+	ctx := context.Background()
+	st, tok := mcpFixture(t)
+	botID, err := st.SpaceMemberBotID(ctx, tok.SpaceID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	review, err := st.CreateReviewToken(ctx, tok.SpaceID, botID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.Token(ctx, review.Token); err != nil || !got.Review {
+		t.Fatalf("stored token = %+v, %v, want a review token", got, err)
+	}
+	ct, st2 := mcp.NewInMemoryTransports()
+	ss, err := NewMCP(st, openMemory(t, st), review, t.TempDir()).Connect(ctx, st2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close(); _ = ss.Wait() })
+	call := func(name string, args map[string]any) (string, error) {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			return "", err
+		}
+		text, _ := res.Content[0].(*mcp.TextContent)
+		if res.IsError {
+			return text.Text, errors.New(text.Text)
+		}
+		return text.Text, nil
+	}
+
+	var names []string
+	for tool, err := range cs.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, tool.Name)
+	}
+	slices.Sort(names)
+	if want := []string{"read_memory", "recall", "remember", "retire_memory"}; !slices.Equal(names, want) {
+		t.Errorf("tools = %v, want %v", names, want)
+	}
+	if _, err := call("post_to_space", map[string]any{"body": "hi"}); err == nil {
+		t.Error("post_to_space was allowed to a review")
+	}
+	if _, err := call("remember", map[string]any{"kind": "fact", "body": "shared", "scope": "project"}); err == nil {
+		t.Error("remember with scope project was allowed to a review")
+	}
+	if _, err := call("remember", map[string]any{"kind": "fact", "body": "shared"}); err == nil {
+		t.Error("remember with no scope was allowed to a review")
+	}
+	if _, err := call("remember", map[string]any{"kind": "lesson", "body": "run tests first", "scope": "bot"}); err != nil {
+		t.Errorf("remember with scope bot: %v", err)
+	}
+	got, err := call("retire_memory", map[string]any{"id": 1})
+	if err != nil || !strings.Contains(got, `"status":"retired"`) {
+		t.Errorf("retire_memory = %q, %v, want the item retired", got, err)
+	}
+}
+
 func TestMCPProposeBrief(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
@@ -680,8 +786,8 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	}
 	callTool(t, st, billing)("remember", map[string]any{"kind": "fact", "body": "billing item"})
 	call := callTool(t, st, tok)
-	call("remember", map[string]any{"kind": "fact", "body": "live item"})
-	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}})
+	call("remember", map[string]any{"kind": "fact", "body": "live item", "scope": "bot"})
+	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}, "scope": "bot"})
 	call("remember", map[string]any{"kind": "fact", "body": "project item", "scope": "project"})
 
 	const (
@@ -733,45 +839,6 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	}
 	if _, err := st.PendingProposal(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("PendingProposal = %v, want ErrNotFound: nothing saved", err)
-	}
-}
-
-func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
-	ctx := context.Background()
-	st, _ := mcpFixture(t)
-	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Backend: "claude"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	one := int64(1)
-	closeSpace(t, st, 1)
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lead, err := testToken(t, st, ctx, ch.ID, "lead")
-	if err != nil {
-		t.Fatal(err)
-	}
-	developer, err := testToken(t, st, ctx, ch.ID, "developer")
-	if err != nil {
-		t.Fatal(err)
-	}
-	give := map[string]any{"brief": "v2", "items": []any{
-		map[string]any{"kind": "lesson", "body": "review before merge", "scope": "team"},
-	}}
-
-	got, isErr := callTool(t, st, developer)("propose_wrap", give)
-	if want := `invalid: only the lead of team "core" can propose team items`; got != want || !isErr {
-		t.Errorf("developer propose_wrap = %q (error %v), want %q", got, isErr, want)
-	}
-	got, isErr = callTool(t, st, lead)("propose_wrap", give)
-	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
-		t.Errorf("lead propose_wrap = %q (error %v), want %q", got, isErr, want)
 	}
 }
 
@@ -1249,17 +1316,21 @@ func TestMCPFindBots(t *testing.T) {
 	lead, developer := leadAndDeveloper(t, st)
 	ctx := context.Background()
 	call := callTool(t, st, lead)
+	pw, err := st.CreateConnection(ctx, store.Connection{Name: "pw", Command: "pw-mcp", Env: map[string]string{"KEY": "sk-secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tester, err := st.CreateBot(ctx, store.Bot{
-		Name: "tester", Backend: "claude", Description: "Breaks code with real browsers", Skills: []string{"verify"},
-		Tools: []string{"Read"}, MCPServers: []agent.MCPServer{{Command: "pw", Env: map[string]string{"KEY": "sk-secret"}}},
+		Name: "tester", Backend: "claude", Description: "Breaks code with real browsers", Skills: []string{"claude:verify"},
+		Tools: []string{"Read"}, Connections: []int64{pw.ID},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got, isErr := call("find_bots", map[string]any{"query": "browsers"})
-	want := fmt.Sprintf(`{"bots":[{"capabilities":{"backend":"claude","mcp":[{"label":"pw","name":"mcp1"}],`+
-		`"skills":["verify"],"tools":["Read"],"write":false},"description":"Breaks code with real browsers",`+
+	want := fmt.Sprintf(`{"bots":[{"capabilities":{"backend":"claude","mcp":[{"label":"pw-mcp","name":"pw"}],`+
+		`"skills":["claude:verify"],"tools":["Read"],"write":false},"description":"Breaks code with real browsers",`+
 		`"id":%d,"name":"tester"}],"note":"Capabilities are what each Bot is configured with, not permission for `+
 		`you or anyone to use them."}`, tester.ID)
 	if got != want || isErr || strings.Contains(got, "sk-secret") {

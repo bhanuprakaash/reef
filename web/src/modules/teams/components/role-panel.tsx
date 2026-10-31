@@ -1,5 +1,7 @@
 import { useEffect, type ReactNode } from 'react';
-import type { Provider, Role, Skills } from '@/types/api';
+import type { Connection, Provider, Role, Skills } from '@/types/api';
+import { ConnectionPicker } from '@/modules/teams/components/connection-picker';
+import { connectionLabel } from '@/modules/teams/utils/connections';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
 import { SkillPicker } from '@/modules/teams/components/skill-picker';
 import { ToolPicker } from '@/modules/teams/components/tool-picker';
@@ -14,6 +16,7 @@ import { claudeModels } from '@/utils/models';
 type Props = {
   role: Role;
   skills?: Skills;
+  connections?: Connection[];
   providers?: Provider[];
   noProject?: boolean;
   onChange: (role: Role) => void;
@@ -70,6 +73,7 @@ function SettingRow({
 export function RolePanel({
   role,
   skills,
+  connections,
   providers = [],
   noProject,
   onChange,
@@ -212,17 +216,29 @@ export function RolePanel({
             label={label}
             tools={role.tools}
             write={role.write}
-            servers={role.mcp}
+            servers={(connections ?? [])
+              .filter((c) => role.connections.includes(c.id))
+              .map((c) => ({ name: c.name, label: connectionLabel(c) }))}
             onChange={(tools) => onChange({ ...role, tools })}
           />
         </Section>
       )}
 
       <Section>
+        <ConnectionPicker
+          label={label}
+          selected={role.connections}
+          available={connections}
+          onChange={(next) => onChange({ ...role, connections: next })}
+        />
+      </Section>
+
+      <Section>
         <SkillPicker
           label={label}
           picked={role.skills}
-          available={role.backend === 'codex' ? skills?.codex : skills?.claude}
+          available={skills}
+          backend={role.backend}
           noProject={noProject}
           limits={role.backend === 'claude'}
           onChange={(next) => onChange({ ...role, skills: next })}

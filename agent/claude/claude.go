@@ -245,6 +245,12 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
 	}
+	if cfg.Instructions != "" {
+		args = append(args, "--append-system-prompt", cfg.Instructions)
+	}
+	for _, dir := range cfg.AddDirs {
+		args = append(args, "--add-dir", dir)
+	}
 	if len(cfg.MCPServers) > 0 {
 		for name := range cfg.MCPServers {
 			if !_serverName.MatchString(name) {

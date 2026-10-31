@@ -268,7 +268,7 @@ func TestCanceledBotLookupClosesSessionAndStopsDirect(t *testing.T) {
 	cancel()
 	sess := &fakeSession{st: st}
 	srv := &server{st: st}
-	end, ok := srv.runOne(canceled, ch.ID, &live{}, sess, _message, wake{botID: &to.ID, role: to.Name, direct: &dm})
+	end, ok, _ := srv.runOne(canceled, ch.ID, &live{}, sess, _message, wake{botID: &to.ID, role: to.Name, direct: &dm})
 	if ok || end.Error != "interrupted" || sess.closed.Load() != 1 {
 		t.Fatalf("end = %+v, ok = %v, closed = %d", end, ok, sess.closed.Load())
 	}

@@ -33,9 +33,13 @@ Interrupt() error                     // stop the turn and the process
   may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
 - `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Model` (a model name,
   passed through; empty is the backend's default), `Bin` (the backend executable to run; empty
-  is `claude` or `codex` from `PATH`; `reef-agent` has no flag for it), `Tools` (tools allowed
+  is `claude` or `codex` from `PATH`; `reef-agent` has no flag for it), `Instructions` (standing
+  instructions the backend keeps for the whole session: claude `--append-system-prompt`, codex
+  `developerInstructions` on `thread/start` and `thread/resume`; a resumed session gets them again
+  because they ride on the `Config`), `Tools` (tools allowed
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
   them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
+  `AddDirs` (extra folders the backend may read: Claude gets one `--add-dir` each; Codex ignores it),
   `Env` (`KEY=value`, added to `os.Environ`).
 
 An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are left out.
@@ -76,7 +80,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -199,7 +203,7 @@ object per line:
 <- {"id":2,"result":{"thread":{"id":"01a133d7-...","cwd":"/tmp/cx"},...}}
 ```
 
-`sandbox`, `model` and `config` are set only when `PermissionMode` / `Model` / `MCPServers` are. One goroutine
+`sandbox`, `model`, `developerInstructions` and `config` are set only when `PermissionMode` / `Model` / `Instructions` / `MCPServers` are. One goroutine
 owns stdout: it waits for each response, skipping other lines, then emits `session` once and
 the events, then calls `Wait`, so a process that exits on its own is reaped. Then each `Send`:
 
@@ -273,6 +277,29 @@ parent), so `text` has none. Codex links subagents by thread id (`parentThreadId
 Both: a tool id is the same in its call and result. Claude's tool input also streams as
 `input_json_delta` fragments; the adapter ignores them and uses the whole `tool_use` block.
 Codex item types not listed (`webSearch`, `reasoning` ...) give no event.
+
+## Skills
+
+Reef gives a Bot's adopted skills to Claude and Codex the same way: it copies each skill's folder
+under the data folder (`bot-sessions/<id>/skills/<source>/<name>/`) and lists the compatible ones
+in the session instructions, each with its description and the absolute path of its `SKILL.md`
+(see [memory.md](memory.md#the-context-prompt)). The backend reads a skill's files with its own file
+tools; supporting files are relative to `SKILL.md`. Claude also gets `--add-dir` for the skills
+folder. Codex needs nothing extra: its `read-only` and `workspace-write` sandboxes restrict
+writes, not reads (not run against a real Codex here). A skill that uses `CLAUDE_` plugin
+variables, such as `${CLAUDE_PLUGIN_ROOT}`, is incompatible with Codex: it is not listed to the
+session, and `GET /skills` and the Bot editor show why. Reef never edits a package to make it fit.
+
+Enforced by Reef: for a Claude Bot that picks skills, `--disallowedTools` gets `Skill(name)` for
+every Claude skill on disk, picked or not. Claude's own `Skill` tool would load the live file at each
+process start, while the session instructions point at the frozen copy; denying it makes the copy
+the only one the Bot uses. A copy keeps the execute bit of the files it came from (`0700`, else `0600`).
+Adoption is one transaction: the copy is written, then the BotSession is saved with its final skills,
+and if the copy fails the BotSession that was active stays active.
+
+Inherited from the backend, not enforced: Codex finds `~/.agents/skills` and the project's
+`.agents/skills` on its own, and Reef has no switch to stop that. A Codex Bot can therefore use a
+skill it did not pick. The picked list only adds the skills Reef supplies; it does not limit Codex.
 
 ## Gotchas
 

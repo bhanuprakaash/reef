@@ -11,6 +11,7 @@ func TestChanged_AcceptedAddedAndRetiredAfterSince(t *testing.T) {
 	s, db := openTest(t)
 	ctx := context.Background()
 	w := writer()
+	w.Approved = true
 	other := w
 	other.Scope = Ref{Kind: ScopeWorkItem, ID: "8"}
 	add := func(w Writer, n Note, created string) int64 {

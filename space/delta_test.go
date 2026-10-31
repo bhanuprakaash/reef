@@ -25,7 +25,7 @@ func wakeWork(e *wakeEnv) memory.Ref {
 func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) memory.Item {
 	t.Helper()
 	r, err := e.s.ms.Remember(context.Background(),
-		memory.Writer{Author: author, Role: author, Scope: wakeWork(e)},
+		memory.Writer{Author: author, Role: author, Scope: wakeWork(e), Approved: true},
 		memory.Note{Kind: memory.KindDecision, Body: body, Replaces: replaces})
 	if err != nil {
 		t.Fatal(err)
@@ -350,6 +350,16 @@ func TestWakeAs_CompactedSessionGetsTheFirstPromptAgain(t *testing.T) {
 			if got := turns[2].Prompt; !strings.HasPrefix(got, "[Space 1, message 5]\n") ||
 				strings.Contains(got, "## You\n") || strings.Contains(got, "## What we know\n") {
 				t.Errorf("turn 3 prompt = %q, want a wake and at most a delta", got)
+			}
+			for i, ag := range e.agents {
+				if !strings.HasPrefix(ag.cfg.Instructions, "You are a Bot working in Reef. ") {
+					t.Errorf("agent %d instructions = %q, want the shared prompt first", i, ag.cfg.Instructions)
+				}
+			}
+			for i, turn := range turns {
+				if strings.Contains(turn.Prompt, "You are a Bot working in Reef.") {
+					t.Errorf("turn %d prompt holds the shared prompt, want it in the instructions only", i+1)
+				}
 			}
 		})
 	}

@@ -17,7 +17,7 @@ so that the next session can continue, and the history of why things were done g
 Reef has no handoff file. A new session starts with three things:
 
 - The work item's brief: goal, status, key decisions, open questions.
-- Memory items: every live decision of the work item and the newest findings, project, team and
+- Memory items: every live decision of the work item and the newest findings, project and
   bot items, each part with a count of how many exist.
 - An index: the sub-items in progress, and a count of the open sub-items and the earlier Spaces.
 
@@ -82,9 +82,9 @@ Rules for every command:
 | `reef memory recall "<q>" [--scope S] [--limit N]` | Searches the items of every scope, retired ones included, plus the items one link away from the best hits. `--scope` narrows to one shelf; `--limit` defaults to 10 | one hit per line: `12  accepted  decision  project:1  direct  Use sessions, not JWT`: id, status, kind, scope, `via`, body. `via` is `direct` or the link it was reached through, such as `replaces memory:4` |
 | `reef memory show <id>` | Prints one item with its details | the item row as for `add`, then these lines when they apply: `why  <why>`, `author  user  <role>` (the role is left out when empty), one `link  <rel>  <kind>:<id>` per link, `replaced_by  <id>`, `retired_at  <RFC 3339 time>` |
 | `reef memory retire <id>` | Retires an accepted item with nothing replacing it. Refuses a candidate (`invalid: memory 3 is a candidate`; use `reject`), a rejected item and a retired one (`invalid: memory 3 is already retired`) | `12  retired` |
-| `reef memory pending` | Lists the candidates waiting for approval | one item row per line, as for `add`; nothing when none |
+| `reef memory pending` | Lists the candidates waiting for approval | one item row per line, as for `add`, ending `  replaces 3` when the item replaces memory 3; nothing when none. The window lists the same items in the Inbox under "Pending memory", a replacement beside the item it would retire, with Approve and Reject |
 | `reef memory reject <id>` | Turns down a candidate: it is kept with status `rejected` and `retired_at` set, and no search or recall finds it. An item the candidate would have replaced stays live. Any other item fails with `invalid: memory 3 is not a candidate` | `12  rejected` |
-| `reef memory approve <id>` | Moves a candidate to `accepted` and retires each item it replaces (one already retired is skipped). Any other item fails with `invalid: memory 3 is not a candidate` | `12  accepted` |
+| `reef memory approve <id>` | Moves a candidate to `accepted` and retires each item it replaces (one already retired is skipped). Approving an item that is already accepted does nothing, so a retry never leaves two accepted replacements. Any other item fails with `invalid: memory 3 is not a candidate` | `12  accepted` |
 | `reef memory embed` | Prints the embedding provider: `none`, `openai`, `voyage` or `gemini`. The key is stored in `reef.db` and never printed | `openai`; `none` when unset |
 | `reef memory embed <provider> [--key K]` | Sets the embedding provider and stores its key in `reef.db`; the key is never printed. Storing a key makes `reef.db` and its `-wal` and `-shm` files readable only by the owner (mode 0600). `openai`, `voyage` and `gemini` need `--key` unless the stored provider is the same one, else `invalid: embedding provider voyage needs --key`; `none` clears the key. Changing the provider clears every stored vector. Each `openai`, `voyage` or `gemini` call then embeds every item that has no vector; a failure there exits 1 after the setting is saved, and running the command again retries | `embedding provider openai; embedded 12 items` (`embedded 0 items` when none was missing), or `embedding provider none` |
 | `reef team apply FILE.json` | Creates a team of existing Bots from a file, or replaces the members of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
@@ -131,18 +131,18 @@ read them: create a Bot for each role with its text as the `description`, then a
   and is not `user`. What each profile field does is in [server.md](server.md#role).
 - The file is read strictly: an unknown field, such as `backend` or `tools`, is an error.
 - Applying a name that exists replaces its roles in one transaction, and the
-  team keeps its Spaces. One failed check changes nothing. A new Bot description or skills
-  reaches the role's next wake, whether that starts a session or resumes one (see below).
-  A Bot saved with a new `backend` starts a new session; it does not resume the old one.
+  team keeps its Spaces. One failed check changes nothing. A Bot edit
+  reaches only the Spaces that adopt the Bot afterwards: a Space keeps the settings its Bot adopted
+  (see [server.md](server.md#role)).
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: invalid: unknown bot 9`, `reef: invalid: every member needs a
   botId`, `reef: parse team.json: json: unknown field "backend"`.
 - A Bot's `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
-  and so it does the reef tools (`mcp__reef__*`), but not the tools of the Bot's own `mcpServers`
-  unless `tools` lists them (`mcp__mcp1__*`).
-  A claude Bot that picks skills (`skills`) may use only those: each is allowed as `Skill(name)` and every
-  other claude skill on disk is denied. A Bot that picks none keeps every skill. A codex Bot gets the
-  names in its prompt only.
+  and so it does the reef tools (`mcp__reef__*`), but not the tools of the Bot's selected connections
+  unless `tools` lists them (`mcp__<connection name>__*`).
+  A claude Bot that picks skills (`skills`) may use only those: each `claude:` ref is allowed as `Skill(name)` and every
+  other claude skill on disk is denied. A Bot that picks none keeps every skill. Every Bot, claude or codex, gets its
+  compatible skills copied and listed in its session instructions (see below).
   A claude Bot without `write` cannot list plain `Bash` (or `Bash(*)`): saving it is
   `invalid`, so list patterns such as `Bash(go test:*)`.
   Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies
@@ -188,7 +188,7 @@ It serves Reef's MCP tools over stdio, with the official Go SDK
 with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matches no
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
-Every tool except `post_to_space`, `send_to_role`, `read_direct_messages`, `propose_work_item`, `propose_space`, `recall` and `read_memory` works on the token's work item, and so does `remember` unless its scope is `space`, `conversation`, `project` or `bot`. `list_projects`, `read_project`, `associate_project`, `dissociate_project` and `relate_projects` work on any Space. `remember` (with `projectId` to pick the shelf), `recall` and `read_memory` also reach the `project` shelf of every Project the Space is associated with. On a quick-session Space
+Every tool except `post_to_space`, `send_to_role`, `read_direct_messages`, `propose_work_item`, `propose_space`, `propose_skill`, `recall` and `read_memory` works on the token's work item, and so does `remember` unless its scope is `space`, `conversation`, `project` or `bot`. `list_projects`, `read_project`, `associate_project`, `dissociate_project` and `relate_projects` work on any Space. `remember` (with `projectId` to pick the shelf), `recall` and `read_memory` also reach the `project` shelf of every Project the Space is associated with. On a quick-session Space
 (no work item) those tools fail with `this space has no work item`, except `read_thread` of the
 token's own Space. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
@@ -199,9 +199,10 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
 | `get_brief` | none | `{"brief": "..."}`: the latest brief, `""` when there is none yet. The role's own items are in scope `bot`: read them with `recall` | |
-| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, `space`, `conversation`, `project` or `bot`; the default is the Space's own shelf: `work_item` on a work item's Space, `space` on a free Space, `conversation` in a direct conversation), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role name when written), `botId` (the token's Bot), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's work item, `space` and `conversation` the token's own Space, `project` its project, `bot` the token's role on every work item. Attaching a free Space to a work item moves its `space` items to `work_item`. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, space, conversation, project or bot`, `this space has no work item` (`work_item` on a Space with none), `invalid: you have no "space" scope here` (`space` on a work item's Space, `conversation` outside a direct conversation), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
-| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `space`, `conversation`, `project`, `team` or `bot`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A work item's `work_item` items are read only on that work item; `team` only on a Space with a team, `space` only on its own free Space. The `conversation` items of every direct conversation the role's Bot has had are read from any Space, and only here and in `read_memory`: they are never loaded at wake. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
+| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, `space`, `conversation`, `project` or `bot`; the default is the Space's own shelf: `work_item` on a work item's Space, `space` on a free Space, `conversation` in a direct conversation), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role name when written), `botId` (the token's Bot), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's work item, `space` and `conversation` the token's own Space, `project` one of the Projects the Space is associated with or its work item's (`projectId` names it, and is required when there are several), `bot` the token's Bot on every work item. A Bot's own experience about a Project stays in `bot` with an `about` of `project:N`; it is not copied into the Project. Author, `botId` and `source` are on the item, so adding or removing a Project association changes none of them. Attaching a free Space to a work item moves its `space` items to `work_item` when the Space is associated with no Project other than the work item's; a Space of other Projects keeps them in `space`, still readable by search and source link. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or a Bot writes a `convention` in a shared scope (`work_item`, `space`, `conversation`, `project`), or a Bot passes `replaces` in a shared scope, whatever the kind. Nothing a Bot does retires a shared item before the user approves; a Bot's own `bot` scope never waits. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. A Crew has no memory: there is no `team` scope | `invalid: scope "team" is not work_item, space, conversation, project or bot`, `this space has no work item` (`work_item` on a Space with none), `invalid: you have no "space" scope here` (`space` on a work item's Space, `conversation` outside a direct conversation), `invalid: this Space has several Projects (1, 2); say which with projectId`, `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
+| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `space`, `conversation`, `project` or `bot`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A work item's `work_item` items are read only on that work item; `space` only on its own free Space. The `conversation` items of every direct conversation the role's Bot has had are read from any Space, and only here and in `read_memory`: they are never loaded at wake. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "space" scope here` |
 | `read_memory` | `id` (required) | the item as `remember` returns it, with its `links` | `memory 99: not found`, also for an item in a scope the token cannot read |
+| `retire_memory` | `id` (required) | the item as `read_memory` returns it, now retired. Needs no approval | `memory 3: not found` for an item that is not in the token's own `bot` scope |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"spaceId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the work item's Spaces that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any Space of the work item, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
 | `read_thread` | `spaceId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the Space's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `space 9: not found`, also for a Space of another work item or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the Space |
 | `find_bots` | `query` (words for the expertise needed; omit to list every other Bot), `ids` (Bot ids already held, to check they still exist) | `{"note", "bots": [{"id", "name", "description", "capabilities": {"backend", "model", "write", "permissionMode", "skills", "tools", "mcp"}}]}`: with `query`, the other Bots whose name, description or skills contain a word, best match first; the caller is left out. With `ids`, one card per id, `{"id", "missing": true}` for a Bot that is gone. `mcp` is name and label only. Capabilities are configuration, not a grant: finding a Bot adds it to no Space and starts no work | |
@@ -213,11 +214,12 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `post_to_space` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of space 1` |
 | `send_to_role` | `to` (exactly one bot role), `body` (required) | the stored direct request, with `spaceId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a sender with no running turn, a closed Space, a starting Space, or a wrapping or promoting Space are errors; nothing is stored |
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this Space where the token's role is sender or recipient; the lead's wrap-up turn gets every exchange of the Space | |
-| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `bot`, or `team` when the token's role leads the Space's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, bot` (a solo Space has no `team` scope; a Space of a real team adds `team`), `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in work_item:1, project:1, bot:architect` (a `retire` id that is not an accepted item of the work item, project, team or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
+| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project` or `bot`, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, bot`, `invalid: memory 9 is not a live item in work_item:1, project:1, bot:architect` (a `retire` id that is not an accepted item of the work item, project or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: space 1 has a wrap-up waiting for approval` |
 | `create_sub_item` | `title` (required), `description`, `type` (a label: `feature`, `bug`, `incident`, `investigation`, `task` or `improvement`; default `task`) | the new sub-item as the work item REST returns it, in status `backlog`, under the token's work item, which it shares the worktree with. Any bot of the Space may add one | `invalid: work item title is required`, `invalid: unknown type "epic"`, `this Space has no work item` |
 | `propose_work_item` | `type` (a label: `feature`, `bug`, `incident`, `investigation`, `task` or `improvement`), `title` and `description` (required), `acceptance` (lines that must hold for it to be done) | the new work item as the work item REST returns it: top-level, in status `backlog`, `proposedBy` the token's role, `suggestedTeamId` the Team whose responsibility text best matches the title and description (SQLite full-text search over the Team texts; the `solo` team when none matches), `teamId` and `queuePosition` null. It works in any Space of the project, a direct conversation too, and writes an FYI note from `reef` into the proposer's Space. A proposal never starts work: only the user queues it, which also picks its Team. A Team's responsibility text suggests a Team and does not route anything else | `invalid: work item title is required`, `invalid: unknown type "epic"` |
 | `propose_space` | `name` and `botIds` (required), `coordinatorBotId` (default the first Bot) | the proposal: `id`, `proposedBy`, `name`, `botIds` de-duplicated, `coordinatorBotId`. It lands in the user's inbox as an FYI `space_proposed`; nothing is created until the user accepts or changes it in the new Space form. It works in any Space | `invalid: a Space needs at least one Bot`, `invalid: coordinator 9 is not among the Bots`, `invalid: unknown bot 9` |
+| `propose_skill` | `name` and `files` (`[{"path", "body"}]`, every file of the skill; `SKILL.md` with the same `name` in its frontmatter is required) | `{"id": 1, "message": "draft saved; the user will review it"}`. The draft shows in the Space and in the skill library; it is not in the library and no Bot has it until the user saves it (`POST /skill-drafts/{id}/save`) and picks it for a Bot. It works in any Space | `invalid: SKILL.md names the skill "a", not "b"`, `invalid: no SKILL.md`, `invalid: skill file path "../x" must be a plain relative path with / separators` (nothing is stored) |
 | `list_sub_items` | none | `{"subItems": [{"id", "type", "title", "status"}]}`: the work item's sub-items, oldest first, every status | `this Space has no work item` |
 | `read_sub_item` | `id` (required) | one sub-item in full: `description`, `status` and `acceptanceLines` | `sub-item 9: not found`, also for a work item that is not a sub-item of the token's work item |
 | `set_sub_item_status` | `id`, `status` (required: `backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`) | the sub-item with its new status. Only the lead of the Space's team may call it; it is the one that sets a sub-item `done`. The move goes through the same function as every status change, so a sub-item that is `done` or `dropped` does not move again. A top-level work item goes to `review` only when every sub-item is `done` or `dropped` | `invalid: only the lead sets a sub-item's status`, `sub-item 9: not found`, `invalid: work item 3: lead cannot move an item from done to in_progress`, `invalid: work item 4: unknown status "x"` |
@@ -280,17 +282,30 @@ a work item and for a quick session. It has three sections in this order, each w
 `##` header. It never holds a message body. A part with nothing to say is left out: there is
 no `No brief yet.` and no `none`. A section with no part left is left out.
 
+A session has four layers. The first two are stable instructions, not part of this prompt: the
+shared Reef behavior (`_reefPrompt` in `space/context.go`), then the Bot's description as the
+Space adopted it, together `space.Instructions`, passed in `agent.Config.Instructions` (claude
+`--append-system-prompt`, codex `developerInstructions`; see [agents.md](agents.md)). After the description come the skills the Bot adopted that its backend can use, `## Your skills`:
+one line each with the name, description and absolute path of the copy of its `SKILL.md`, and one
+sentence saying to read it when the skill applies and that its supporting files are relative to it.
+A skill that is incompatible is not listed. Every new
+backend context carries them, so a renewal or a resume after compaction restores them. The
+description says how the Bot contributes and grants no tool: tools and permissions come only from
+the adopted settings. The third and fourth layers are this prompt: the assignment, participants,
+profile, project associations and memory summaries (`## You`, `## What we know`) and the delivery
+instructions (`## How to work`). It goes before the first message of a session and again after a
+compaction; later turns carry only the request and what changed.
+
 1. `## You`
-   - When the role has a description or skills (a team role, see Teams): the description, then
-     `Your skills:` and the skills, each followed by a blank line. `reef context` has no role
-     to read them from and does not print them. A role that wakes with a description or skills that
-     differ from what its session last got, whether it is starting or resuming, gets them again
-     before the wake text, marked `Your description or skills changed:`, without the header.
    - One line: role, work item title and id, project name. A free Space says instead:
      the role and that it is a free Space with no work item, so there is no brief or work item items.
      A direct conversation says it is a direct conversation with the user. Either then lists
      `Associated projects, for context only; you do not work in them: shop (1).` when the Space has
-     any, with no folder: the agent runs in a folder of its own, not in a project.
+     any, with no folder: the agent runs in a folder of its own, not in a project. It then lists
+     the other projects, up to 10, as `Other projects (list_projects finds them,
+     associate_project links one to this Space): shop (1); infra (2): Deploys shop`: id, name and
+     the first line of the project's purpose. Project architecture and project memory are not
+     loaded; the Bot reads them on demand.
    - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
      big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
    - The description (if set), as `Description: ...`, then `Acceptance lines:` with one line
@@ -299,17 +314,19 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    - On a work item, when the project has a base branch, `Base branch: dev. A pull request you open targets it.`
 2. `## How to work`
    - When the team has two or more roles: `Your team: @lead, @architect.` It says that
-     `post_to_space` and @mentions are shared (decisions, blockers, user questions and outcomes
-     belong there), while `send_to_role` coordinates in detail with one bot and gets one
-     automatic direct response, and that an `Asked together:` line names every role one message
+     `post_to_space` is for what the whole team needs and that only a line starting with `@name`
+     wakes a bot, while `send_to_role` coordinates in detail with one bot and gets one
+     automatic direct response. Routed messages are delivered after the sender's turn ends and the
+     reply arrives in a later turn, so a role sends the request and ends its turn instead of
+     waiting. An `Asked together:` line names every role one message
      woke. A public message that wakes you starts with `[Space N, message N]` or `[Space N,
      message N, thread N]`; your plain reply goes where the header says (a top-level reply starts
      your own thread), and `post_to_space` takes the header's `thread` as its `parent` when there
      is one. After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
      Space since the role's last turn began, such as a rollback note (see
      [server.md](server.md#spaces-live)). The prompt does not explain them. It also asks a role
-     to publish one concise outcome with `post_to_space` when a direct chain completes with
-     information the team or the user needs; raw logs and routine acknowledgements stay private.
+     to publish one concise outcome with `post_to_space` when a direct exchange ends with
+     something the team or the user needs.
      A new Space never gets direct messages in its context: the brief and the memory items are
      the memory that carries over. The lead gets one more line: do not summarize or repeat a
      specialist's post back to the user, because they see it. `reef context` has no team and
@@ -329,8 +346,6 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      work item's `work_item` scope. Work items only.
    - `### Space`: the 5 newest accepted items in the Space's own scope, on a free Space only.
    - `### Project`: the 10 newest accepted items in the project's scope; none for a Space with no project.
-   - `### Team`: the 5 newest accepted items in the team's scope, only when the Space's team
-     is a real team: the `solo` team is no team and has none. `reef context` prints none.
    - `### Your items`: the 5 newest accepted items in the role's `bot` scope, named by the
      id of its Bot. `reef context` finds the Bot in the work item's team, else by the
      role name; with none, the scope is named by the role.
@@ -345,10 +360,10 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    Newest means accepted last: a candidate the user approves is newer than an item accepted
    before it.
    Each line reads `kind id: first line of the body (author, date)`,
-   the line cut at 100 characters with `…`. Findings, Project, Team and Your items end with
+   the line cut at 100 characters with `…`. Findings, Project and Your items end with
    `N of M; recall(..., scope=<kind>)`, where N is the lines shown and M the accepted items in
-   that scope, so the agent knows to recall the rest. A free Space has only Space, Project,
-   Team (when it has a real team) and Your items. A direct conversation has only Your items; its
+   that scope, so the agent knows to recall the rest. A free Space has only Space, Project
+   and Your items. A Crew has no memory and no part. A direct conversation has only Your items; its
    `conversation` items are never loaded, only found with `recall`. The old decision, notes and
    project memory tables are not read.
 
@@ -360,7 +375,7 @@ You are developer on work item "Email login" (1) in project "shop".
 Description: Users sign in with email and password
 
 ## How to work
-Your team: @lead, @developer. Use post_to_space and @mentions for work the whole team needs: ...
+Your team: @lead, @developer. Use post_to_space for what the whole team needs; ...
 Details are on demand through the reef MCP tools recall, read_memory, read_thread and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
 ## What we know
@@ -414,7 +429,7 @@ so the next turn of that role does not send its intro again. It starts no agent:
 its first turn, in the project's folder (a Space on a work item: the work item's worktree, see
 [server.md](server.md#spaces-live)), with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that bot's own new token in `REEF_TOKEN`), plus
-the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
+the connections the Bot selected. Claude runs the reef tools without approval; the connections'
 servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
 So a `reef chat` on a work item needs the project to be a git repo with a commit. Like `reef
 serve`, it takes a checkpoint before each turn of a role with `write` (the `solo` lead has
@@ -425,8 +440,7 @@ agent that does not start fails the command at the start. In `reef serve` the le
 its first turn: a first message that goes to a specialist starts no lead.
 
 - With a turn of the role that has a session id, the agent resumes the session of the newest
-  such turn, and the context prompt is not sent again, unless the role's description or skills
-  changed since that turn: then the description and skills go before the wake text, marked as changed.
+  such turn of the role's active adopted settings, and the context prompt is not sent again.
   The wake text then holds what changed since the session's
   previous turn: the newest turn of that role, Space and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.
@@ -435,7 +449,7 @@ its first turn: a first message that goes to a specialist starts no lead.
   parts.
   Under `### Changed since your last turn`: one index line, as in the first prompt
   (`decision 3: Use WAL (lead, 2026-10-27)`), for each memory item accepted since (a candidate counts from the moment the user approves it) in the
-  scopes the role reads (`work_item` or `space`, `project`, the Space's `team` unless it is `solo`, and the role's own
+  scopes the role reads (`work_item` or `space`, `project`, and the role's own
   `bot`; a direct conversation loads only `bot`), whatever its author (the author is only a role name, which every Space's lead
   shares), and `decision N is retired, replaced by decision M.` (`decision N is retired.` when
   nothing replaced it) for each one retired since. An item added and retired since is named as
@@ -449,6 +463,31 @@ its first turn: a first message that goes to a specialist starts no lead.
   first message, in the same prompt: the three sections above, for a Space on a work item
   and for a quick session alike. It is built after the turn's start is stamped, from the team
   and the role as they are then, so a retry of a failed first send has any edit made since.
+  When the Bot already has finished turns in the Space, a `## Handover` follows the context
+  prompt: the goal (the work item's title, description and brief, or the Space's name), the
+  settled decisions, the completed and unfinished sub-items, the workspace folder and branch,
+  the pull request, and the last five messages as one-line excerpts, then a line that points to
+  `read_thread` and `search_sessions` for the rest. It is built from stored records only, never
+  by asking the old session, so an old model that is gone does not matter, and it is sent
+  with the first prompt only. A new backend context starts like this in three cases. A
+  refresh (`POST /spaces/{id}/bots/{botId}/refresh`) ends the Bot's active adopted settings
+  and adopts the Bot's current ones; the next turn then has no session to resume, as only
+  turns of the active settings count, so the old backend session is never resumed. A
+  revoke (`POST /bots/{id}/revoke`) does the same for every Space of the Bot at once, live or
+  not, and also deletes the Bot's tokens, so a running `reef mcp` of the Bot fails its next
+  call; it posts its own notice and the refreshed notice does not follow. A
+  session the backend no longer has starts a new context under the same adopted settings. So
+  does a session whose last turn ended with a context of 150,000 tokens or more: the input of its
+  last model call, cached input included (claude's input, cache read and cache write; codex's
+  `last` usage of `thread/tokenUsage/updated`). A refresh that arrives during a turn is kept on
+  the active settings (`refresh_pending`), also over a restart, and applied per Bot before the
+  next turn of the Space; one that fails stops waiting, posts one notice and fails no turn (refresh again to retry). A
+  revoke stops only the revoked Bot: its own running turn is interrupted and the other Bots'
+  turns go on; its agent closes at once when the Space is idle, else when the running chain of turns ends, its running memory review is cancelled, and
+  a Session never reuses an agent whose adopted settings are no longer the active ones. A context
+  whose start fails leaves a failed turn and no notice; the next turn starts it again with
+  the handover. Once the new backend reports its session, the Space gets the notice
+  `<Bot> refreshed: <backend>, <model>`, only after a refresh.
 - When the backend compacts the role's session (a `compacted` event, see
   [agents.md](agents.md)), by itself as its context fills or on `/compact`, the session no longer
   holds the first prompt it was sent. A compaction inside a turn is stored on that turn
@@ -506,6 +545,36 @@ Flags:
   Use it to see the context prompt.
 - `--name` is only for a new Space.
 
+## Personal memory maintenance
+
+A Bot's own `bot` scope is reviewed once every seven days, by the Bot, with no approval: the user
+decides shared memory only. Under `reef serve`, when a turn of a Bot ends well in any Space and its
+reply is stored, the server asks the store to claim that Bot's review. Each Bot has one marker,
+`memory_reviewed_at`, and a claim, `memory_review_started_at`, on its `bot` row, so the interval is
+per Bot, not per chat, and survives a restart. A Bot that has none gets the marker set to now at its first
+activity: its seven days start then. The claim is one `UPDATE` that changes a row for one caller only, so
+turns that end together in several Spaces start one review; a claim older than an hour is stale and can be
+taken again.
+
+The review runs in the background after the activating turn, so it holds up neither that turn nor the
+Space's next one. It shares nothing with the Space's session: it is one turn of the Bot in a new backend
+context (the Bot's current backend and model; no resume, no fork), recorded in the activating Space, with no
+write (claude: permission mode `default`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Bash` denied;
+codex: read-only sandbox), none of the Bot's connections, the `reef` MCP server only, and a folder of its own,
+`<data>/reviews/<bot id>`, to run in. It takes neither the Space's lock nor its tree lock. Its `reef` token is a
+review token (`token.review`): the MCP server lists and runs only `recall`, `read_memory`, `remember` and
+`retire_memory` for it, and `remember` accepts only scope `bot`, so posting, routing, proposals and sub-items
+are refused by the token, not by the prompt. The turn keeps no
+wake and stores no message: its reply stays on the turn. The prompt asks the Bot to read its own items with
+`recall` (scope `bot`) and `read_memory`, to merge duplicates with `remember` (scope `bot`, `replaces`) and
+to retire stale lessons with `retire_memory`. Retirement is never a delete: an item is marked `retired`
+with `retired_at` and `replaced_by`, and a replacing item gets a copy of the `source` links of the items it
+replaces. A change in a shared scope is refused by the memory rule, not by the prompt: a `replaces` there
+makes a candidate, and `retire_memory` fails outside the Bot's own scope.
+
+When the review ends well the marker moves to now and the claim clears. When it fails or times out
+(ten minutes) the claim clears and the marker stays, so the Bot's next activity tries again.
+
 ## Wrap-up
 
 A Space ends explicitly, never on a timer. Under `reef serve` the lead's `submit_for_review` also
@@ -520,7 +589,7 @@ submit, and the user decides the proposal as for any wrap-up. The user can also 
    is done or no longer true, stay short), and as `items` what the Space made that the
    agent has not saved with `remember` yet: decisions, findings, facts, lessons and
    conventions, each with a scope (`work_item` by default, `project`, `bot`). Items it
-   already saved are not proposed again. A lead may also propose `team` lessons. The prompt
+   already saved are not proposed again. The prompt
    also asks it to use `recall` for stale or duplicate items: `retire` lists their ids, and
    `replaces` on a new item lists older ones it amends. When the Space has direct messages, the
    prompt starts with all of them as plain text, one line each, `[direct 1] developer ->
@@ -552,9 +621,8 @@ the network, and that must not hold the database write lock. It runs in three st
 same code serves `reef chat`, `reef wrap approve` and the server:
 
 1. Each item is saved with `remember`, the role as author and role, in the scope it names
-   (`work_item` is the Space's work item, `project` its project, `bot` the role, `team`
-   the Space's team). The usual write rules apply, so a `team` item, and a convention from a
-   role other than `architect` or `lead`, is a `candidate` that waits in `reef memory pending`.
+   (`work_item` is the Space's work item, `project` its project, `bot` the role). The usual
+   write rules apply for the user's approval of the proposal: the items and `retire` ids were chosen by a Bot, and the approval is the user's, so they are saved and retired directly.
    An item whose exact body is already an accepted or candidate item of that scope is
    skipped, so an item the agent saved live is not saved twice. An id in `replaces` that is
    no longer accepted is dropped.
@@ -575,7 +643,7 @@ changed`. To change a proposal, reject it, tell the agent what to change, and ty
 `invalid: proposal 1 is already approved`.
 
 `reef serve` offers the same over REST, and attaches a free Space to a work item, moving its
-`space` items to the work item: see [server.md](server.md#wrap-up-and-attach).
+`space` items to the work item unless the Space has other Projects: items left in the Space stay readable by recall and read_memory there. See [server.md](server.md#wrap-up-and-attach).
 
 The chat goes on after `/wrap`. The next session, in any Space, starts from the
 approved brief and memory items.

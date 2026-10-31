@@ -25,8 +25,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 		remember(t, ms, workScope(f), memory.KindDecision, "user", body)
 	}
 	for _, scope := range []memory.Ref{
-		workScope(f), projectScope(f),
-		{Kind: memory.ScopeTeam, ID: "core"}, botScope("1"),
+		workScope(f), projectScope(f), botScope("1"),
 	} {
 		for i := 1; i <= 30; i++ {
 			body := fmt.Sprintf("%s item %d\nsecond line", scope.Kind, i)
@@ -76,7 +75,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 		last = at
 	}
 	for _, h := range []string{
-		"### Brief\n", "### Decisions\n", "### Findings\n", "### Project\n", "### Team\n",
+		"### Brief\n", "### Decisions\n", "### Findings\n", "### Project\n",
 		"### Your items\n", "### In progress\n", "### On demand\n",
 	} {
 		if n := strings.Count(got, h); n != 1 {
@@ -86,15 +85,15 @@ func TestFirstPrompt_Size(t *testing.T) {
 	if n := strings.Count(got, "\ndecision "); n != 60 {
 		t.Errorf("decision lines = %d, want 60", n)
 	}
-	for _, scope := range []string{"work_item", "project", "team", "bot"} {
-		limit := map[string]int{"work_item": 5, "project": 10, "team": 5, "bot": 5}[scope]
+	for _, scope := range []string{"work_item", "project", "bot"} {
+		limit := map[string]int{"work_item": 5, "project": 10, "bot": 5}[scope]
 		want := fmt.Sprintf("%d of 30; recall(..., scope=%s)\n", limit, scope)
 		if n := strings.Count(got, want); n != 1 {
 			t.Errorf("count line %q appears %d times in\n%s", want, n, got)
 		}
 	}
-	if n := strings.Count(got, "\nfinding "); n != 25 {
-		t.Errorf("finding lines = %d, want 5+10+5+5", n)
+	if n := strings.Count(got, "\nfinding "); n != 20 {
+		t.Errorf("finding lines = %d, want 5+10+5", n)
 	}
 	if want := "### On demand\n37 open sub-items (list_sub_items). 15 earlier Spaces (search_sessions).\n"; !strings.HasSuffix(got, want) {
 		t.Errorf("prompt does not end with %q:\n%s", want, got)

@@ -37,11 +37,23 @@ type fakeSession struct {
 	// tools, when set, names the tool each role calls at the start of its message turns.
 	tools map[string]string
 
+	// reviewed receives the Bot of each memory review when it starts; reviewHold, when set, is
+	// waited on before it ends, and reviewFail makes it fail. They are guarded by mu, as is reviews.
+	reviewed   chan int64
+	reviewHold chan struct{}
+	reviewFail bool
+	reviews    []int64
+
 	mu     sync.Mutex
 	ran    []string
 	woke   []store.Scopes
 	say    func()
 	onNote func()
+
+	// dropped is the Bots whose agent was closed, and refreshFail the Bots whose Refresh fails.
+	// They are guarded by mu.
+	dropped     []int64
+	refreshFail map[int64]bool
 
 	// directStart receives a signal each time a direct turn starts, so tests can
 	// synchronize on direct-turn execution without sleeping. It is buffered so a start
@@ -188,6 +200,50 @@ func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.
 	return store.Proposal{}, nil
 }
 
+func (f *fakeSession) maintain(ctx context.Context, _, botID int64, _ func(agent.Event)) error {
+	f.mu.Lock()
+	f.reviews = append(f.reviews, botID)
+	hold, fail := f.reviewHold, f.reviewFail
+	f.mu.Unlock()
+	f.reviewed <- botID
+	if hold != nil {
+		select {
+		case <-hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	if fail {
+		return errors.New("boom")
+	}
+	return nil
+}
+
+func (f *fakeSession) Refresh(ctx context.Context, botID int64) error {
+	f.mu.Lock()
+	f.ran = append(f.ran, "refresh")
+	fail := f.refreshFail[botID]
+	f.mu.Unlock()
+	if fail {
+		return errors.New("model unavailable")
+	}
+	_, err := f.st.AdoptBotSession(ctx, f.spaceID.Load(), botID)
+	return err
+}
+
+func (f *fakeSession) Drop(botID int64) error {
+	f.mu.Lock()
+	f.dropped = append(f.dropped, botID)
+	f.mu.Unlock()
+	return nil
+}
+
+func (f *fakeSession) droppedBots() []int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.dropped)
+}
+
 func (f *fakeSession) SetOnNote(fn func()) {
 	f.mu.Lock()
 	f.onNote = fn
@@ -219,7 +275,9 @@ type liveEnv struct {
 	h      *Handler
 	fake   *fakeSession
 	opened atomic.Int32
-	open   func(ctx context.Context) (session, error)
+	// clock is the unix time the server's memory review sees.
+	clock atomic.Int64
+	open  func(ctx context.Context) (session, error)
 }
 
 func newLiveEnv(t *testing.T) *liveEnv {
@@ -230,7 +288,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), directStart: make(chan struct{}, 2)}}
+	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), reviewed: make(chan int64, 1), directStart: make(chan struct{}, 2)}}
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
@@ -247,6 +305,9 @@ func (e *liveEnv) serve(t *testing.T) {
 			return e.open(ctx)
 		}
 		return e.fake, nil
+	}, func(s *server) {
+		s.now = func() time.Time { return time.Unix(e.clock.Load(), 0) }
+		s.maintain = e.fake.maintain
 	})
 	e.ts = httptest.NewServer(e.h)
 	e.url = e.ts.URL

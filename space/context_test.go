@@ -2,6 +2,7 @@ package space
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -45,7 +46,7 @@ func testApplyTeam(t *testing.T, st *store.Store, ctx context.Context, team stor
 			continue
 		}
 		id := testBotID(t, st, role.Name)
-		bot := store.Bot{ID: *id, Name: role.Name, Description: role.Description, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+		bot := store.Bot{ID: *id, Name: role.Name, Description: role.Description, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, Connections: connectionIDs(role.Connections), Write: role.Write, PermissionMode: role.PermissionMode}
 		if teamErr != nil {
 			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
@@ -409,23 +410,22 @@ func TestContext_DecisionFirstLine(t *testing.T) {
 	}
 }
 
-func TestTeamIntro(t *testing.T) {
+func TestDeliveryIntro(t *testing.T) {
 	lead, architect := store.Role{Name: "lead", Lead: true}, store.Role{Name: "architect"}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
-	const common = "Your team: @lead, @architect. Use post_to_space and @mentions " +
-		"for work the whole team needs: decisions, blockers, questions for the user and outcomes " +
-		"belong in the Space. Only a line that starts with @name wakes that bot; an @name " +
-		"inside a sentence wakes nobody. Use send_to_role for detailed coordination with exactly one " +
-		"bot; their ordinary reply returns directly once, and continuing requires another " +
-		"send_to_role. When a direct chain completes with information the team or the user needs, " +
-		"publish one concise outcome with post_to_space; raw logs and routine acknowledgements " +
-		"stay private. When one message mentions several roles, its header ends with " +
-		"\"Asked together:\" naming them all: answer your part and do not repeat a bot's. " +
-		"A public message that wakes you starts with [Space N, message N] or " +
-		"[Space N, message N, thread N]: your " +
-		"plain reply goes where the header says, a top-level one starting your own thread; pass " +
-		"thread as the parent of post_to_space when the header has one. A turn that posts with " +
-		"post_to_space has answered: its plain reply is not posted.\n"
+	const common = "Your team: @lead, @architect. Use post_to_space for what the whole team needs; " +
+		"only a line that starts with @name wakes that bot, an @name inside a sentence wakes " +
+		"nobody. Use send_to_role for detailed coordination with exactly one bot. Routed " +
+		"messages are delivered after your turn ends and the reply arrives in a later turn: " +
+		"send the request, then end your turn instead of waiting for the reply. A direct reply " +
+		"returns once; continuing needs another send_to_role. Publish one concise outcome with " +
+		"post_to_space when a direct exchange ends with something the team or the user needs. " +
+		"A message that wakes you starts with [Space N, message N] or [Space N, message N, " +
+		"thread N], and may end its header with \"Asked together:\" naming everyone asked: " +
+		"answer your part only. Your plain reply goes where the header says, a top-level one " +
+		"starting your own thread; pass thread as the parent of post_to_space when the header " +
+		"has one. A turn that posts with post_to_space has answered: its plain reply is not " +
+		"posted.\n"
 	tests := []struct {
 		name string
 		team store.Team
@@ -439,9 +439,29 @@ func TestTeamIntro(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := teamIntro(tt.team, tt.give); got != tt.want {
-				t.Errorf("teamIntro = %q, want %q", got, tt.want)
+			if got := deliveryIntro(tt.team, tt.give); got != tt.want {
+				t.Errorf("deliveryIntro = %q, want %q", got, tt.want)
 			}
 		})
 	}
+}
+
+func testBotSessionID(t *testing.T, st *store.Store, spaceID int64, botID *int64) *int64 {
+	t.Helper()
+	bs, err := st.ActiveBotSession(context.Background(), spaceID, *botID)
+	if errors.Is(err, store.ErrNotFound) {
+		bs, err = st.AdoptBotSession(context.Background(), spaceID, *botID)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &bs.ID
+}
+
+func connectionIDs(cs []store.Connection) []int64 {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids
 }

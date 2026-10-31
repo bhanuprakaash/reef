@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -246,7 +246,7 @@ async function teamManagement() {
 
   await main.getByLabel('Description').fill('Own desktop releases and rollback.');
   await main.getByRole('button', { name: 'Save crew' }).click();
-  await main.getByText('Saved').waitFor();
+  await main.getByText('Saved', { exact: true }).waitFor();
   saved = await getJson(`/teams/${name}`);
   check(saved.responsibility === 'Own desktop releases and rollback.', 'editing responsibility saves through REST', saved.responsibility);
   await shot('team-1280x800');
@@ -1073,7 +1073,7 @@ async function memory() {
   check(sql(`select base_branch from project where id=${pid}`) === '', 'a base branch that is not a branch name is refused and not stored');
   await baseField.fill('dev');
   await baseCard.getByRole('button', { name: 'Save' }).click();
-  await baseCard.getByText('Saved').waitFor();
+  await baseCard.getByText('Saved', { exact: true }).waitFor();
   check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'saving the Base branch stores it', sql(`select id,base_branch from project where id=${pid}`));
   await page.reload();
   await baseField.waitFor();
@@ -1451,6 +1451,40 @@ async function inbox() {
 // The three groups of the inbox. Started and Review come from a queued item the lead submits;
 // the other causes are rows written through SQLite, the way work-item seeds proof (their
 // producers are proven by the server tests and the recipes).
+async function pendingMemory() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = sql(`select id from project where name='${name}'`);
+  const now = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+  const row = (kind, body, status) =>
+    `insert into memory (kind, body, why, scope_kind, scope_id, author, role, bot_id, status, created_at, accepted_at) values ('${kind}', '${body}', '', 'project', '${pid}', 'lead', 'lead', 1, '${status}', ${now}, ${status === 'accepted' ? now : 'null'})`;
+  sql(row('fact', 'Login uses sessions', 'accepted'), true);
+  const oldId = sql(`select max(id) from memory`);
+  sql(row('fact', 'Login uses magic links', 'candidate'), true);
+  const newId = sql(`select max(id) from memory`);
+  sql(`insert into memory_link (from_id, rel, to_kind, to_id) values (${newId}, 'replaces', 'memory', '${oldId}'), (${newId}, 'source', 'space', '1')`, true);
+  sql(row('convention', 'Indent with tabs', 'candidate'), true);
+  const convId = sql(`select max(id) from memory`);
+  const status = (id) => sql(`select status||'|'||coalesce(replaced_by,'') from memory where id=${id}`);
+
+  await page.goto(base + '/inbox');
+  const list = main.getByRole('region', { name: /^Pending memory/ });
+  await list.getByText('Login uses magic links').waitFor();
+  await shot('pending');
+  check((await list.getByRole('listitem').count()) === 2, 'the inbox lists both candidates under Pending memory');
+  check((await list.getByText('Would retire memory ' + oldId).count()) === 1, 'the replacement shows the item it would retire');
+  check((await list.getByText('Login uses sessions').count()) === 1, 'the retiring item shows its body beside the new one');
+  check(status(oldId) === 'accepted|', 'before approval the old item is accepted');
+
+  await list.getByRole('listitem').filter({ hasText: 'magic links' }).getByRole('button', { name: 'Approve' }).click();
+  await list.getByText('Login uses magic links').waitFor({ state: 'hidden' });
+  check(status(newId) === 'accepted|' && status(oldId) === `retired|${newId}`, 'Approve accepts the replacement and retires the old item', `${status(newId)} ${status(oldId)}`);
+  await list.getByRole('listitem').filter({ hasText: 'Indent with tabs' }).getByRole('button', { name: 'Reject' }).click();
+  await list.waitFor({ state: 'hidden' });
+  check(status(convId) === 'rejected|', 'Reject turns the convention down', status(convId));
+  await shot('empty');
+}
+
 async function inboxGroups() {
   const section = await addProject();
   const name = (await section.getAttribute('aria-label')) ?? '';
@@ -1697,12 +1731,99 @@ async function errorText(pattern, timeout = 15000) {
   }
 }
 
+// The skill editor, a Bot's skill draft in its Space and in the library, and the picker.
+async function skills() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const library = async () => getJson('/skills/library');
+  await addProject();
+  const lead = (await getJson('/bots')).find((b) => b.name === 'lead');
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  const lib = main.getByRole('region', { name: 'Skills library' });
+  await lib.getByRole('button', { name: 'New skill' }).click();
+  const form = lib.getByRole('form', { name: 'New skill' });
+  await form.getByLabel('Skill name').fill('editor-skill');
+  await form.getByLabel('SKILL.md').fill('---\nname: editor-skill\ndescription: Written in the editor.\n---\nSee notes/a.md.\n');
+  await form.getByRole('button', { name: 'Add file' }).click();
+  await form.getByLabel('Supporting file path').fill('notes/a.md');
+  await form.getByLabel('Contents of notes/a.md').fill('EDITOR-NOTE-1');
+  await shot('editor-new');
+  await form.getByRole('button', { name: 'Create skill' }).click();
+  await lib.getByRole('button', { name: 'Edit editor-skill' }).waitFor();
+  let made = (await library()).find((s) => s.name === 'editor-skill');
+  check(made?.version === 1 && made.sourceKind === 'reef', 'a skill written in the editor is saved at version 1', JSON.stringify(made));
+  await lib.getByRole('button', { name: 'View files of editor-skill' }).click();
+  await lib.locator('summary', { hasText: 'notes/a.md' }).click();
+  check((await lib.getByText('EDITOR-NOTE-1').count()) === 1, 'the supporting file contents can be inspected');
+  await lib.getByRole('button', { name: 'Edit editor-skill' }).click();
+  await lib.getByLabel('Contents of notes/a.md').fill('EDITOR-NOTE-2');
+  await shot('editor-edit');
+  await lib.getByRole('button', { name: 'Save new version' }).click();
+  await lib.getByRole('button', { name: 'Edit editor-skill' }).waitFor();
+  made = (await library()).find((s) => s.name === 'editor-skill');
+  const files = await getJson(`/skills/${made.id}`);
+  check(made.version === 2 && files.files.some((f) => f.body === 'EDITOR-NOTE-2'), 'an edit saves version 2 with the new file', `v${made.version}`);
+  check((await getJson(`/bots/${lead.id}`)).skills.length === 0, 'creating and editing a skill gives it to no Bot');
+
+  const space = await (await fetch(`${base}/spaces`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'skill chat', botId: lead.id, kind: 'conversation' }) })).json();
+  await page.goto(`${base}/spaces/${space.id}`);
+  await send('DRAFT A SKILL');
+  const card = page.getByRole('region', { name: 'Skill draft triage' });
+  await card.waitFor({ timeout: 60000 });
+  await card.getByText('SKILL.md').click();
+  await shot('draft-in-space');
+  check((await library()).every((s) => s.name !== 'triage'), 'a draft is not in the library while pending');
+  await card.getByRole('button', { name: 'Save triage' }).click();
+  await card.waitFor({ state: 'hidden' });
+  check((await library()).some((s) => s.name === 'triage' && s.version === 1), 'saving the draft puts triage in the library at version 1');
+
+  await send('DRAFT A SKILL');
+  await card.waitFor({ timeout: 60000 });
+  check((await card.getByRole('button', { name: 'Save as new version triage' }).count()) === 1, 'a draft named like a library skill offers Save as new version');
+  await page.goto(`${base}/bots`);
+  await lib.getByRole('heading', { name: 'Drafts' }).waitFor();
+  await shot('drafts-in-library');
+  await lib.getByRole('button', { name: 'Reject triage' }).click();
+  await lib.getByRole('heading', { name: 'Drafts' }).waitFor({ state: 'hidden' });
+  check((await library()).find((s) => s.name === 'triage').version === 1, 'rejecting a draft leaves the saved skill at version 1');
+  check((await getJson(`/bots/${lead.id}`)).skills.length === 0, 'saving and rejecting drafts gives no Bot a skill');
+
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await main.getByRole('combobox', { name: / add skill$/ }).click();
+  await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option', { name: /^triage · Reef/ }).click();
+  await main.getByRole('button', { name: 'Save Bot' }).click();
+  await page.getByText('Saved', { exact: true }).waitFor();
+  await shot('picked');
+  check(JSON.stringify((await getJson(`/bots/${lead.id}`)).skills) === '["reef:triage"]', 'the saved skill is picked for a Bot through the picker', JSON.stringify((await getJson(`/bots/${lead.id}`)).skills));
+
+  const imported = path.join(projectDir, 'imported-skill');
+  mkdirSync(path.join(imported, 'scripts'), { recursive: true });
+  writeFileSync(path.join(imported, 'SKILL.md'), '---\nname: imported-skill\ndescription: Imported from a folder.\n---\n');
+  writeFileSync(path.join(imported, 'scripts/run.sh'), 'echo run\n', { mode: 0o755 });
+  const post = (route, body) => fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const imp = await (await post('/skills/import', { path: imported })).json();
+  const runSh = (await getJson(`/skills/${imp.id}`)).files.find((f) => f.path === 'scripts/run.sh');
+  check(runSh && (await (await post(`/skills/${imp.id}/update`, {})).json()).version === 2, 'importing a folder keeps the execute bit and the REST update works', JSON.stringify(runSh));
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await lib.getByRole('button', { name: 'Update imported-skill' }).click();
+  await page.waitForFunction(async (id) => (await (await fetch(`/skills/library`)).json()).find((s) => s.id === id).version === 3, imp.id);
+  check(true, 'the Update button in the window saves the next version (no 415)');
+
+  await aside.getByRole('button', { name: 'Switch project' }).click();
+  await page.getByRole('menuitem', { name: 'All projects', exact: true }).click();
+  await aside.getByRole('region', { name: 'All projects' }).waitFor();
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await main.getByRole('combobox', { name: / add skill$/ }).click();
+  const offered = await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option').allInnerTexts();
+  await shot('picker-all-projects');
+  check(offered.some((o) => o.startsWith('imported-skill · Reef')), 'under All projects the picker lists library skills', offered.join(' | '));
+}
 async function workshop() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
     throw new Error('apply the team full first (teams/full.json, see features/bots.md)');
   }
-  const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update bot set mcp_servers = '${mcpBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["ghost-skill"]' where name = 'developer'`, true);
+  sql(`insert or ignore into connection (name, command, args, env, url, created_at) values ('verify-conn', 'true', '[]', '{"API_KEY":"sk-verify-9911"}', '', '2026-01-01T00:00:00Z')`, true);
+  const connBefore = `[${sql("select id from connection where name = 'verify-conn'")}]`;
+  sql(`update bot set connections = '${connBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["claude:ghost-skill"]' where name = 'developer'`, true);
   mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
   writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
 
@@ -1722,9 +1843,9 @@ async function workshop() {
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Otter', exact: true }).click();
   await shot('persona-edited');
-  const ghost = main.getByText('ghost-skill').locator('..');
+  const ghost = main.getByText('claude:ghost-skill').locator('..');
   check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
-  await main.getByRole('button', { name: 'Remove ghost-skill', exact: true }).click();
+  await main.getByRole('button', { name: 'Remove claude:ghost-skill', exact: true }).click();
   const addSkill = page.getByRole('listbox', { name: `${mate} add skill`, exact: true });
   await main.getByRole('combobox', { name: `${mate} add skill`, exact: true }).click();
   const offered = await addSkill.getByRole('option').allInnerTexts();
@@ -1740,12 +1861,12 @@ async function workshop() {
   await pick(`${mate} backend`, 'Claude Code', main);
   await pick(`${mate} permission mode`, 'acceptEdits', main);
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await page.getByText('Saved').waitFor();
+  await page.getByText('Saved', { exact: true }).waitFor();
   await shot('persona-saved');
-  check(row('bot.description') === persona, "saving the developer's persona on the Bots page updates its teammate row");
-  check(row('bot.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
-  check(row('bot.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('bot.skills'));
-  check(row('bot.mcp_servers') === mcpBefore, "the developer's mcpServers, left out of the Bot panel, are unchanged");
+  check(row('bot.description') === persona, "saving the developer's description on the Bots page updates the Bot row");
+  check(row('bot.face') === 'otter', "picking a creature for the developer saves it to the Bot row");
+  check(row('bot.skills') === '["claude:workshop-skill"]', "saving the developer's skills updates the Bot row", row('bot.skills'));
+  check(row('bot.connections') === connBefore, "the developer's selected connections are unchanged by saving other settings");
 
   // Unrestricted Bash on a Bot without write: the server's error shows in the Bot panel.
   await page.goto(`${base}/bots?bot=${sql("select id from bot where name = 'architect'")}`);
@@ -1762,16 +1883,16 @@ async function workshop() {
   await page.goto(`${base}/bots?bot=${row('bot.id')}`);
   await main.getByLabel('developer tool Read').waitFor();
   check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the Bot\'s tools');
-  check(await main.getByLabel('developer tool mcp__mcp1__*').count() === 1, 'the tool picker has one entry for the Bot\'s MCP server');
+  check(await main.getByLabel('developer tool mcp__verify-conn__*').count() === 1, 'the tool picker has one entry for the Bot\'s selected connection');
   await main.getByLabel('developer tool WebFetch').check();
   await main.getByLabel('developer add tool').fill('Bash(git log:*)');
   await main.getByLabel('developer add tool').press('Enter');
   await main.getByLabel('developer tool Write').uncheck();
   await shot('role-tools-mcp');
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await page.getByText('Saved').waitFor();
+  await page.getByText('Saved', { exact: true }).waitFor();
   check(row('bot.tools').includes('Bash(git log:*)') && row('bot.tools').includes('"WebFetch"') && !row('bot.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the Bot", row('bot.tools'));
-  check(row('bot.mcp_servers') === mcpBefore, "the Bot's MCP server is unchanged by the panel", row('bot.mcp_servers'));
+  check(row('bot.connections') === connBefore, "the Bot's selected connection is unchanged by the panel", row('bot.connections'));
 
   // Duplicate makes a new Crew `reef team list` (the same store) shows.
   await page.goto(`${base}/teams?team=full`);
@@ -1797,11 +1918,26 @@ async function workshop() {
   const otters = await main.locator('svg [fill="#C08A5B"]').count();
   const penguins = await main.locator('svg [fill="#3FBFA0"]').count();
   check(otters > 0 && penguins === 0, "the Space shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
-  const prompt = sql(`select prompt from turn where space_id = ${cid} and role = 'developer' order by id limit 1`);
-  check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
+  const instructed = readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').includes(marker);
+  check(instructed, "the new Space's developer session starts with the new description in its system prompt", instructed ? marker : '(marker not in the fake claude log)');
+
+  // A Bot edited after its session adopted: the Bots panel shows what the session runs with.
+  const devId = row('bot.id');
+  const devBot = await (await fetch(`${base}/bots/${devId}`)).json();
+  const edited = await fetch(`${base}/bots/${devId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...devBot, model: 'workshop-edited-model' }) });
+  check(edited.status === 200, 'the developer Bot is edited after its session adopted', String(edited.status));
+  await page.goto(`${base}/spaces/${cid}`);
+  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  const botsPanel = page.getByRole('complementary', { name: 'Bots' });
+  await botsPanel.getByText('Refresh to adopt edits').waitFor();
+  const adopted = await botsPanel.innerText();
+  await shot('team-panel-adopted');
+  check(adopted.includes('Session runs with') && !adopted.includes('workshop-edited-model'), "the Bots panel shows the adopted settings, not the Bot's edited model", adopted.replace(/\s+/g, ' ').slice(0, 200));
+  check(adopted.includes('Bot settings changed. Refresh to adopt edits.'), 'the Bots panel says the Bot changed and Refresh adopts it');
 
   await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
+  await skills.getByRole('button', { name: 'Claude Code' }).click();
   await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
   const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
   await shot('settings-skills');
@@ -2986,7 +3122,7 @@ async function providers() {
   };
   const saveMate = async () => {
     await main.getByRole('button', { name: 'Save Bot' }).click();
-    await page.getByText('Saved').waitFor();
+    await page.getByText('Saved', { exact: true }).waitFor();
   };
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   const setTheme = (t) => page.evaluate((t) => localStorage.setItem('reef.theme', t), t);
@@ -3129,8 +3265,8 @@ async function bots() {
   const after = async () => getJson(`/bots/${id}`);
   const save = async () => {
     await panel.getByRole('button', { name: 'Save Bot' }).click();
-    await panel.getByText('Saved').waitFor();
-    await panel.getByText('Saved').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await panel.getByText('Saved', { exact: true }).waitFor();
+    await panel.getByText('Saved', { exact: true }).waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
     return after();
   };
   await pick(`${mate} model`, 'Sonnet', panel);
@@ -3260,7 +3396,7 @@ async function creatures() {
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Blue colour', exact: true }).click();
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await main.getByText('Saved').waitFor();
+  await main.getByText('Saved', { exact: true }).waitFor();
   check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Bot panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
 
   for (const route of ['/bots', `/teams?team=${teamB}`]) {

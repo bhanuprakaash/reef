@@ -15,7 +15,7 @@ const developer: Role = {
   skills: [],
   model: 'sonnet',
   tools: ['Read', 'Edit', 'Write'],
-  mcp: [],
+  connections: [],
 };
 
 const text = (markup: string) =>

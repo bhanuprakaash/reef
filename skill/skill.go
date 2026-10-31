@@ -1,4 +1,4 @@
-// Package skill lists the skills a backend finds on disk. Reef keeps no copy of them.
+// Package skill lists the skills a backend finds on disk and reads skill packages to import into Reef's library.
 package skill
 
 import (
@@ -19,6 +19,7 @@ import (
 type Skill struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	Dir         string `json:"-"`
 }
 
 var _name = regexp.MustCompile(`^[A-Za-z0-9:_-]+$`)
@@ -33,7 +34,7 @@ func ValidName(name string) bool { return _name.MatchString(name) }
 func Claude(home, dir string) []Skill {
 	return unique(slices.Concat(
 		scan(filepath.Join(home, ".claude", "skills"), ""),
-		scan(filepath.Join(dir, ".claude", "skills"), ""),
+		inDir(dir, ".claude"),
 		pluginSkills(home, dir),
 	))
 }
@@ -42,8 +43,15 @@ func Claude(home, dir string) []Skill {
 func Codex(home, dir string) []Skill {
 	return unique(slices.Concat(
 		scan(filepath.Join(home, ".agents", "skills"), ""),
-		scan(filepath.Join(dir, ".agents", "skills"), ""),
+		inDir(dir, ".agents"),
 	))
+}
+
+func inDir(dir, hidden string) []Skill {
+	if dir == "" {
+		return nil
+	}
+	return scan(filepath.Join(dir, hidden, "skills"), "")
 }
 
 type installedPlugins struct {
@@ -108,7 +116,11 @@ func scan(root, prefix string) []Skill {
 			log.Printf("skip skill %s in %s: %q is not a valid skill name", e.Name(), root, prefix+name)
 			continue
 		}
-		found = append(found, Skill{Name: prefix + name, Description: description})
+		dir := filepath.Join(root, e.Name())
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = real
+		}
+		found = append(found, Skill{Name: prefix + name, Description: description, Dir: dir})
 	}
 	return found
 }

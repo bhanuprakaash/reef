@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -20,6 +21,11 @@ func (s *server) memoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/memory", methodNotAllowed)
 	mux.HandleFunc("POST /memory/{id}/retire", s.retireMemory)
 	mux.HandleFunc("/memory/{id}/retire", methodNotAllowed)
+	mux.HandleFunc("GET /memory/pending", s.pendingMemory)
+	mux.HandleFunc("POST /memory/{id}/approve", s.approveMemory)
+	mux.HandleFunc("/memory/{id}/approve", methodNotAllowed)
+	mux.HandleFunc("POST /memory/{id}/reject", s.rejectMemory)
+	mux.HandleFunc("/memory/{id}/reject", methodNotAllowed)
 }
 
 func (s *server) listMemory(w http.ResponseWriter, r *http.Request) {
@@ -76,4 +82,45 @@ func (s *server) retireMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) pendingMemory(w http.ResponseWriter, r *http.Request) {
+	items, err := s.ms.Pending(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := make([]itemOut, 0, len(items))
+	for _, it := range items {
+		out = append(out, toItemOut(it))
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *server) approveMemory(w http.ResponseWriter, r *http.Request) {
+	s.decideMemory(w, r, s.ms.Accept)
+}
+
+func (s *server) rejectMemory(w http.ResponseWriter, r *http.Request) {
+	s.decideMemory(w, r, s.ms.Reject)
+}
+
+func (s *server) decideMemory(
+	w http.ResponseWriter, r *http.Request, decide func(context.Context, int64) error,
+) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := decide(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	it, err := s.ms.Read(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toItemOut(it))
 }

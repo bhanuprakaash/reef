@@ -77,6 +77,53 @@ func TestAttach_FreeSpaceToWorkItem(t *testing.T) {
 	}
 }
 
+func TestAttach_MixedProjectMemoryStaysInTheSpace(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"other","path":"`+t.TempDir()+`"}`)
+	gitProject(t, env, 1)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPut, env.url+"/spaces/1/projects/2", "")
+	ms := testMemory(t, env.st)
+	res, err := ms.Remember(ctx,
+		memory.Writer{Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeSpace, ID: "1"}},
+		memory.Note{Kind: memory.KindDecision, Body: "use sessions, not JWT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":1}`); status != 200 ||
+		!strings.Contains(body, `"workItemId":1`) {
+		t.Fatalf("attach = %d %s, want 200 with workItemId 1", status, body)
+	}
+
+	item, err := ms.Read(ctx, res.Item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (memory.Ref{Kind: memory.ScopeSpace, ID: "1"}); item.Scope != want {
+		t.Errorf("scope after attaching a Space of two projects = %v, want %v", item.Scope, want)
+	}
+
+	team, err := env.st.SpaceTeam(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := env.st.CreateToken(ctx, 1, team.Roles[0].BotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callToolMemory(t, env.st, ms, tok, t.TempDir())
+	if out, isErr := call("recall", map[string]any{"query": "sessions"}); isErr ||
+		!strings.Contains(out, `"body":"use sessions, not JWT"`) {
+		t.Errorf("recall after attach = %q, error %v, want the Space's decision", out, isErr)
+	}
+	if out, isErr := call("read_memory", map[string]any{"id": res.Item.ID}); isErr ||
+		!strings.Contains(out, `"body":"use sessions, not JWT"`) {
+		t.Errorf("read_memory after attach = %q, error %v, want the Space's decision", out, isErr)
+	}
+}
+
 func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	gitProject(t, env, 1)

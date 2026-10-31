@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-_PROFILE = ("description", "skills", "backend", "model", "provider", "face", "colour", "tools", "mcpServers", "write", "permissionMode")
+_PROFILE = ("description", "skills", "backend", "model", "provider", "face", "colour", "tools", "connections", "write", "permissionMode")
 
 spec_path, addr, log, roster = sys.argv[1:5]
 

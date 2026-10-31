@@ -25,7 +25,6 @@ const (
 const (
 	ScopeProject      = "project"
 	ScopeWorkItem     = "work_item"
-	ScopeTeam         = "team"
 	ScopeBot          = "bot"
 	ScopeSpace        = "space"
 	ScopeConversation = "conversation"
@@ -63,7 +62,7 @@ var (
 		KindDecision: true, KindConvention: true, KindFinding: true, KindFact: true, KindLesson: true,
 	}
 	_scopeKinds = map[string]bool{
-		ScopeProject: true, ScopeWorkItem: true, ScopeTeam: true,
+		ScopeProject: true, ScopeWorkItem: true,
 		ScopeBot: true, ScopeSpace: true, ScopeConversation: true,
 	}
 	_rels = map[string]bool{RelAbout: true, RelSource: true, RelReplaces: true, RelRelated: true}
@@ -214,7 +213,9 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		case status == StatusCandidate:
 			err = checkLive(ctx, tx, old)
 		default:
-			err = retire(ctx, tx, old, &id, now)
+			if err = retire(ctx, tx, old, &id, now); err == nil {
+				err = carrySources(ctx, tx, old, id)
+			}
 		}
 		if err != nil {
 			return Result{}, fmt.Errorf("replace %d: %w", old, err)
@@ -282,7 +283,7 @@ func (s *Store) Rescope(ctx context.Context, from, to Ref) (int64, error) {
 }
 
 // Accept moves a candidate to accepted and retires the items it replaces, skipping any
-// already retired.
+// already retired. Accepting an item that is already accepted does nothing.
 func (s *Store) Accept(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -296,6 +297,11 @@ func (s *Store) Accept(ctx context.Context, id int64) error {
 		StatusAccepted, now, id, StatusCandidate)
 	if err != nil {
 		return fmt.Errorf("accept %d: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		if it, err := read(ctx, tx, id); err == nil && it.Status == StatusAccepted {
+			return nil
+		}
 	}
 	if err := checkChanged(ctx, tx, res, id, "not a candidate"); err != nil {
 		return err
@@ -495,16 +501,17 @@ func statusFor(w Writer, n Note) string {
 	if w.Author == "user" && w.BotID == nil {
 		return StatusAccepted
 	}
-	if w.Scope.Kind == ScopeTeam {
-		return StatusCandidate
-	}
 	if w.Approved {
 		return StatusAccepted
 	}
-	if n.Kind == KindConvention && w.Scope.Kind != ScopeBot {
+	if w.Scope.Kind != ScopeBot && (n.Kind == KindConvention || replaces(w, n)) {
 		return StatusCandidate
 	}
 	return StatusAccepted
+}
+
+func replaces(w Writer, n Note) bool {
+	return len(n.Replaces) > 0 || slices.ContainsFunc(w.Links, func(l Link) bool { return l.Rel == RelReplaces })
 }
 
 func validate(w Writer, n Note) error {
@@ -546,6 +553,21 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 		return nil
 	}
 	return checkLive(ctx, q, id)
+}
+
+// carrySources copies the source links of the replaced item from to the item to that replaced
+// it, so what the old one came from stays reachable from the live one.
+func carrySources(ctx context.Context, q querier, from, to int64) error {
+	_, err := q.ExecContext(ctx,
+		`INSERT INTO memory_link (from_id, rel, to_kind, to_id)
+		 SELECT ?, rel, to_kind, to_id FROM memory_link o WHERE o.from_id = ? AND o.rel = ?
+		 AND NOT EXISTS (SELECT 1 FROM memory_link n WHERE n.from_id = ? AND n.rel = o.rel
+		   AND n.to_kind = o.to_kind AND n.to_id = o.to_id)`,
+		to, from, RelSource, to)
+	if err != nil {
+		return fmt.Errorf("carry sources of %d: %w", from, err)
+	}
+	return nil
 }
 
 // checkShelf fails unless id is an item in scope.

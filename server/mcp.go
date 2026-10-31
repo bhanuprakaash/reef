@@ -41,12 +41,12 @@ type (
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
 		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or bot (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
-		ProjectID     int64    `json:"projectId,omitempty" jsonschema:"with scope project, which associated Project to keep it with; default the first"`
+		ProjectID     int64    `json:"projectId,omitempty" jsonschema:"with scope project, which associated Project to keep it with; required when the Space has several"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
-		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or bot; omit for all you can read"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project or bot; omit for all you can read"`
 	}
 	readMemoryIn struct {
 		ID int64 `json:"id" jsonschema:"memory id"`
@@ -121,7 +121,7 @@ type (
 	}
 	wrapIn struct {
 		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, bot, or team for a team lead), replaces (ids of live items it replaces)"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project or bot), replaces (ids of live items it replaces)"`
 		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
@@ -146,6 +146,14 @@ type (
 		Name          string  `json:"name" jsonschema:"what the Space is for, in a few words"`
 		BotIDs        []int64 `json:"botIds" jsonschema:"ids of the Bots to put in the Space, from find_bots"`
 		CoordinatorID int64   `json:"coordinatorBotId,omitempty" jsonschema:"the Bot that gets messages that mention nobody; default the first Bot"`
+	}
+	proposeSkillIn struct {
+		Name  string          `json:"name" jsonschema:"the skill's name: letters, digits, :, _ or -; it must match the name in SKILL.md"`
+		Files []skillFileView `json:"files" jsonschema:"every file of the skill folder as {path, body}; SKILL.md with name and description in its frontmatter is required"`
+	}
+	proposeSkillOut struct {
+		ID      int64  `json:"id" jsonschema:"draft id"`
+		Message string `json:"message"`
 	}
 	subItemIn struct {
 		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
@@ -236,6 +244,11 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "Read one remembered item in full, with its links.",
 	}, m.readMemory)
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "retire_memory",
+		Description: "Retire one of your own bot-scope memory items that is stale or no longer true. " +
+			"It is kept, marked retired, and needs no approval. Items of other scopes are refused.",
+	}, m.retireMemory)
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "search_sessions",
 		Description: "Search messages in all of this work item's Spaces, newest first. " +
 			"Returns Space and message ids; read more with read_thread.",
@@ -273,8 +286,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
 			"decisions, open questions). items are memory items made in this Space that " +
 			"are not saved with remember yet, each with a kind, body, why, a scope " +
-			"(work_item by default; project, bot, or team when you are the team lead: " +
-			"team items wait for the user) and replaces for earlier items it replaces. " +
+			"(work_item by default; project or bot) and replaces for earlier items it replaces. " +
 			"retire lists ids of live memory items that are stale or duplicate.",
 	}, m.proposeWrap)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -303,6 +315,12 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"user's inbox; the user accepts or changes the selection before the Space is created. " +
 			"A proposal creates nothing and grants no access.",
 	}, m.proposeSpace)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_skill",
+		Description: "Propose a new skill when the user asks you to draft one. It shows in this " +
+			"Space and in the skill library as a draft; the user reviews every file and saves or " +
+			"rejects it. A draft is not in the library and is not given to any Bot.",
+	}, m.proposeSkill)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sub_items",
 		Description: "List this work item's sub-items with their status, oldest first.",
@@ -358,6 +376,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
 	m.registerProjectTools(srv)
+	if tok.Review {
+		restrictToReview(srv)
+	}
 	return srv
 }
 
@@ -417,6 +438,9 @@ func (m *mcpServer) remember(
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
+	if m.tok.Review && in.Scope != memory.ScopeBot {
+		return nil, rememberOut{}, fmt.Errorf("%w: a memory review remembers only with scope bot", store.ErrInvalid)
+	}
 	switch in.Scope {
 	case "":
 		in.Scope = scopes[0].Kind
@@ -426,6 +450,19 @@ func (m *mcpServer) remember(
 		return nil, rememberOut{}, fmt.Errorf(
 			"%w: scope %q is not work_item, space, conversation, project or bot",
 			store.ErrInvalid, in.Scope)
+	}
+	if in.Scope == memory.ScopeProject && in.ProjectID == 0 {
+		var ids []string
+		for _, r := range scopes {
+			if r.Kind == memory.ScopeProject {
+				ids = append(ids, r.ID)
+			}
+		}
+		if len(ids) > 1 {
+			return nil, rememberOut{}, fmt.Errorf(
+				"%w: this Space has several Projects (%s); say which with projectId",
+				store.ErrInvalid, strings.Join(ids, ", "))
+		}
 	}
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool {
 		return r.Kind == in.Scope && (in.Scope != memory.ScopeProject || in.ProjectID == 0 ||
@@ -529,6 +566,26 @@ func (m *mcpServer) readMemory(
 		return nil, itemOut{}, err
 	}
 	it, err := m.readable(ctx, scopes, in.ID)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
+	return nil, toItemOut(it), nil
+}
+
+func (m *mcpServer) retireMemory(
+	ctx context.Context, _ *mcp.CallToolRequest, in readMemoryIn,
+) (*mcp.CallToolResult, itemOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, itemOut{}, err
+	}
+	own := memory.Ref{Kind: memory.ScopeBot, ID: strconv.FormatInt(*m.tok.BotID, 10)}
+	if _, err := m.readable(ctx, []memory.Ref{own}, in.ID); err != nil {
+		return nil, itemOut{}, err
+	}
+	if err := m.ms.Retire(ctx, in.ID); err != nil {
+		return nil, itemOut{}, err
+	}
+	it, err := m.ms.Read(ctx, in.ID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
@@ -748,11 +805,6 @@ func (m *mcpServer) proposeWrap(
 			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not one of %s",
 				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
 		}
-		if it.Scope == memory.ScopeTeam {
-			if err := m.requireLead(ctx, c); err != nil {
-				return nil, wrapOut{}, err
-			}
-		}
 		if err := requireLive(ctx, m.ms, scopes[at:at+1], it.Replaces); err != nil {
 			return nil, wrapOut{}, err
 		}
@@ -767,17 +819,6 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
-}
-
-func (m *mcpServer) requireLead(ctx context.Context, c store.Space) error {
-	lead, err := m.isLead(ctx)
-	if err != nil {
-		return err
-	}
-	if !lead {
-		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, c.Team)
-	}
-	return nil
 }
 
 func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
@@ -871,10 +912,31 @@ func (m *mcpServer) proposeSpace(
 	return nil, p, err
 }
 
+func (m *mcpServer) proposeSkill(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeSkillIn,
+) (*mcp.CallToolResult, proposeSkillOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, proposeSkillOut{}, err
+	}
+	p, err := buildSkillPackage(in.Name, in.Files)
+	if err != nil {
+		return nil, proposeSkillOut{}, err
+	}
+	d, err := m.st.CreateSkillDraft(ctx, m.tok.SpaceID, *m.tok.BotID, p)
+	if err != nil {
+		return nil, proposeSkillOut{}, err
+	}
+	return nil, proposeSkillOut{ID: d.ID, Message: "draft saved; the user will review it"}, nil
+}
+
 func (m *mcpServer) findBots(
 	ctx context.Context, _ *mcp.CallToolRequest, in findBotsIn,
 ) (*mcp.CallToolResult, findBotsOut, error) {
 	bots, err := m.st.Bots(ctx)
+	if err != nil {
+		return nil, findBotsOut{}, err
+	}
+	connections, err := m.st.Connections(ctx)
 	if err != nil {
 		return nil, findBotsOut{}, err
 	}
@@ -885,7 +947,7 @@ func (m *mcpServer) findBots(
 	card := func(b store.Bot) botCard {
 		return botCard{ID: b.ID, Name: b.Name, Description: b.Description, Capabilities: &capabilities{
 			Backend: b.Backend, Model: b.Model, Write: b.Write, PermissionMode: b.PermissionMode,
-			Skills: nonNilStrings(b.Skills), Tools: nonNilStrings(b.Tools), MCP: viewMCP(b.MCPServers),
+			Skills: nonNilStrings(b.Skills), Tools: nonNilStrings(b.Tools), MCP: viewMCP(selected(connections, b.Connections)),
 		}}
 	}
 	if len(in.IDs) > 0 {
@@ -925,6 +987,16 @@ func (m *mcpServer) findBots(
 		out.Bots = append(out.Bots, card(h.bot))
 	}
 	return nil, out, nil
+}
+
+func selected(all []store.Connection, ids []int64) []store.Connection {
+	var out []store.Connection
+	for _, c := range all {
+		if slices.Contains(ids, c.ID) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func nonNilStrings(s []string) []string {

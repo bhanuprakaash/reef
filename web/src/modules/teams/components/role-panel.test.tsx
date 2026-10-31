@@ -27,7 +27,7 @@ const role: Role = {
   description: 'Builds what the architect sketched.',
   skills: [],
   tools: ['Read', 'Grep'],
-  mcp: [],
+  connections: [],
 };
 
 describe('RolePanel', () => {
@@ -56,6 +56,29 @@ describe('RolePanel', () => {
     const markup = render({ ...role, provider: 'work' });
     expect(markup).toContain('aria-label="developer provider"');
     expect(markup).not.toContain('Default (PATH)');
+  });
+
+  it('shows each connection with its own selected state and offers a selected one as a tool', () => {
+    const connections = [
+      { id: 1, name: 'files', command: 'files-mcp', createdAt: '' },
+      { id: 2, name: 'web', url: 'http://127.0.0.1:9/mcp', createdAt: '' },
+    ];
+    const markup = renderToStaticMarkup(
+      <RolePanel
+        role={{ ...role, connections: [2] }}
+        connections={connections}
+        onChange={() => {}}
+        onClose={() => {}}
+      >
+        {null}
+      </RolePanel>,
+    );
+
+    expect(markup).toContain('1 selected');
+    expect(markup).toMatch(/aria-checked="false"[^>]*aria-label="developer connection files"/);
+    expect(markup).toMatch(/aria-checked="true"[^>]*aria-label="developer connection web"/);
+    expect(markup).toContain('mcp__web__*');
+    expect(markup).not.toContain('mcp__files__*');
   });
 
   it('hides the tools of a codex role', () => {

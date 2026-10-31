@@ -90,56 +90,6 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 	}
 }
 
-func TestApproveProposalLeadTeamLessonIsCandidate(t *testing.T) {
-	ctx := context.Background()
-	st, _ := mcpFixture(t)
-	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Backend: "claude"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	one := int64(1)
-	closeSpace(t, st, 1)
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	items := map[string]any{"items": []any{
-		map[string]any{"kind": "lesson", "body": "ask before refactoring", "scope": "team"},
-	}, "brief": "v2"}
-	developer, err := testToken(t, st, ctx, ch.ID, "developer")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, isErr := callTool(t, st, developer)("propose_wrap", items)
-	if want := `invalid: only the lead of team "core" can propose team items`; got != want || !isErr {
-		t.Errorf("developer propose_wrap = %q (error %v), want %q", got, isErr, want)
-	}
-	lead, err := testToken(t, st, ctx, ch.ID, "lead")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, isErr := callTool(t, st, lead)("propose_wrap", items); isErr {
-		t.Fatalf("lead propose_wrap = %q", got)
-	}
-
-	ms := openMemory(t, st)
-	if a, err := ApproveProposal(ctx, st, ms, 1); err != nil || a.Added != 1 {
-		t.Fatalf("approve = %d, %v, want 1 added", a.Added, err)
-	}
-	pending, err := ms.Pending(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pending) != 1 || pending[0].Body != "ask before refactoring" ||
-		pending[0].Scope != (memory.Ref{Kind: "team", ID: "core"}) || pending[0].Author != "lead" {
-		t.Errorf("pending = %+v, want the lead's team lesson as a candidate in team:core", pending)
-	}
-}
-
 type cancelEmbedder struct {
 	cancel context.CancelFunc
 	calls  int

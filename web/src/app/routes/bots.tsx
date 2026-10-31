@@ -2,11 +2,14 @@ import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { useProviders } from '@/lib/api/get-providers';
 import { useSkills } from '@/lib/api/get-skills';
+import { useConnections } from '@/modules/teams/api/connections';
 import { useBots } from '@/lib/api/get-bots';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { NewBotDialog } from '@/modules/teams/components/new-bot-dialog';
+import { ConnectionLibrary } from '@/modules/teams/components/connection-library';
+import { SkillLibrary } from '@/modules/teams/components/skill-library';
 import { RoleRow } from '@/modules/teams/components/role-row';
 import { BotPanel } from '@/modules/teams/components/bot-panel';
 import { Button } from '@/components/button';
@@ -19,6 +22,7 @@ export function BotsPage() {
   const [project] = useCurrentProject(projects.data);
   const skills = useSkills(project?.id);
   const providers = useProviders();
+  const connections = useConnections();
   const [creating, setCreating] = useState(false);
   const id = Number(params.get('bot'));
   const current = bots.data?.find((t) => t.id === id);
@@ -60,11 +64,14 @@ export function BotsPage() {
           />
         ))}
       </section>
+      <ConnectionLibrary />
+      <SkillLibrary />
       {current && (
         <BotPanel
           key={current.id}
           bot={current}
           skills={skills.data}
+          connections={connections.data}
           providers={providers.data}
           noProject={!project}
           onClose={() => setParams({})}

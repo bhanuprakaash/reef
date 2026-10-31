@@ -21,7 +21,7 @@ const blankRole: Omit<Role, 'botId'> = {
   description: '',
   skills: [],
   tools: [],
-  mcp: [],
+  connections: [],
 };
 
 type FormProps = { onCreated: (id: number) => void; onClose: () => void };

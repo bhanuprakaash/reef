@@ -11,7 +11,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/skill"
 )
 
@@ -58,20 +57,20 @@ func colours() []string {
 // runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
-	BotID          int64             `json:"botId,omitempty"`
-	Name           string            `json:"name"`
-	Lead           bool              `json:"lead"`
-	Write          bool              `json:"write"`
-	Backend        string            `json:"backend"`
-	PermissionMode string            `json:"permissionMode"`
-	Description    string            `json:"description"`
-	Skills         []string          `json:"skills"`
-	Face           string            `json:"face,omitempty"`
-	Colour         string            `json:"colour,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	Provider       string            `json:"provider,omitempty"`
-	Tools          []string          `json:"tools"`
-	MCPServers     []agent.MCPServer `json:"mcpServers"`
+	BotID          int64        `json:"botId,omitempty"`
+	Name           string       `json:"name"`
+	Lead           bool         `json:"lead"`
+	Write          bool         `json:"write"`
+	Backend        string       `json:"backend"`
+	PermissionMode string       `json:"permissionMode"`
+	Description    string       `json:"description"`
+	Skills         []string     `json:"skills"`
+	Face           string       `json:"face,omitempty"`
+	Colour         string       `json:"colour,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Provider       string       `json:"provider,omitempty"`
+	Tools          []string     `json:"tools"`
+	Connections    []Connection `json:"connections"`
 }
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -230,13 +229,33 @@ func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role,
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT bot.id, bot.name, member.lead, bot.write, bot.backend, "+
 			"bot.permission_mode, bot.description, bot.skills, bot.face, bot.colour, bot.model, "+
-			"bot.provider, bot.tools, bot.mcp_servers "+
+			"bot.provider, bot.tools, bot.connections "+
 			"FROM "+table+" member JOIN bot ON bot.id = member.bot_id "+
 			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
 	if err != nil {
 		return nil, err
 	}
-	return scanAll(rows, scanRole)
+	type pick struct {
+		role Role
+		ids  []int64
+	}
+	picks, err := scanAll(rows, func(r interface{ Scan(...any) error }) (pick, error) {
+		ro, ids, err := scanRole(r)
+		return pick{role: ro, ids: ids}, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.Connections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Role, len(picks))
+	for i, p := range picks {
+		out[i] = p.role
+		out[i].Connections = pickConnections(all, p.ids)
+	}
+	return out, nil
 }
 
 // Teams lists all teams by name.
@@ -354,6 +373,10 @@ func validateRole(r Role) error {
 	return nil
 }
 
+func hasSkillSource(ref string) bool {
+	return strings.HasPrefix(ref, "reef:") || strings.HasPrefix(ref, "claude:") || strings.HasPrefix(ref, "codex:")
+}
+
 func cleanSkills(r Role) ([]string, error) {
 	names := make([]string, 0, len(r.Skills))
 	for _, name := range r.Skills {
@@ -363,6 +386,9 @@ func cleanSkills(r Role) ([]string, error) {
 			return nil, fmt.Errorf("%w: role %s has an empty skill name", ErrInvalid, r.Name)
 		case !skill.ValidName(name):
 			return nil, fmt.Errorf("%w: role %s: skill %q must be letters, digits, :, _ or -",
+				ErrInvalid, r.Name, name)
+		case !hasSkillSource(name):
+			return nil, fmt.Errorf("%w: role %s: skill %q must start with reef:, claude: or codex:",
 				ErrInvalid, r.Name, name)
 		case slices.Contains(names, name):
 			return nil, fmt.Errorf("%w: role %s lists skill %q twice", ErrInvalid, r.Name, name)
@@ -390,23 +416,24 @@ func ValidateAgent(backend, permissionMode string) error {
 	return nil
 }
 
-func scanRole(r interface{ Scan(...any) error }) (Role, error) {
+func scanRole(r interface{ Scan(...any) error }) (Role, []int64, error) {
 	var ro Role
-	var skills, tools, servers string
+	var skills, tools, connections string
 	if err := r.Scan(&ro.BotID, &ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Description,
-		&skills, &ro.Face, &ro.Colour, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
-		return Role{}, err
+		&skills, &ro.Face, &ro.Colour, &ro.Model, &ro.Provider, &tools, &connections); err != nil {
+		return Role{}, nil, err
 	}
 	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad skills: %w", ro.Name, err)
+		return Role{}, nil, fmt.Errorf("role %s: bad skills: %w", ro.Name, err)
 	}
 	if err := json.Unmarshal([]byte(tools), &ro.Tools); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
+		return Role{}, nil, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
 	}
-	if err := json.Unmarshal([]byte(servers), &ro.MCPServers); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad mcp servers: %w", ro.Name, err)
+	var ids []int64
+	if err := json.Unmarshal([]byte(connections), &ids); err != nil {
+		return Role{}, nil, fmt.Errorf("role %s: bad connections: %w", ro.Name, err)
 	}
-	return ro, nil
+	return ro, ids, nil
 }
 
 // nonNil makes a nil slice encode as [] rather than null.

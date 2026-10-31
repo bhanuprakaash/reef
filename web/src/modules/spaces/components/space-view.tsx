@@ -51,6 +51,7 @@ type Props = {
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
+  drafts?: ReactNode;
   browserOpen?: boolean;
   onBrowserDriver?: (driver: BrowserDriver | null) => void;
 };
@@ -73,6 +74,7 @@ export function SpaceView({
   diff,
   diffPanel,
   brief,
+  drafts,
   browserOpen,
   onBrowserDriver,
 }: Props) {
@@ -251,6 +253,7 @@ export function SpaceView({
               <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
               <DeniedToolRows space={space} roles={roles} running={running} />
               <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
+              {drafts}
             </div>
           </div>
           {!atBottom && (

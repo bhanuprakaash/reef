@@ -35,6 +35,8 @@ type Runner struct {
 	DataDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
+	// NoReply, when set, stores no message for the agent's reply, which stays on the turn.
+	NoReply bool
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
@@ -44,6 +46,9 @@ type Runner struct {
 	// session. It is built after the turn's start is stamped, so what is written after it is
 	// in the prompt or the next delta.
 	FirstPrompt func(ctx context.Context) (string, error)
+	// Handover, when set, builds the summary that follows the first prompt of a new backend
+	// context that replaces an earlier one. It is dropped once a prompt is sent.
+	Handover func(ctx context.Context) (string, error)
 	// Memory is read for the delta of a Space.
 	Memory *memory.Store
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
@@ -53,6 +58,7 @@ type Runner struct {
 	ag        agent.Agent
 	spaceID   int64
 	botID     *int64
+	botSessID *int64
 	role      string
 	backend   string
 	preamble  string
@@ -62,6 +68,9 @@ type Runner struct {
 
 	sessionGone     bool
 	firstPromptSent bool
+	// refreshNote is posted to the Space once the backend reports its first session: a
+	// replacement that has not started has not been adopted.
+	refreshNote string
 
 	// watching is closed to stop the watch that Watch started; watched is closed when it has.
 	// The rest is what the watch read that the next turn needs: endWatch applies the session,
@@ -100,8 +109,8 @@ func (r *Runner) Run(
 	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
-		SpaceID: r.spaceID, BotID: r.botID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
-		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
+		SpaceID: r.spaceID, BotID: r.botID, BotSessionID: r.botSessID, Role: r.role, Backend: r.backend,
+		SessionID: r.sessionID, WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
 		WakeMessageID: r.WakeMessage, Scopes: r.Scopes,
 	})
 	if err != nil {
@@ -137,6 +146,12 @@ func (r *Runner) Run(
 	preamble, delta := r.preamble, ""
 	if r.FirstPrompt != nil && !r.firstPromptSent {
 		preamble, err = r.FirstPrompt(wctx)
+		if err == nil && r.Handover != nil {
+			var hand string
+			if hand, err = r.Handover(wctx); err == nil {
+				preamble += "\n\n" + hand
+			}
+		}
 	} else {
 		delta, err = r.delta(wctx)
 	}
@@ -160,7 +175,7 @@ func (r *Runner) Run(
 		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
-	r.preamble, r.firstPromptSent = "", true
+	r.preamble, r.firstPromptSent, r.Handover = "", true, nil
 	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
@@ -185,6 +200,13 @@ func (r *Runner) Run(
 				turn.SessionID, turn.Model = r.sessionID, r.model
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+				}
+				if r.refreshNote != "" {
+					note := store.Message{SpaceID: r.spaceID, Author: store.ReefAuthor, Body: r.refreshNote}
+					if _, err := r.st.CreateMessage(wctx, note); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+					}
+					r.refreshNote = ""
 				}
 			case agent.KindCompacted:
 				turn.Compacted, r.firstPromptSent = true, false
@@ -216,6 +238,7 @@ func (r *Runner) Run(
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
+					turn.ContextTokens = ev.Usage.Context()
 					if err := r.st.SetTurnUsage(wctx, turn.ID, turn.Usage); err != nil {
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 					}
@@ -231,7 +254,7 @@ func (r *Runner) Run(
 				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if (posted && r.direct == nil) || (r.direct != nil && r.direct.ReplyToID != nil) {
+				if (posted && r.direct == nil) || r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil) {
 					turn.Reply = reply.String()
 				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
@@ -403,6 +426,7 @@ drain:
 			switch {
 			case ev.Kind == agent.KindUsage && ev.Usage != nil:
 				turn.Usage.Add(*ev.Usage)
+				turn.ContextTokens = ev.Usage.Context()
 			case ev.Kind == agent.KindCompacted:
 				turn.Compacted, r.firstPromptSent = true, false
 			}
@@ -444,7 +468,7 @@ func (r *Runner) keepReply(
 		_, err := r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.botID, r.role, reply)
 		return err
 	}
-	if reply == "" {
+	if reply == "" || r.NoReply {
 		return nil
 	}
 	_, err := r.st.CreateMessage(ctx, store.Message{
