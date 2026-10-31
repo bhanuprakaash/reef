@@ -106,8 +106,9 @@ export function SpaceView({
   const look = faceOf(faces, workingBotId);
   const action = browserAction(turn);
   const last = messages.data?.at(-1);
-  const { box, onScroll, atBottom, toBottom } = useStickToBottom(
+  const { box, onScroll, atBottom, toBottom, hold } = useStickToBottom(
     last?.author === 'user' ? last.id : undefined,
+    messages.data?.[0]?.id,
   );
   const chains = groupChains(direct.data ?? [], {
     retryable: failedTurns.data ?? [],
@@ -199,6 +200,25 @@ export function SpaceView({
               {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
+              {messages.hasEarlier && (
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    loading={messages.loadingEarlier}
+                    onClick={() => {
+                      hold();
+                      void messages.loadEarlier();
+                    }}
+                  >
+                    Load earlier messages
+                  </Button>
+                </div>
+              )}
+              {messages.earlierError && (
+                <p className="text-sm text-danger">{messages.earlierError.message}</p>
+              )}
               {messages.data && (
                 <MessageList
                   spaceId={space.id}

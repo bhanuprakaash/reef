@@ -11,6 +11,7 @@ import { ProjectPage } from '@/app/routes/project';
 import { ReviewPage } from '@/app/routes/review';
 import { SpaceProposalPage } from '@/app/routes/space-proposal';
 import { SettingsPage } from '@/app/routes/settings';
+import { BotChatPage } from '@/app/routes/bot-chat';
 import { BotPage } from '@/app/routes/bot';
 import { BotsPage } from '@/app/routes/bots';
 import { TeamsPage } from '@/app/routes/teams';
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: '/teams', element: <TeamsPage /> },
       { path: '/bots', element: <BotsPage /> },
       { path: '/bots/:id', element: <BotPage /> },
+      { path: '/bots/:id/chat', element: <BotChatPage /> },
       { path: '/settings', element: <SettingsPage /> },
     ],
   },

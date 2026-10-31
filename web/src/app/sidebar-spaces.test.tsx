@@ -21,6 +21,10 @@ vi.mock('@/modules/work-items/api/get-work-items', () => ({
   useWorkItems,
 }));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams }));
+vi.mock('@/lib/api/pins', () => ({
+  pinKindOf: () => 'space',
+  useTogglePin: () => ({ pinned: false, toggle: { isPending: false, mutate: vi.fn() } }),
+}));
 vi.mock('@/modules/inbox/api/get-inbox', () => ({ useInbox }));
 vi.mock('@/modules/spaces/api/get-turns', () => ({ useRunningTurns }));
 
@@ -76,7 +80,7 @@ function render(item: WorkItem = workItem, inProject: Project | null = project) 
   useInbox.mockReturnValue({ data: [] });
   return renderToStaticMarkup(
     <MemoryRouter>
-      <SidebarSpaces project={inProject ?? undefined} query="" />
+      <SidebarSpaces project={inProject ?? undefined} />
     </MemoryRouter>,
   );
 }

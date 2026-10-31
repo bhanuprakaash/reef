@@ -1,15 +1,16 @@
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMemory } from '@/lib/api/get-memory';
 import { useBots } from '@/lib/api/get-bots';
-import { useSpaces } from '@/lib/api/get-spaces';
+import { pinKindOf } from '@/lib/api/pins';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
-import { useBotConversations } from '@/modules/teams/api/get-bot-conversations';
+import { useBotConversations, useBotLatestChat } from '@/modules/teams/api/get-bot-conversations';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { rowTime } from '@/utils/row-time';
 import { BackButton } from '@/components/back-button';
+import { PinButton } from '@/components/pin-button';
 import { Button, buttonClass } from '@/components/button';
 import { Card } from '@/components/card';
 import { Chip } from '@/components/chip';
@@ -20,11 +21,11 @@ export function BotPage() {
   const id = Number(useParams().id);
   const bots = useBots();
   const teams = useTeams();
-  const conversations = useBotConversations(id);
   const memory = useMemory(`bot:${id}`);
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
-  const spaces = useSpaces(project?.id);
+  const conversations = useBotConversations(id, project?.id);
+  const latest = useBotLatestChat(id, project?.id).data;
   const create = useStartConversation();
   const navigate = useNavigate();
 
@@ -37,9 +38,9 @@ export function BotPage() {
     team.roles.filter((r) => r.botId === id).map((role) => ({ team, role })),
   );
 
-  const ids = new Set(spaces.data?.map((s) => s.id));
-  const chats = spaces.data && conversations.data?.filter((c) => ids.has(c.id));
-  const latest = chats?.find((c) => c.movedTo === null && c.closedAt === null);
+  const chats = conversations.data && [
+    ...new Map(conversations.data.pages.flat().map((c) => [c.id, c])).values(),
+  ];
 
   function start() {
     if (!bot) return;
@@ -62,6 +63,7 @@ export function BotPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <PinButton kind="bot" id={id} />
           <Link to={`/bots?bot=${id}`} className={buttonClass('secondary')}>
             Edit
           </Link>
@@ -127,7 +129,7 @@ export function BotPage() {
         )}
         <ul>
           {chats?.map((c) => (
-            <li key={c.id} className="border-t border-hairline">
+            <li key={c.id} className="group relative border-t border-hairline">
               <Link to={`/spaces/${c.id}`} className="flex items-baseline gap-3 px-6 py-3.5">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm">{c.name}</span>
@@ -141,9 +143,21 @@ export function BotPage() {
                   {rowTime(c.lastMessage?.createdAt ?? c.createdAt)}
                 </span>
               </Link>
+              <PinButton kind={pinKindOf(c)} id={c.id} overlay />
             </li>
           ))}
         </ul>
+        {conversations.hasNextPage && (
+          <div className="border-t border-hairline px-6 py-3">
+            <Button
+              variant="secondary"
+              loading={conversations.isFetchingNextPage}
+              onClick={() => void conversations.fetchNextPage()}
+            >
+              Load more
+            </Button>
+          </div>
+        )}
       </Card>
 
       <Card

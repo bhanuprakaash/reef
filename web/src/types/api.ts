@@ -100,6 +100,17 @@ export type SpacePreview = Space & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
+export type PinKind = 'bot' | 'chat' | 'space';
+
+export type Pin = { kind: PinKind; id: number; title: string; createdAt: string };
+
+export type FindResult = {
+  kind: PinKind | 'workItem';
+  id: number;
+  title: string;
+  projectId?: number;
+};
+
 export type ProposedItem = {
   kind: string;
   body: string;

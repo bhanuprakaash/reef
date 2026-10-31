@@ -79,7 +79,14 @@ logged in and on `PATH`.
   All projects send `POST /spaces` with no `projectId`; New Work item needs a project. Spaces lists the free
   Spaces and the Spaces of Work items that are not yet
   in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
-  eight newest conversations with the Bot's creature; its header opens `/conversations`. Each row
+  eight newest conversations with the Bot's creature; its header opens `/conversations`. A Pinned
+  section (`GET /pins`) above Spaces lists pinned Bots, chats and Spaces with a kind label, under every
+  filter; a pin button on a Space or chat row, the Bot page and its chat rows pins and unpins. Typing in
+  search replaces the list with `GET /find` results (Bots, chats, Spaces, Work items); a result opens
+  `/bots/ID/chat`, `/spaces/ID` or `/work-items/ID`. `/bots/ID/chat` opens the Bot's latest chat under
+  the selected project (`?project=N&limit=1`) or overall, and with none opens the Bot page, whose New
+  chat starts one; the Bot page lists the chats 20 at a time with Load more. A Space loads its newest
+  50 messages and a Load earlier messages button fetches the page before the oldest shown. Each row
   shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
   fixed and shows your name beside the Bots, Teams and Settings links. Below 768 px the sidebar is
   a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,

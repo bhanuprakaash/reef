@@ -4,8 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { BotPage } from './bot';
 
 const hooks = vi.hoisted(() => ({
-  conversations: [] as unknown[],
-  spaces: [] as unknown[],
+  pages: [] as unknown[][],
+  latest: null as unknown,
+  more: false,
+  asked: [] as unknown[][],
 }));
 
 vi.mock('react-router', async (orig) => ({
@@ -29,11 +31,19 @@ vi.mock('@/modules/projects/api/get-projects', () => ({
     ],
   }),
 }));
-vi.mock('@/lib/api/get-spaces', () => ({
-  useSpaces: () => ({ data: hooks.spaces }),
+vi.mock('@/lib/api/pins', () => ({
+  pinKindOf: () => 'chat',
+  useTogglePin: () => ({ pinned: false, toggle: { isPending: false, mutate: vi.fn() } }),
 }));
 vi.mock('@/modules/teams/api/get-bot-conversations', () => ({
-  useBotConversations: () => ({ isError: false, data: hooks.conversations }),
+  useBotConversations: (id: number, projectId?: number) => {
+    hooks.asked.push(['list', id, projectId]);
+    return { isError: false, data: { pages: hooks.pages }, hasNextPage: hooks.more };
+  },
+  useBotLatestChat: (id: number, projectId?: number) => {
+    hooks.asked.push(['latest', id, projectId]);
+    return { data: hooks.latest };
+  },
 }));
 vi.mock('@/modules/spaces/api/start-conversation', () => ({
   useStartConversation: () => ({ isPending: false, isError: false, mutate: vi.fn() }),
@@ -51,11 +61,9 @@ const chat = (id: number, movedTo: number | null = null) => ({
   lastMessage: null,
 });
 
-// The server lists a Bot's chats newest first: 11 is newer than 10.
-function render(stored: string, conversations: unknown[], inProject: number[]) {
+function render(stored: string) {
   vi.stubGlobal('localStorage', { getItem: () => stored, setItem: () => {} });
-  hooks.conversations = conversations;
-  hooks.spaces = inProject.map((id) => chat(id));
+  hooks.asked = [];
   return renderToStaticMarkup(
     <MemoryRouter>
       <BotPage />
@@ -65,32 +73,45 @@ function render(stored: string, conversations: unknown[], inProject: number[]) {
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('under a project resumes its latest associated chat and lists only associated chats', () => {
-  const markup = render('1', [chat(11), chat(10)], [10]);
+it('under a project asks for that project and resumes the latest chat it returns', () => {
+  hooks.pages = [[chat(11), chat(10)]];
+  hooks.latest = chat(11);
 
+  const markup = render('1');
+
+  expect(hooks.asked).toEqual([
+    ['list', 3, 1],
+    ['latest', 3, 1],
+  ]);
   expect(markup).toContain('Resume chat');
-  expect(markup).toContain('href="/spaces/10"');
-  expect(markup).not.toContain('href="/spaces/11"');
   expect(markup).toContain('New chat');
 });
 
-it('under a project with no associated chat offers only New chat', () => {
-  const markup = render('2', [chat(11), chat(10)], []);
+it('under a project with no chat offers only New chat', () => {
+  hooks.pages = [[]];
+  hooks.latest = null;
+
+  const markup = render('2');
 
   expect(markup).not.toContain('Resume chat');
   expect(markup).toContain('New chat');
 });
 
-it('under All projects resumes the latest chat and keeps older ones listed', () => {
-  const markup = render('all', [chat(11), chat(10)], [10, 11]);
+it('under All projects asks without a project and lists every page once', () => {
+  hooks.pages = [
+    [chat(11), chat(10)],
+    [chat(10), chat(9)],
+  ];
+  hooks.latest = chat(11);
+  hooks.more = true;
 
-  expect(markup).toContain('Resume chat');
-  expect(markup.match(/href="\/spaces\/11"/g)).toHaveLength(2);
-  expect(markup).toContain('href="/spaces/10"');
-});
+  const markup = render('all');
 
-it('does not resume a conversation that moved to another Space', () => {
-  const markup = render('all', [chat(11, 12), chat(10)], [10, 11]);
-
-  expect(markup.match(/href="\/spaces\/10"/g)).toHaveLength(2);
+  expect(hooks.asked).toEqual([
+    ['list', 3, undefined],
+    ['latest', 3, undefined],
+  ]);
+  expect(markup.match(/href="\/spaces\/10"/g)).toHaveLength(1);
+  expect(markup).toContain('href="/spaces/9"');
+  expect(markup).toContain('Load more');
 });

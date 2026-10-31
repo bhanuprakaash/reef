@@ -1,13 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const _nearBottom = 120;
 
 // Keeps the box scrolled to the end as its content grows, but only while the user is near the end,
-// or when `jump` changes (they just sent a message).
-export function useStickToBottom(jump?: unknown) {
+// or when `jump` changes (they just sent a message). `hold` marks the box before content is added
+// above, and the next change of `top` keeps what the user was reading where it was.
+export function useStickToBottom(jump?: unknown, top?: unknown) {
   const box = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const [atBottom, setAtBottom] = useState(true);
+  const held = useRef<number | undefined>(undefined);
+
+  const hold = () => {
+    held.current = box.current?.scrollHeight;
+  };
+
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el || held.current === undefined) return;
+    el.scrollTop += el.scrollHeight - held.current;
+    held.current = undefined;
+  }, [top]);
 
   const onScroll = () => {
     const el = box.current;
@@ -42,5 +55,5 @@ export function useStickToBottom(jump?: unknown) {
     el.scrollTop = el.scrollHeight;
   }, [jump]);
 
-  return { box, onScroll, atBottom, toBottom };
+  return { box, onScroll, atBottom, toBottom, hold };
 }

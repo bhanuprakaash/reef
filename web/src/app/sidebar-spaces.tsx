@@ -40,12 +40,11 @@ function Section({
   );
 }
 
-export function SidebarSpaces({ project, query }: { project?: Project; query: string }) {
+export function SidebarSpaces({ project }: { project?: Project }) {
   const spaces = useQuery({ ...spacesQuery(project?.id), refetchInterval: 5000 });
   const items = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
 
-  const q = query.trim().toLowerCase();
-  const mine = (spaces.data ?? []).filter((c) => c.name.toLowerCase().includes(q));
+  const mine = spaces.data ?? [];
   const handedOver = (c: SpacePreview) => {
     const status = items.data?.find((f) => f.id === c.workItemId)?.status;
     return status === 'review' || status === 'done' || status === 'dropped';
@@ -62,7 +61,7 @@ export function SidebarSpaces({ project, query }: { project?: Project; query: st
         to="/conversations"
         label="Conversations"
         empty="No conversations yet"
-        spaces={q === '' ? conversations.slice(0, RECENT_CONVERSATIONS) : conversations}
+        spaces={conversations.slice(0, RECENT_CONVERSATIONS)}
       />
     </section>
   );
