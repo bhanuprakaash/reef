@@ -50,6 +50,73 @@ func ValidBranch(ctx context.Context, name string) bool {
 // branch from, and fails, as does a branch that another worktree has checked out. The add itself runs under context.WithoutCancel, so a ctx cancelled while it
 // is in flight does not leave another half-made tree.
 func Ensure(ctx context.Context, repo, dir, branch, base string) error {
+	return ensure(ctx, repo, dir, branch, func() (string, error) {
+		if base != "" {
+			if err := fetch(ctx, repo, base); err != nil {
+				log.Printf("fetch base branch: %v", err)
+			}
+		}
+		return baseRef(ctx, repo, base), nil
+	})
+}
+
+// StartRef is where a new branch starts: Ref is origin/<base> when Source is "origin" (origin was
+// fetched just now), or the local branch when Source is "local", with Note saying why origin
+// was not used.
+type StartRef struct {
+	Ref    string
+	Source string
+	Note   string
+}
+
+// ErrNoBase is returned by Create when the base branch exists neither at origin nor locally.
+var ErrNoBase = errors.New("base branch not found")
+
+// Create is Ensure that reports where the branch starts, and fails with ErrNoBase instead of
+// starting from some other branch when the project's base branch cannot be found. With an
+// empty base it uses the branch origin/HEAD names, else the local default branch. The StartRef is
+// empty when no new branch was needed: dir or the branch already existed.
+func Create(ctx context.Context, repo, dir, branch, base string) (StartRef, error) {
+	var b StartRef
+	err := ensure(ctx, repo, dir, branch, func() (string, error) {
+		var err error
+		b, err = ResolveBase(ctx, repo, base)
+		return b.Ref, err
+	})
+	return b, err
+}
+
+// ResolveBase fetches base from origin and picks the ref a branch starts from: origin/<base>
+// when the fetch worked, else the local <base> with a Note, else ErrNoBase.
+func ResolveBase(ctx context.Context, repo, base string) (StartRef, error) {
+	if base == "" {
+		if ref, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+			base = strings.TrimPrefix(ref, "origin/")
+		} else {
+			return StartRef{Ref: baseRef(ctx, repo, ""), Source: "local"}, nil
+		}
+	}
+	fetchErr := fetch(ctx, repo, base)
+	if fetchErr == nil {
+		ref := "refs/remotes/origin/" + base
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", ref); err == nil {
+			return StartRef{Ref: ref, Source: "origin"}, nil
+		}
+		fetchErr = fmt.Errorf("origin has no branch %s", base)
+	}
+	reason, _, _ := strings.Cut(fetchErr.Error(), "\n")
+	sha, err := git(ctx, repo, "rev-parse", "--short", "--verify", "--quiet", "refs/heads/"+base)
+	if err != nil {
+		return StartRef{}, fmt.Errorf("%w: %s is not at origin (%s) and there is no local %s", ErrNoBase, base, reason, base)
+	}
+	return StartRef{
+		Ref:    "refs/heads/" + base,
+		Source: "local",
+		Note:   fmt.Sprintf("origin could not be refreshed: %s; using local %s at %s", reason, base, sha),
+	}, nil
+}
+
+func ensure(ctx context.Context, repo, dir, branch string, start func() (string, error)) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return finishHalfAdd(ctx, dir)
 	}
@@ -75,23 +142,22 @@ func Ensure(ctx context.Context, repo, dir, branch, base string) error {
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
 		return err
 	default:
-		if base != "" {
-			fetch(ctx, repo, base)
+		ref, err := start()
+		if err != nil {
+			return err
 		}
-		args = []string{"worktree", "add", "-b", branch, dir, baseRef(ctx, repo, base)}
+		args = []string{"worktree", "add", "-b", branch, dir, ref}
 	}
 	_, err = git(context.WithoutCancel(ctx), repo, args...)
 	return err
 }
 
 // fetch updates origin/branch in repo.
-func fetch(ctx context.Context, repo, branch string) {
+func fetch(ctx context.Context, repo, branch string) error {
 	ctx, cancel := context.WithTimeout(ctx, _fetchTimeout)
 	defer cancel()
-	env := []string{"GIT_TERMINAL_PROMPT=0"}
-	if _, err := gitEnv(ctx, repo, env, "fetch", "origin", branch); err != nil {
-		log.Printf("fetch base branch: %v", err)
-	}
+	_, err := gitEnv(ctx, repo, []string{"GIT_TERMINAL_PROMPT=0"}, "fetch", "origin", branch)
+	return err
 }
 
 // baseRef is the ref a work item branch starts from, so it does not inherit the commits of

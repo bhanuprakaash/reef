@@ -651,6 +651,8 @@ tool calls.
 | `DELETE /work-items/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no work item, or no notes for the role |
 | `GET /work-items/{id}/worktree` | | 200 `{"path": "...", "branch": "work-item/<id>"}`; the path of the work item's worktree, or `""` when it has none yet, and its branch. A sub-item answers with its parent's. Never makes one | 404 |
 | `POST /work-items/{id}/worktree` | no body needed | 200 `{"path": "...", "branch": "..."}`; makes the work item's worktree (a sub-item's is its parent's) the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
+| `GET /work-items/{id}/workspaces` | | 200 the [workspace](#workspaces) rows of the item's targets, oldest first, `[]` before any is made (a sub-item answers with its parent's). Never makes one | 404 |
+| `POST /work-items/{id}/workspaces` | no body needed | 200 the rows of every target after making each missing workspace: `[{"id", "projectId", "workItemId", "spaceId", "name", "dir", "branch", "base", "baseRef", "baseSource": "origin"\|"local", "state": "creating"\|"ready"\|"paused", "note", "createdAt", "updatedAt"}]`. A ready workspace is left alone; a `creating` or `paused` one is tried again in the same row and folder | 404; 409 a folder taken by another workspace; 500 a git failure not about the repository, after the other targets were made (that row stays `creating` with the error as `note`) |
 | `GET /work-items/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the work item has no worktree yet | 404 |
 | `GET /work-items/{id}/proof` | | 200 the [proof](#proof): `{"spaceId", "acceptanceLines", "commands", "screenshots", "submittedAt"}` | 404 the item was never submitted for review |
 | `GET /work-items/{id}/proof/screenshots/{n}` | | 200 the image of screenshot `n` (from 0) of the proof | 404 no proof, no such screenshot, or the file is not an image under the data folder |
@@ -785,6 +787,21 @@ a message wakes them.
   text the wake was routed with, not the messages it would have sent. The server logs every failed turn. When the backend says the session is
   missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
   fails and the role's next wake starts a new session, with its intro, not the dead one.
+- <a id="workspaces"></a>Workspaces. Each target of a top-level work item gets one workspace, a
+  git worktree of that Project's repository on branch `work-item/<work item id>`, in
+  `<data folder>/worktrees/item-<work item id>/<project id>-<project name as a slug>`, one folder
+  per item with one tree per target. `POST /work-items/{id}/workspaces` records each row as
+  `creating` first, then fetches the Project's base branch from `origin` and adds the tree from
+  `origin/<base>` under the `add <dir>` lock: `ready`, `baseSource` `origin`. When the fetch
+  fails and the local `<base>` exists, the tree starts from it: `ready`, `baseSource` `local`, and
+  `note` `origin could not be refreshed: <error>; using local <base> at <sha>`. When neither
+  exists, or the folder is no git repo with a commit, the row is `paused` with the reason in
+  `note` and only that repository waits; the others are made. A new note is also posted as a
+  `reef` message in the item's active Space. A Project with no base branch uses the branch
+  `origin/HEAD` names, else the local default branch, never an assumed `main`. A `creating` row
+  found again (a restart cut the creation) is finished in the same folder and keeps the edits
+  already there. No workspace is rolled back because another failed. The agent of a Space still
+  runs in the worktree below until it is connected to these.
 - An agent of a Space under a work item runs in the work item's worktree,
   `<data folder>/worktrees/<project id>/<work item id>`, on branch `work-item/<work item id>`. A
   sub-item has none of its own: its worktree, branch and PR are its parent's, so the diff and
