@@ -37,6 +37,7 @@ const space: SpacePreview = {
   createdAt: '',
   closedAt: null,
   movedTo: null,
+  members: [1],
   lastMessage: null,
 };
 

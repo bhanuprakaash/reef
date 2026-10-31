@@ -97,6 +97,7 @@ export type Space = {
 export type SpaceDetail = Space & { tokenBudget: number; tokensUsed: number };
 
 export type SpacePreview = Space & {
+  members: number[];
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 

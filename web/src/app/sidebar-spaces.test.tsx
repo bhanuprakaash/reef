@@ -4,10 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SpacePreview, WorkItem, Project } from '@/types/api';
 import { SidebarSpaces } from './sidebar-spaces';
 
-const { useQuery, useWorkItems, useTeams, useInbox, useRunningTurns } = vi.hoisted(() => ({
+const { useQuery, useWorkItems, useInbox, useRunningTurns } = vi.hoisted(() => ({
   useQuery: vi.fn(),
   useWorkItems: vi.fn(),
-  useTeams: vi.fn(),
   useInbox: vi.fn(),
   useRunningTurns: vi.fn(),
 }));
@@ -20,7 +19,6 @@ vi.mock('@/modules/work-items/api/get-work-items', () => ({
   workItemsQuery: { queryKey: ['work-items'] },
   useWorkItems,
 }));
-vi.mock('@/lib/api/get-teams', () => ({ useTeams }));
 vi.mock('@/lib/api/pins', () => ({
   pinKindOf: () => 'space',
   useTogglePin: () => ({ pinned: false, toggle: { isPending: false, mutate: vi.fn() } }),
@@ -68,6 +66,7 @@ const space: SpacePreview = {
   createdAt: '',
   closedAt: null,
   movedTo: null,
+  members: [1],
   lastMessage: null,
 };
 
@@ -76,7 +75,6 @@ function render(item: WorkItem = workItem, inProject: Project | null = project) 
     data: queryKey[0] === 'spaces' ? [space] : [item],
   }));
   useWorkItems.mockReturnValue({ data: [item] });
-  useTeams.mockReturnValue({ data: [] });
   useInbox.mockReturnValue({ data: [] });
   return renderToStaticMarkup(
     <MemoryRouter>

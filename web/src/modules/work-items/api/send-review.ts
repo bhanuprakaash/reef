@@ -2,8 +2,8 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { spacesQuery } from '@/lib/api/get-spaces';
 import { sendMessage } from '@/lib/api/send-message';
-import { teamsQuery } from '@/lib/api/get-teams';
-import type { Space, Message, Team } from '@/types/api';
+import { botsQuery } from '@/lib/api/get-bots';
+import type { SpacePreview, Message, Bot } from '@/types/api';
 
 export type ReviewComment = { path: string; line: number; text: string; removed?: boolean };
 
@@ -15,13 +15,11 @@ export function reviewText(comments: ReviewComment[]): string {
     .join('\n\n');
 }
 
-// pickSpace returns the Work item's Space whose team has a developer role, the most
+// pickSpace returns the Work item's Space with a developer Bot among its members, the most
 // recently created one when there are several.
-export function pickSpace(spaces: Space[], teams: Team[]): Space | undefined {
-  const developerTeams = new Set(
-    teams.filter((t) => t.roles.some((r) => r.name === 'developer')).map((t) => t.name),
-  );
-  return spaces.filter((c) => developerTeams.has(c.team)).at(-1);
+export function pickSpace(spaces: SpacePreview[], bots: Bot[]): SpacePreview | undefined {
+  const developers = new Set(bots.filter((b) => b.name === 'developer').map((b) => b.id));
+  return spaces.filter((c) => c.members.some((id) => developers.has(id))).at(-1);
 }
 
 // pickRoot returns the id of the developer's latest top-level message, the thread a reply
@@ -36,13 +34,13 @@ export function useSendReview(workItemId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (comments: ReviewComment[]) => {
-      const [spaces, teams] = await Promise.all([
+      const [spaces, bots] = await Promise.all([
         queryClient.fetchQuery(spacesQuery()),
-        queryClient.fetchQuery(teamsQuery),
+        queryClient.fetchQuery(botsQuery),
       ]);
       const space = pickSpace(
         spaces.filter((c) => c.workItemId === workItemId),
-        teams,
+        bots,
       );
       if (!space) throw new Error('no Space with a developer role on this Work item');
       const messages = await queryClient.fetchQuery({

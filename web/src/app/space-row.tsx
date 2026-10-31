@@ -7,12 +7,11 @@ import { Row } from '@/components/row';
 import { StatusDot } from '@/components/status-dot';
 import { useBots } from '@/lib/api/get-bots';
 import { pinKindOf } from '@/lib/api/pins';
-import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import type { SpacePreview } from '@/types/api';
-import { roleFaces } from '@/utils/role-faces';
+import { memberFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
 const oneLine = (m: NonNullable<SpacePreview['lastMessage']>) =>
@@ -21,7 +20,6 @@ const oneLine = (m: NonNullable<SpacePreview['lastMessage']>) =>
 export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const { pathname } = useLocation();
   const workItems = useWorkItems();
-  const teams = useTeams();
   const bots = useBots();
   const inbox = useInbox();
   const running = useRunningTurns();
@@ -29,7 +27,11 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const waiting = inbox.data ?? [];
   const lead = bots.data?.find((b) => b.id === c.botId);
   const faces =
-    c.kind === 'conversation' ? (lead ? { [lead.id]: lead } : {}) : roleFaces(teams.data, c.team);
+    c.kind === 'conversation'
+      ? lead
+        ? { [lead.id]: lead }
+        : {}
+      : memberFaces(bots.data, c.members);
   const roles = Object.keys(faces);
   const turns = (running.data ?? []).filter((t) => t.spaceId === c.id);
   const workingBots = turns.flatMap((t) => bots.data?.find((b) => b.id === t.botId) ?? []);

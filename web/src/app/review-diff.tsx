@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { BackButton } from '@/components/back-button';
 import { useSpaces } from '@/lib/api/get-spaces';
-import { useTeams } from '@/lib/api/get-teams';
+import { useBots } from '@/lib/api/get-bots';
 import { type DiffScope, useDiff } from '@/modules/work-items/api/get-diff';
 import { useWorkItem } from '@/modules/work-items/api/get-work-item';
 import { DiffPanel } from '@/modules/work-items/components/diff-panel';
@@ -20,10 +20,10 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
   const workItem = useWorkItem(id);
   const diff = useDiff(id, scope);
   const spaces = useSpaces();
-  const teams = useTeams();
+  const bots = useBots();
   const projects = useProjects();
 
-  const latestTeam = spaces.data?.filter((c) => c.workItemId === id).at(-1)?.team;
+  const latest = spaces.data?.filter((c) => c.workItemId === id).at(-1);
 
   if (workItem.isPending || diff.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (workItem.isError) return <p className="text-sm text-danger">{workItem.error.message}</p>;
@@ -40,9 +40,9 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
       }
       scope={scope}
       onScopeChange={setScope}
-      developerLook={teams.data
-        ?.find((t) => t.name === latestTeam)
-        ?.roles.find((r) => r.name === 'developer')}
+      developerLook={bots.data?.find(
+        (b) => b.name === 'developer' && latest?.members.includes(b.id),
+      )}
       leading={!onClose && <BackButton fallback={`/work-items/${id}`} />}
       actions={
         onClose &&

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -337,6 +338,31 @@ func TestSpace_RoleFollowsLeadBotRename(t *testing.T) {
 	previews, err := s.SpacePreviews(ctx, SpaceFilter{})
 	if err != nil || len(previews) != 1 || previews[0].Role != "sally" || *previews[0].BotID != sam.ID {
 		t.Fatalf("previews = %+v, %v", previews, err)
+	}
+}
+
+func TestSpace_PreviewListsMembersLeadFirst(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ada, err := s.CreateBot(ctx, Bot{Name: "ada", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bo, err := s.CreateBot(ctx, Bot{Name: "bo", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateSpaceOf(ctx, Space{Name: "duo"}, []int64{ada.ID, bo.ID}, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	previews, err := s.SpacePreviews(ctx, SpaceFilter{})
+	if err != nil || len(previews) != 1 ||
+		!slices.Equal(previews[0].Members, []int64{bo.ID, ada.ID}) {
+		t.Fatalf("previews = %+v, %v; want members [%d %d]", previews, err, bo.ID, ada.ID)
 	}
 }
 

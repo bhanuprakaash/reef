@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -94,9 +95,11 @@ func (c Space) Writable() error {
 	return nil
 }
 
-// SpacePreview is a Space with its newest message, nil when it has none.
+// SpacePreview is a Space with its newest message, nil when it has none, and the ids of its
+// member Bots, lead first.
 type SpacePreview struct {
 	Space
+	Members     []int64      `json:"members"`
 	LastMessage *LastMessage `json:"lastMessage"`
 }
 
@@ -315,7 +318,9 @@ func (s *Store) spacePreviews(
 	ctx context.Context, where string, args []any, order string,
 ) ([]SpacePreview, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_spaceCols+", m.author, substr(m.body, 1, "+_previewChars+"), m.created_at FROM space "+
+		"SELECT "+_spaceCols+", m.author, substr(m.body, 1, "+_previewChars+"), m.created_at, "+
+			"(SELECT json_group_array(bot_id) FROM (SELECT bot_id FROM space_member "+
+			"WHERE space_id = space.id ORDER BY lead DESC, id)) FROM space "+
 			"LEFT JOIN message m ON m.id = "+
 			"(SELECT MAX(id) FROM message WHERE space_id = space.id) "+
 			"WHERE 1 = 1"+where+" ORDER BY "+order, args...)
@@ -718,13 +723,17 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	var p SpacePreview
 	var created string
 	var author, body, lastCreated, closed sql.NullString
+	var members string
 	// active_turn is a server-side hint (not client data), so the preview reads it without
 	// exposing it: the Space JSON omits it.
 	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role,
 		&p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
 		&p.Kind, &p.MovedTo, &p.BotID,
-		&author, &body, &lastCreated); err != nil {
+		&author, &body, &lastCreated, &members); err != nil {
 		return SpacePreview{}, err
+	}
+	if err := json.Unmarshal([]byte(members), &p.Members); err != nil {
+		return SpacePreview{}, fmt.Errorf("space %d: bad members: %w", p.ID, err)
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {

@@ -560,6 +560,9 @@ func TestSpaceCoordinatorChange(t *testing.T) {
 	if status != 201 {
 		t.Fatalf("POST /spaces = %d %s, want 201", status, body)
 	}
+	if !strings.Contains(body, `"team":""`) {
+		t.Errorf("POST /spaces of Bots = %s, want no Crew", body)
+	}
 
 	status, body = put("/spaces/1/coordinator", fmt.Sprintf(`{"botId":%d}`, bob))
 	if status != 200 || strings.Count(body, `"lead":true`) != 1 ||

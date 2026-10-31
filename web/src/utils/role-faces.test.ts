@@ -1,22 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { faceOf } from '@/components/creature';
-import type { Team } from '@/types/api';
-import { roleFaces } from './role-faces';
+import type { Bot } from '@/types/api';
+import { memberFaces } from './role-faces';
 
-const teams = [
-  { id: 1, name: 'core', roles: [{ botId: 7, name: 'sally', face: 'whale' }] },
-] as Team[];
+const bots = [
+  { id: 7, name: 'sally', face: 'whale' },
+  { id: 8, name: 'bo', face: 'crab' },
+] as Bot[];
 
-describe('roleFaces', () => {
+describe('memberFaces', () => {
   it('keeps the face of a renamed Bot, found by its id', () => {
-    expect(faceOf(roleFaces(teams, 'core'), 7)?.face).toBe('whale');
+    expect(faceOf(memberFaces(bots, [7]), 7)?.face).toBe('whale');
   });
 
-  it('gives a different Bot that reuses the old name no face', () => {
-    expect(faceOf(roleFaces(teams, 'core'), 9)).toBeUndefined();
+  it('gives a Bot outside the Space no face', () => {
+    expect(faceOf(memberFaces(bots, [7]), 8)).toBeUndefined();
   });
 
   it('has no face for a Space with no Bot id', () => {
-    expect(faceOf(roleFaces(teams, 'core'), null)).toBeUndefined();
+    expect(faceOf(memberFaces(bots, [7]), null)).toBeUndefined();
   });
 });

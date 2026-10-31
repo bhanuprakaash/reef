@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { useTeams } from '@/lib/api/get-teams';
+import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import type { Role } from '@/types/api';
@@ -56,21 +56,20 @@ export function MentionCard({ role, working }: { role: Role; working: boolean })
 
 export function MentionCardsProvider({
   spaceId,
-  team,
+
   children,
 }: {
   spaceId: number;
-  team: string;
+
   children: ReactNode;
 }) {
-  const teams = useTeams();
+  const members = useSpaceMembers(spaceId);
   const running = useRunningTurns();
-  const found = teams.data?.find((t) => t.name === team);
   const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.botId);
 
   function card(name: string) {
-    const role = found?.roles.find((r) => r.name === name);
-    if (!found || !role) return null;
+    const role = members.data?.find((r) => r.name === name);
+    if (!role) return null;
     return <MentionCard role={role} working={working.includes(role.botId)} />;
   }
 

@@ -68,7 +68,7 @@ export function SpacePage() {
     onBrowserDriver: setBrowserDriver,
   };
   return (
-    <MentionCardsProvider spaceId={id} team={space.data.team}>
+    <MentionCardsProvider spaceId={id}>
       <div className="-m-4 flex h-screen flex-col md:-m-6">
         {workItemId === null ? (
           <SpaceView key={id} {...props} />

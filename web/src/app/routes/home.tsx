@@ -4,7 +4,7 @@ import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { useSpaces } from '@/lib/api/get-spaces';
-import { useTeams } from '@/lib/api/get-teams';
+import { useBots } from '@/lib/api/get-bots';
 import { useCurrentProject } from '@/lib/current-project';
 import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
@@ -13,7 +13,7 @@ import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import type { WorkItem } from '@/types/api';
-import { roleFaces } from '@/utils/role-faces';
+import { memberFaces } from '@/utils/role-faces';
 
 function greeting(now: Date) {
   const hour = now.getHours();
@@ -90,13 +90,12 @@ function QuickCapture() {
 
 function WorkItemCard({ workItem }: { workItem: WorkItem }) {
   const spaces = useSpaces();
-  const teams = useTeams();
+  const bots = useBots();
   const inbox = useNeedsYou();
   const mine = spaces.data?.filter((c) => c.workItemId === workItem.id) ?? [];
   const latest = mine[mine.length - 1];
-  const team = teams.data?.find((t) => t.name === latest?.team);
-  const roles = team ? team.roles.map((r) => r.botId) : latest ? [latest.botId] : [];
-  const faces = roleFaces(teams.data, latest?.team);
+  const roles = latest ? (latest.members.length > 0 ? latest.members : [latest.botId]) : [];
+  const faces = memberFaces(bots.data, latest?.members);
   const waiting = inbox.data?.some((i) => i.workItemId === workItem.id) ?? false;
 
   return (

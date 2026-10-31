@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -165,10 +166,10 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: role must be lead", store.ErrInvalid))
 		return
 	}
-	if in.Team == "" {
+	if in.Team == "" && len(in.BotIDs) == 0 {
 		in.Team = store.SoloTeam
 	}
-	autoName := isDefaultName(in.Name, in.Team)
+	autoName := isDefaultName(in.Name, cmp.Or(in.Team, "space"))
 	if len(in.BotIDs) > 0 {
 		c, err := s.st.CreateSpaceOf(r.Context(), in.Space, in.BotIDs, in.CoordinatorID)
 		if err != nil {

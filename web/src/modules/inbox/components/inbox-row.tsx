@@ -3,13 +3,13 @@ import { Button, buttonClass } from '@/components/button';
 import { Creature, faceOf } from '@/components/creature';
 import { useContinueSpace } from '@/lib/api/continue-space';
 import { useRetryTurn } from '@/lib/api/retry-turn';
-import { useTeams } from '@/lib/api/get-teams';
+import { useBots } from '@/lib/api/get-bots';
 import { useDismissItem } from '@/modules/inbox/api/dismiss-item';
 import { age } from '@/modules/inbox/utils/age';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
-import type { Space, InboxItem } from '@/types/api';
+import type { SpacePreview, InboxItem } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
-import { roleFaces } from '@/utils/role-faces';
+import { memberFaces } from '@/utils/role-faces';
 
 const kindColors: Record<InboxItem['kind'], string> = {
   paused: 'text-failed',
@@ -23,11 +23,11 @@ const kindColors: Record<InboxItem['kind'], string> = {
   space_proposed: 'text-muted',
 };
 
-export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {
+export function InboxRow({ item, space }: { item: InboxItem; space?: SpacePreview }) {
   const cont = useContinueSpace();
   const retry = useRetryTurn();
   const dismiss = useDismissItem();
-  const teams = useTeams();
+  const bots = useBots();
   const pending = cont.isPending || retry.isPending || dismiss.isPending;
   const error = cont.error ?? retry.error ?? dismiss.error;
   const { spaceId, turnId } = item;
@@ -37,7 +37,7 @@ export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
-      <Creature look={faceOf(roleFaces(teams.data, space?.team), space?.botId)} size={40} />
+      <Creature look={faceOf(memberFaces(bots.data, space?.members), space?.botId)} size={40} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2 text-xs">
           <span className={`uppercase tracking-wider ${kindColors[item.kind]}`}>
