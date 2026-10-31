@@ -49,9 +49,13 @@ func copySkills(
 	if err != nil {
 		return nil, err
 	}
-	p, err := st.Project(ctx, sp.ProjectID)
-	if err != nil {
-		return nil, err
+	var projectPath string
+	if sp.ProjectID != 0 {
+		p, err := st.Project(ctx, sp.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		projectPath = p.Path
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -70,9 +74,9 @@ func copySkills(
 		case "reef":
 			pkg, k.Version, err = libraryPackage(ctx, st, library, name)
 		case "claude":
-			pkg, err = diskPackage(skill.Claude(home, p.Path), name)
+			pkg, err = diskPackage(skill.Claude(home, projectPath), name)
 		default:
-			pkg, err = diskPackage(skill.Codex(home, p.Path), name)
+			pkg, err = diskPackage(skill.Codex(home, projectPath), name)
 		}
 		if err != nil {
 			k.Reason = err.Error()

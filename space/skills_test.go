@@ -135,6 +135,31 @@ func TestSession_AdoptedSkillsReachBackendsAndStayUntilRefresh(t *testing.T) {
 	}
 }
 
+func TestSession_BotWithSkillsRunsInSpaceWithoutProject(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeSkillFile(t, filepath.Join(home, ".claude/skills/probe/SKILL.md"), "---\nname: probe\ndescription: Probe things.\n---\n")
+	st, _ := openStore(t)
+	ch, err := st.CreateBotSpace(ctx, store.Space{Name: "free chat", Role: "architect"}, *testBotID(t, st, "architect"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	editBot(t, st, "architect", func(b *store.Bot) { b.Skills = []string{"claude:probe"} })
+	ag := newRecordingAgent()
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := sendAs(ctx, st, ch.ID, s.Run, "go", discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := ag.cfg.Instructions; !strings.Contains(got, "- probe: Probe things. (") {
+		t.Errorf("instructions = %q, want them to list probe", got)
+	}
+}
+
 func TestSession_ClaudeGetsSkillsFolder(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("HOME", t.TempDir())

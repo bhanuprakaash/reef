@@ -34,7 +34,7 @@ func ValidName(name string) bool { return _name.MatchString(name) }
 func Claude(home, dir string) []Skill {
 	return unique(slices.Concat(
 		scan(filepath.Join(home, ".claude", "skills"), ""),
-		scan(filepath.Join(dir, ".claude", "skills"), ""),
+		inDir(dir, ".claude"),
 		pluginSkills(home, dir),
 	))
 }
@@ -43,8 +43,15 @@ func Claude(home, dir string) []Skill {
 func Codex(home, dir string) []Skill {
 	return unique(slices.Concat(
 		scan(filepath.Join(home, ".agents", "skills"), ""),
-		scan(filepath.Join(dir, ".agents", "skills"), ""),
+		inDir(dir, ".agents"),
 	))
+}
+
+func inDir(dir, hidden string) []Skill {
+	if dir == "" {
+		return nil
+	}
+	return scan(filepath.Join(dir, hidden, "skills"), "")
 }
 
 type installedPlugins struct {
