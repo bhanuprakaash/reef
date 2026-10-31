@@ -25,6 +25,8 @@ export type MemoryItem = {
   createdAt: string;
 };
 
+export type PendingMemory = MemoryItem & { links?: { rel: string; to: string }[] };
+
 export type MemoryAdded = MemoryItem & {
   similar?: { id: number; body: string }[];
   embedError?: string;

@@ -77,3 +77,27 @@ func TestSharedMemoryChangesNeedApproval(t *testing.T) {
 		t.Errorf("memory 3 = %q replaced by %v, want retired by the wrap-up with no replacement", got, by)
 	}
 }
+
+func TestBotScopeCannotRetireSharedItems(t *testing.T) {
+	ctx := context.Background()
+	st, tok := mcpFixture(t)
+	ms := openMemory(t, st)
+	call := callToolMemory(t, st, ms, tok, t.TempDir())
+
+	if _, isErr := call("remember", map[string]any{"kind": "fact", "body": "uses postgres", "scope": "project"}); isErr {
+		t.Fatal("remember fact failed")
+	}
+	text, isErr := call("remember", map[string]any{
+		"kind": "fact", "body": "uses sqlite", "scope": "bot", "replaces": []any{1},
+	})
+	if !isErr || text != "replace 1: invalid: memory 1 is in scope project:1, not bot:2" {
+		t.Errorf("bot-scope replace of a shared item = %q (isErr %v), want the scope refusal", text, isErr)
+	}
+	old, err := ms.Read(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Status != memory.StatusAccepted || old.ReplacedBy != nil {
+		t.Errorf("shared item = %q replaced by %v, want accepted", old.Status, old.ReplacedBy)
+	}
+}

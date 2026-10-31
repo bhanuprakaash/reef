@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1451,6 +1451,40 @@ async function inbox() {
 // The three groups of the inbox. Started and Review come from a queued item the lead submits;
 // the other causes are rows written through SQLite, the way work-item seeds proof (their
 // producers are proven by the server tests and the recipes).
+async function pendingMemory() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = sql(`select id from project where name='${name}'`);
+  const now = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+  const row = (kind, body, status) =>
+    `insert into memory (kind, body, why, scope_kind, scope_id, author, role, bot_id, status, created_at, accepted_at) values ('${kind}', '${body}', '', 'project', '${pid}', 'lead', 'lead', 1, '${status}', ${now}, ${status === 'accepted' ? now : 'null'})`;
+  sql(row('fact', 'Login uses sessions', 'accepted'), true);
+  const oldId = sql(`select max(id) from memory`);
+  sql(row('fact', 'Login uses magic links', 'candidate'), true);
+  const newId = sql(`select max(id) from memory`);
+  sql(`insert into memory_link (from_id, rel, to_kind, to_id) values (${newId}, 'replaces', 'memory', '${oldId}'), (${newId}, 'source', 'space', '1')`, true);
+  sql(row('convention', 'Indent with tabs', 'candidate'), true);
+  const convId = sql(`select max(id) from memory`);
+  const status = (id) => sql(`select status||'|'||coalesce(replaced_by,'') from memory where id=${id}`);
+
+  await page.goto(base + '/inbox');
+  const list = main.getByRole('region', { name: /^Pending memory/ });
+  await list.getByText('Login uses magic links').waitFor();
+  await shot('pending');
+  check((await list.getByRole('listitem').count()) === 2, 'the inbox lists both candidates under Pending memory');
+  check((await list.getByText('Would retire memory ' + oldId).count()) === 1, 'the replacement shows the item it would retire');
+  check((await list.getByText('Login uses sessions').count()) === 1, 'the retiring item shows its body beside the new one');
+  check(status(oldId) === 'accepted|', 'before approval the old item is accepted');
+
+  await list.getByRole('listitem').filter({ hasText: 'magic links' }).getByRole('button', { name: 'Approve' }).click();
+  await list.getByText('Login uses magic links').waitFor({ state: 'hidden' });
+  check(status(newId) === 'accepted|' && status(oldId) === `retired|${newId}`, 'Approve accepts the replacement and retires the old item', `${status(newId)} ${status(oldId)}`);
+  await list.getByRole('listitem').filter({ hasText: 'Indent with tabs' }).getByRole('button', { name: 'Reject' }).click();
+  await list.waitFor({ state: 'hidden' });
+  check(status(convId) === 'rejected|', 'Reject turns the convention down', status(convId));
+  await shot('empty');
+}
+
 async function inboxGroups() {
   const section = await addProject();
   const name = (await section.getAttribute('aria-label')) ?? '';

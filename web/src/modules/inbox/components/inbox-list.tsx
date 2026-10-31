@@ -1,8 +1,10 @@
 import { Button } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
+import { usePendingMemory } from '@/lib/api/get-pending-memory';
 import { useSpaces } from '@/lib/api/get-spaces';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { PendingMemoryList } from '@/modules/inbox/components/pending-memory';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import type { InboxItem } from '@/types/api';
@@ -16,6 +18,7 @@ const groups: { group: InboxItem['group']; title: string; hint: string }[] = [
 export function InboxList() {
   const inbox = useInbox();
   const spaces = useSpaces();
+  const pendingMemory = usePendingMemory();
   const { permission, request } = useNotificationPermission();
   const items = inbox.data ?? [];
 
@@ -39,7 +42,8 @@ export function InboxList() {
         )}
       </header>
       {inbox.isError && <p className="text-sm text-danger">{inbox.error.message}</p>}
-      {inbox.data?.length === 0 && (
+      <PendingMemoryList />
+      {inbox.data?.length === 0 && !pendingMemory.data?.length && (
         <EmptyState
           title="Nothing needs you"
           body="Everything is moving on its own."

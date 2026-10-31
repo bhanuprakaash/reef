@@ -309,7 +309,13 @@ func memoryPending(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	for _, it := range items {
-		if _, err := fmt.Fprintln(stdout, memoryRow(it)); err != nil {
+		row := memoryRow(it)
+		for _, l := range it.Links {
+			if l.Rel == memory.RelReplaces {
+				row += "  replaces " + l.ToID
+			}
+		}
+		if _, err := fmt.Fprintln(stdout, row); err != nil {
 			return err
 		}
 	}
