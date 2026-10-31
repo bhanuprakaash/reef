@@ -169,21 +169,32 @@ func (s *server) deliverExchange(ctx context.Context, spaceID, id int64) error {
 	}
 	err = s.runWake(ctx, spaceID, directWake(&dm))
 	if errors.Is(err, errBusy) {
-		return s.deferDelivery(ctx, spaceID)
+		return s.deferDelivery(ctx, spaceID, func() error {
+			return s.runWake(ctx, spaceID, directWake(&dm))
+		})
 	}
 	return err
 }
 
-// deferDelivery has the chain that holds Space id deliver its waiting exchanges when it ends.
-// A Space nothing holds, or one that is shutting down, is paused instead, and continue
-// delivers them.
-func (s *server) deferDelivery(ctx context.Context, id int64) error {
-	if l := s.lookup(id); l != nil && s.ctx.Err() == nil {
-		l.mu.Lock()
-		defer l.mu.Unlock()
-		if l.state != _idle {
-			l.redeliver = true
-			return nil
+// deferDelivery has the chain that holds Space id deliver its waiting exchanges when it ends. A
+// Space nothing holds, because the chain ended since the wake met it, runs again; after a few
+// tries, or on a server that is shutting down, it is paused instead, and continue delivers them.
+func (s *server) deferDelivery(ctx context.Context, id int64, rerun func() error) error {
+	for range 3 {
+		if s.ctx.Err() != nil {
+			break
+		}
+		if l := s.lookup(id); l != nil {
+			l.mu.Lock()
+			if l.state != _idle {
+				l.redeliver = true
+				l.mu.Unlock()
+				return nil
+			}
+			l.mu.Unlock()
+		}
+		if err := rerun(); !errors.Is(err, errBusy) {
+			return err
 		}
 	}
 	return s.parkBusy(ctx, id)
@@ -328,7 +339,8 @@ func (s *server) wakeAsker(ctx context.Context, id, origin int64) {
 		log.Printf("reopen hold %d: %v", h.ID, rerr)
 	}
 	if errors.Is(err, errBusy) {
-		if err := s.deferDelivery(ctx, origin); err != nil {
+		rerun := func() error { s.wakeAsker(ctx, id, origin); return nil }
+		if err := s.deferDelivery(ctx, origin, rerun); err != nil {
 			log.Printf("defer the reply wake of exchange %d: %v", id, err)
 		}
 	}

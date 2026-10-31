@@ -193,14 +193,13 @@ func (s *Store) UnseenGuidance(ctx context.Context, spaceID, botID int64) ([]Dir
 }
 
 // GuidanceKnown is the ids of the exchanges of Space spaceID whose messages Bot botID has been
-// told, or will be by a wake of their own: the guidance given to it that is waiting or that a
-// turn of its ran, what UnseenGuidance lists, and the done replies to what it asked from the Space.
+// told, or will be by a wake of their own or has dropped: the guidance given to it, whatever its
+// state, what UnseenGuidance lists, and the done replies to what it asked from the Space.
 func (s *Store) GuidanceKnown(ctx context.Context, spaceID, botID int64) (map[int64]bool, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT id FROM direct_message WHERE reply_to_id IS NULL AND ((space_id = ?"+
-		" AND kind = ? AND to_bot_id = ? AND (state = ? OR id IN (SELECT direct_message_id FROM turn"+
-		" WHERE space_id = ? AND bot_id = ?))) OR (origin_space_id = ? AND space_id != ? AND kind != ? AND"+
+		" AND kind = ? AND to_bot_id = ?) OR (origin_space_id = ? AND space_id != ? AND kind != ? AND"+
 		" from_bot_id = ? AND id IN (SELECT reply_to_id FROM direct_message WHERE status = ?)))",
-		spaceID, ExchangeGuidance, botID, DirectWaiting, spaceID, botID,
+		spaceID, ExchangeGuidance, botID,
 		spaceID, spaceID, ExchangeGuidance, botID, DirectDone)
 	if err != nil {
 		return nil, fmt.Errorf("list received guidance: %w", err)

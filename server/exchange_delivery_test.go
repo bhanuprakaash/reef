@@ -119,6 +119,20 @@ func TestReplyUnderAShortClaimWakesTheAskerWhenItReleases(t *testing.T) {
 	}
 }
 
+func TestDeferDeliveryRunsAgainWhenTheClaimReleasedFirst(t *testing.T) {
+	ctx := context.Background()
+	e := newConsultEnv(t)
+	runs := 0
+	err := e.h.s.deferDelivery(ctx, _adaChat, func() error {
+		runs++
+		return nil
+	})
+	if space, serr := e.st.Space(ctx, _adaChat); err != nil || serr != nil || runs != 1 || space.Paused != "" {
+		t.Errorf("deferDelivery = %v, runs = %d, paused = %q, %v, want 1 run and a running Space",
+			err, runs, space.Paused, serr)
+	}
+}
+
 func TestFailedAskingTurnWithdrawsWhatItAsked(t *testing.T) {
 	ctx := context.Background()
 	e := newConsultEnv(t)
