@@ -1,12 +1,11 @@
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMemory } from '@/lib/api/get-memory';
 import { useBots } from '@/lib/api/get-bots';
-import { pinKindOf } from '@/lib/api/pins';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
-import { useBotConversations, useBotLatestChat } from '@/modules/teams/api/get-bot-conversations';
+import { useBotChats, useBotLatestChat } from '@/modules/teams/api/get-bot-conversations';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { rowTime } from '@/utils/row-time';
 import { BackButton } from '@/components/back-button';
@@ -16,6 +15,9 @@ import { Card } from '@/components/card';
 import { Chip } from '@/components/chip';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
+import { StatusDot } from '@/components/status-dot';
+
+const kindLabel = { chat: 'Chat', space: 'Space', consultation: 'Consultation' };
 
 export function BotPage() {
   const id = Number(useParams().id);
@@ -24,7 +26,7 @@ export function BotPage() {
   const memory = useMemory(`bot:${id}`);
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
-  const conversations = useBotConversations(id, project?.id);
+  const conversations = useBotChats(id, project?.id);
   const latest = useBotLatestChat(id, project?.id).data;
   const create = useStartConversation();
   const navigate = useNavigate();
@@ -39,7 +41,7 @@ export function BotPage() {
   );
 
   const chats = conversations.data && [
-    ...new Map(conversations.data.pages.flat().map((c) => [c.id, c])).values(),
+    ...new Map(conversations.data.pages.flat().map((c) => [c.spaceId, c])).values(),
   ];
 
   function start() {
@@ -114,39 +116,43 @@ export function BotPage() {
         )}
       </Card>
 
-      <Card title="Conversations" flush>
+      <Card title="Chats" flush>
         {conversations.isError && (
           <p className="px-6 pb-4 text-sm text-danger">{conversations.error.message}</p>
         )}
         {chats?.length === 0 && (
           <div className="px-6 pb-5">
-            <EmptyState
-              title="No conversations yet"
-              body="Start a new chat to talk directly."
-              compact
-            />
+            <EmptyState title="No chats yet" body="Start a new chat to talk directly." compact />
           </div>
         )}
         <ul>
           {chats?.map((c) => (
-            <li key={c.id} className="group relative border-t border-hairline">
+            <li key={c.spaceId} className="group relative border-t border-hairline">
               <Link
-                to={`/spaces/${c.id}`}
+                to={
+                  c.kind === 'chat'
+                    ? `/spaces/${c.spaceId}`
+                    : `/spaces/${c.spaceId}/bots/${c.botId}`
+                }
                 className="flex items-baseline gap-3 px-6 py-3.5 max-md:pr-12"
               >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm">{c.name}</span>
-                  {c.lastMessage && (
-                    <span className="block truncate text-[13px] text-muted">
-                      {c.lastMessage.body}
-                    </span>
-                  )}
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate text-sm">{c.label}</span>
+                  <Chip>{kindLabel[c.kind]}</Chip>
+                  {c.active && <StatusDot status="working" label="Working now" />}
+                  {c.closed && <span className="text-xs text-muted">closed</span>}
                 </span>
-                <span className="shrink-0 text-xs text-muted">
-                  {rowTime(c.lastMessage?.createdAt ?? c.createdAt)}
-                </span>
+                <span className="shrink-0 text-xs text-muted">{rowTime(c.lastActivity)}</span>
               </Link>
-              <PinButton kind={pinKindOf(c)} id={c.id} overlay />
+              {c.origin && (
+                <Link
+                  to={`/spaces/${c.origin.spaceId}`}
+                  className="block truncate px-6 pb-3 text-[13px] text-muted hover:text-fg"
+                >
+                  Asked from {c.origin.label}
+                </Link>
+              )}
+              {c.kind !== 'consultation' && <PinButton kind={c.kind} id={c.spaceId} overlay />}
             </li>
           ))}
         </ul>

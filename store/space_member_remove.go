@@ -21,8 +21,8 @@ func (s *Store) RemoveSpaceMember(ctx context.Context, id, botID, coordinator in
 	if err != nil {
 		return err
 	}
-	if c.Kind == KindConversation {
-		return fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
+	if c.Kind == KindConversation || c.Kind == KindConsultation {
+		return fmt.Errorf("%w: Space %d is a %s with one Bot", ErrInvalid, id, c.Kind)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

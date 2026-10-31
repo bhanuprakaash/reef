@@ -36,7 +36,7 @@ vi.mock('@/lib/api/pins', () => ({
   useTogglePin: () => ({ pinned: false, toggle: { isPending: false, mutate: vi.fn() } }),
 }));
 vi.mock('@/modules/teams/api/get-bot-conversations', () => ({
-  useBotConversations: (id: number, projectId?: number) => {
+  useBotChats: (id: number, projectId?: number) => {
     hooks.asked.push(['list', id, projectId]);
     return { isError: false, data: { pages: hooks.pages }, hasNextPage: hooks.more };
   },
@@ -61,6 +61,16 @@ const chat = (id: number, movedTo: number | null = null) => ({
   lastMessage: null,
 });
 
+const entry = (spaceId: number) => ({
+  kind: 'chat',
+  spaceId,
+  botId: 3,
+  label: `chat ${spaceId}`,
+  active: false,
+  closed: false,
+  lastActivity: '2026-10-31T10:00:00Z',
+});
+
 function render(stored: string) {
   vi.stubGlobal('localStorage', { getItem: () => stored, setItem: () => {} });
   hooks.asked = [];
@@ -74,7 +84,7 @@ function render(stored: string) {
 afterEach(() => vi.unstubAllGlobals());
 
 it('under a project asks for that project and resumes the latest chat it returns', () => {
-  hooks.pages = [[chat(11), chat(10)]];
+  hooks.pages = [[entry(11), entry(10)]];
   hooks.latest = chat(11);
 
   const markup = render('1');
@@ -99,8 +109,8 @@ it('under a project with no chat offers only New chat', () => {
 
 it('under All projects asks without a project and lists every page once', () => {
   hooks.pages = [
-    [chat(11), chat(10)],
-    [chat(10), chat(9)],
+    [entry(11), entry(10)],
+    [entry(10), entry(9)],
   ];
   hooks.latest = chat(11);
   hooks.more = true;
@@ -114,4 +124,30 @@ it('under All projects asks without a project and lists every page once', () => 
   expect(markup.match(/href="\/spaces\/10"/g)).toHaveLength(1);
   expect(markup).toContain('href="/spaces/9"');
   expect(markup).toContain('Load more');
+});
+
+it('labels each entry by kind and opens a Space or consultation as Bot activity', () => {
+  hooks.pages = [
+    [
+      {
+        ...entry(5),
+        kind: 'consultation',
+        label: 'Consultation from Prakash',
+        active: true,
+        origin: { spaceId: 2, label: 'Prakash · Go chat' },
+      },
+      { ...entry(6), kind: 'space', label: 'Ada · Login Space' },
+    ],
+  ];
+  hooks.latest = null;
+  hooks.more = false;
+
+  const markup = render('all');
+
+  expect(markup).toContain('href="/spaces/5/bots/3"');
+  expect(markup).toContain('Consultation from Prakash');
+  expect(markup).toContain('Asked from Prakash · Go chat');
+  expect(markup).toContain('href="/spaces/6/bots/3"');
+  expect(markup).toContain('Ada · Login Space');
+  expect(markup).toContain('Working now');
 });

@@ -17,7 +17,10 @@ function SpaceList({ title, conversations }: { title: string; conversations: boo
   const q = query.trim().toLowerCase();
   const rows = (spaces.data ?? [])
     .filter(
-      (c) => (c.kind === 'conversation') === conversations && c.name.toLowerCase().includes(q),
+      (c) =>
+        c.kind !== 'consultation' &&
+        (c.kind === 'conversation') === conversations &&
+        c.name.toLowerCase().includes(q),
     )
     .sort(byRecent);
   const error = projects.error ?? spaces.error;

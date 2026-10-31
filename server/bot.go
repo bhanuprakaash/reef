@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -41,6 +42,10 @@ func (s *server) botRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/bots/{id}/revoke", methodNotAllowed)
 	mux.HandleFunc("GET /bots/{id}/conversations", s.listConversations)
 	mux.HandleFunc("/bots/{id}/conversations", methodNotAllowed)
+	mux.HandleFunc("GET /bots/{id}/chats", s.listBotChats)
+	mux.HandleFunc("/bots/{id}/chats", methodNotAllowed)
+	mux.HandleFunc("GET /spaces/{id}/bots/{botId}/activity", s.getBotActivity)
+	mux.HandleFunc("/spaces/{id}/bots/{botId}/activity", methodNotAllowed)
 }
 
 func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
@@ -53,23 +58,10 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	var page store.ConversationPage
-	if page.ProjectID, err = queryID(r, "project"); err != nil {
-		writeError(w, err)
-		return
-	}
-	if page.Before, err = queryID(r, "before"); err != nil {
-		writeError(w, err)
-		return
-	}
-	page.Resumable = r.URL.Query().Get("resumable") == "1"
-	limit, err := queryID(r, "limit")
+	page, err := conversationPage(r)
 	if err != nil {
 		writeError(w, err)
 		return
-	}
-	if limit != nil && *limit > 0 {
-		page.Limit = int(min(*limit, _maxPage))
 	}
 	cs, err := s.st.BotConversationsPage(r.Context(), id, page)
 	if err != nil {
@@ -80,6 +72,67 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		cs = []store.SpacePreview{}
 	}
 	writeJSON(w, http.StatusOK, cs)
+}
+
+func conversationPage(r *http.Request) (store.ConversationPage, error) {
+	var page store.ConversationPage
+	var err error
+	if page.ProjectID, err = queryID(r, "project"); err != nil {
+		return page, err
+	}
+	if page.Before, err = queryID(r, "before"); err != nil {
+		return page, err
+	}
+	page.Resumable = r.URL.Query().Get("resumable") == "1"
+	limit, err := queryID(r, "limit")
+	if err != nil {
+		return page, err
+	}
+	if limit != nil && *limit > 0 {
+		page.Limit = int(min(*limit, _maxPage))
+	}
+	return page, nil
+}
+
+func (s *server) listBotChats(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	page, err := conversationPage(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	cs, err := s.st.BotChats(r.Context(), id, page)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if cs == nil {
+		cs = []store.BotChat{}
+	}
+	writeJSON(w, http.StatusOK, cs)
+}
+
+func (s *server) getBotActivity(w http.ResponseWriter, r *http.Request) {
+	spaceID, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	botID, err := strconv.ParseInt(r.PathValue("botId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: bot id %q is not a number", store.ErrInvalid, r.PathValue("botId")))
+		return
+	}
+	a, err := s.st.BotActivity(r.Context(), spaceID, botID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
 }
 
 func (s *server) listBots(w http.ResponseWriter, r *http.Request) {

@@ -103,6 +103,37 @@ export type SpacePreview = Space & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
+export type ChatOrigin = { spaceId: number; label: string };
+
+export type BotChat = {
+  kind: 'chat' | 'space' | 'consultation';
+  spaceId: number;
+  botId: number;
+  label: string;
+  origin?: ChatOrigin;
+  active: boolean;
+  closed: boolean;
+  lastActivity: string;
+};
+
+export type ActivityToolCall = {
+  id: number;
+  name: string;
+  input: string;
+  result: string;
+  parentId?: number;
+};
+
+export type BotActivity = {
+  space: Space;
+  botId: number;
+  label: string;
+  origin?: ChatOrigin;
+  messages: Message[];
+  exchanges: DirectMessage[];
+  turns: (Turn & { toolCalls: ActivityToolCall[] })[];
+};
+
 export type PinKind = 'bot' | 'chat' | 'space';
 
 export type Pin = { kind: PinKind; id: number; title: string; createdAt: string };
