@@ -2,6 +2,7 @@ package space
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -444,4 +445,16 @@ func TestTeamIntro(t *testing.T) {
 			}
 		})
 	}
+}
+
+func testBotSessionID(t *testing.T, st *store.Store, spaceID int64, botID *int64) *int64 {
+	t.Helper()
+	bs, err := st.ActiveBotSession(context.Background(), spaceID, *botID)
+	if errors.Is(err, store.ErrNotFound) {
+		bs, err = st.AdoptBotSession(context.Background(), spaceID, *botID)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &bs.ID
 }

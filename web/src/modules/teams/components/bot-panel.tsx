@@ -40,6 +40,7 @@ export function BotPanel({ bot, skills, providers, noProject, onClose }: Props) 
           Open profile
         </Link>
       </div>
+      <p className="mt-3 text-xs text-muted">Changes apply to new chats and chats you Refresh.</p>
       {save.isError && <p className="mt-3 text-sm text-danger">{save.error.message}</p>}
     </RolePanel>
   );

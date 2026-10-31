@@ -493,6 +493,8 @@ setting of its own.
 
 Every member of a Space, its lead included, runs with the backend and permission mode of its bot.
 
+A Bot adopts its settings in a Space at the Bot's first turn there: table `bot_session` keeps one row per adoption, with the Bot's `backend`, `provider`, `model`, `description`, `skills`, `tools`, `mcpServers`, `write` and `permissionMode` as they were, a `status` (`active`, `replaced` or `revoked`) and `createdAt` and `endedAt`. A Space has at most one `active` row per Bot, and each turn stores its row as `botSessionId`. A turn runs with the active row, not with the Bot: editing the Bot, a restart of the server, an automatic renewal of a lost backend session and a running agent change nothing, and the agent is not restarted. Resume looks only at turns of the active row. A Space that adopts the Bot later, such as a new conversation, gets the Bot's settings as they are then.
+
 ### provider
 
 A claude or codex install the user added, next to the ones found on `PATH`. The ones on `PATH`
@@ -716,7 +718,7 @@ a message wakes them.
   wakes the Bot; the conversation's own messages never reach it. An `@name` inside a line moves nothing.
 - Each role of the team has its own agent session, its own `reef mcp` token, its own turns and
   its own session id. The role's backend, permission mode, tools and MCP servers are set up
-  for it from its Bot. Its first prompt starts with `## You`,
+  for it from the settings its Bot adopted in the Space (see [role](#role)). Its first prompt starts with `## You`,
   then its description and skills (see [memory.md](memory.md#the-context-prompt)).
 - An agent starts when its first turn runs, not when the Space opens. A first message that
   wakes a specialist starts no lead. A role that already has a session resumes it by its own

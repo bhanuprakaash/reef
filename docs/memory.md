@@ -131,9 +131,9 @@ read them: create a Bot for each role with its text as the `description`, then a
   and is not `user`. What each profile field does is in [server.md](server.md#role).
 - The file is read strictly: an unknown field, such as `backend` or `tools`, is an error.
 - Applying a name that exists replaces its roles in one transaction, and the
-  team keeps its Spaces. One failed check changes nothing. A new Bot description or skills
-  reaches the role's next wake, whether that starts a session or resumes one (see below).
-  A Bot saved with a new `backend` starts a new session; it does not resume the old one.
+  team keeps its Spaces. One failed check changes nothing. A Bot edit
+  reaches only the Spaces that adopt the Bot afterwards: a Space keeps the settings its Bot adopted
+  (see [server.md](server.md#role)).
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: invalid: unknown bot 9`, `reef: invalid: every member needs a
   botId`, `reef: parse team.json: json: unknown field "backend"`.
@@ -283,9 +283,8 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
 1. `## You`
    - When the role has a description or skills (a team role, see Teams): the description, then
      `Your skills:` and the skills, each followed by a blank line. `reef context` has no role
-     to read them from and does not print them. A role that wakes with a description or skills that
-     differ from what its session last got, whether it is starting or resuming, gets them again
-     before the wake text, marked `Your description or skills changed:`, without the header.
+     to read them from and does not print them. A role keeps the description and skills it adopted
+     in the Space; a later edit of the Bot changes none of this.
    - One line: role, work item title and id, project name. A free Space says instead:
      the role and that it is a free Space with no work item, so there is no brief or work item items.
      A direct conversation says it is a direct conversation with the user. Either then lists
@@ -425,8 +424,7 @@ agent that does not start fails the command at the start. In `reef serve` the le
 its first turn: a first message that goes to a specialist starts no lead.
 
 - With a turn of the role that has a session id, the agent resumes the session of the newest
-  such turn, and the context prompt is not sent again, unless the role's description or skills
-  changed since that turn: then the description and skills go before the wake text, marked as changed.
+  such turn of the role's active adopted settings, and the context prompt is not sent again.
   The wake text then holds what changed since the session's
   previous turn: the newest turn of that role, Space and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.

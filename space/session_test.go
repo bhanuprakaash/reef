@@ -357,7 +357,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	ch := sessionSpace(t, st, f, false)
 	for _, session := range []string{"sess-old", "sess-new", ""} {
 		turn, err := st.CreateTurn(ctx, store.Turn{
-			SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", SessionID: session,
+			SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), BotSessionID: testBotSessionID(t, st, ch.ID, testBotID(t, st, "architect")), Backend: "claude", SessionID: session,
 			WakeText: "go",
 		})
 		if err != nil {
@@ -549,20 +549,25 @@ func TestSession_RoleSetupSpaceWithoutMembers(t *testing.T) {
 	}
 }
 
-func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
+func TestSession_AdoptedSettingsSurviveBotEdits(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
+	developer := store.Role{
+		Name: "developer", Backend: "claude", Write: true, Description: "You code.", Model: "haiku",
+		Tools: []string{"Grep"}, PermissionMode: "acceptEdits",
+	}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-		Team: "core",
-	})
-	if err != nil {
-		t.Fatal(err)
+	newSpace := func() int64 {
+		ch, err := st.CreateSpace(ctx, store.Space{
+			ProjectID: f.ProjectID, Name: "chat", Role: "lead", Team: "core",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ch.ID
 	}
 	var ags []*recordingAgent
 	mk := func(string) (agent.Agent, error) {
@@ -570,36 +575,49 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
-	if err != nil {
-		t.Fatal(err)
+	dir, trees := t.TempDir(), NewTrees(t.TempDir())
+	turn := func(spaceID int64, text string) *recordingAgent {
+		s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", spaceID, trees, mk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = s.Close() }()
+		_ = s.RunAs(ctx, "developer", text, nil, nil, discard)
+		return ags[len(ags)-1]
 	}
-	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "developer", "build it", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-
-	editBot(t, st, "developer", func(m *store.Bot) { m.Description = "You code in Go only." })
-	if err := s.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if len(ags) != 2 || ags[1].resumed != "s1" || !strings.Contains(ags[1].prompts[0], "You code in Go only.") {
-		t.Errorf("second developer: resumed = %q, prompts = %q, want resumed with the new description",
-			ags[1].resumed, ags[1].prompts)
-	}
-
-	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var last store.Turn
-	for _, turn := range turns {
-		if turn.Role == "developer" {
-			last = turn
+	adopted := func(ag *recordingAgent, resumed, model string) {
+		t.Helper()
+		if ag.resumed != resumed || ag.cfg.Model != model || ag.cfg.PermissionMode != "acceptEdits" ||
+			!reflect.DeepEqual(ag.cfg.Tools, []string{"Grep", "Task", "mcp__reef__*"}) {
+			t.Errorf("resumed %q, cfg %+v; want resumed %q, model %s, acceptEdits and Grep", ag.resumed, ag.cfg, resumed, model)
+		}
+		if strings.Contains(strings.Join(ag.prompts, "\n"), "Go only") {
+			t.Errorf("prompts = %q, want the adopted description", ag.prompts)
 		}
 	}
-	if !strings.Contains(last.Prompt, "You code in Go only.") {
-		t.Errorf("stored turn.prompt = %q, want it to contain the new description", last.Prompt)
+
+	first := newSpace()
+	turn(first, "build it")
+	editBot(t, st, "developer", func(m *store.Bot) {
+		m.Description, m.Model, m.Tools, m.PermissionMode = "You code in Go only.", "opus", []string{"Read"}, "default"
+	})
+	adopted(turn(first, "build more"), "s1", "haiku")
+
+	ags = nil
+	ag := newRecordingAgent()
+	ag.resumeErr = errors.New("thread/resume: no rollout found for thread id s1")
+	mkGone := mk
+	mk = func(string) (agent.Agent, error) { ags = append(ags, ag); return ag, nil }
+	turn(first, "gone")
+	mk = mkGone
+	adopted(turn(first, "fresh context"), "", "haiku")
+
+	second := newSpace()
+	got := turn(second, "new chat")
+	if got.cfg.Model != "opus" || got.cfg.PermissionMode != "default" ||
+		!reflect.DeepEqual(got.cfg.Tools, []string{"Read", "Task", "mcp__reef__*"}) ||
+		!strings.Contains(strings.Join(got.prompts, "\n"), "You code in Go only.") {
+		t.Errorf("new Space: cfg %+v, prompts %q; want the edited opus, Read and description", got.cfg, got.prompts)
 	}
 }
 
@@ -733,48 +751,6 @@ func TestSession_LeadSessionFromStartIsStored(t *testing.T) {
 				t.Errorf("turns = %+v, want one with session c1 and model gpt-5", turns)
 			}
 		})
-	}
-}
-
-func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
-	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
-		t.Fatal(err)
-	}
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-		Team: "core",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ags []*recordingAgent
-	mk := func(string) (agent.Agent, error) {
-		ag := newRecordingAgent()
-		ags = append(ags, ag)
-		return ag, nil
-	}
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Run(ctx, "hi", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-
-	editBot(t, st, "lead", func(m *store.Bot) { m.Description = "You lead with care." })
-	if err := s.Run(ctx, "again", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if len(ags) != 1 || len(ags[0].prompts) != 2 || !strings.Contains(ags[0].prompts[1], "You lead with care.") {
-		t.Errorf("second lead prompt = %q, want the lead kept live with the new description",
-			ags[0].prompts)
 	}
 }
 
@@ -919,57 +895,6 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	}
 }
 
-func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
-	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
-		t.Fatal(err)
-	}
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-		Team: "core",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ags []*recordingAgent
-	mk := func(string) (agent.Agent, error) {
-		ag := newRecordingAgent()
-		ags = append(ags, ag)
-		return ag, nil
-	}
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "developer", "wake 1", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RunAs(ctx, "developer", "wake 2", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	editBot(t, st, "developer", func(m *store.Bot) { m.Description = "You code in Go only." })
-	if err := s.RunAs(ctx, "developer", "wake 3", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.RunAs(ctx, "developer", "wake 4", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if len(ags) != 4 {
-		t.Fatalf("agents = %d, want 4", len(ags))
-	}
-	want3 := "Your description or skills changed:\n\nYou code in Go only.\n\n\n\nwake 3"
-	if len(ags[2].prompts) != 1 || ags[2].prompts[0] != want3 {
-		t.Errorf("wake 3: prompts = %q, want [%q]", ags[2].prompts, want3)
-	}
-	if len(ags[3].prompts) != 1 || ags[3].prompts[0] != "wake 4" {
-		t.Errorf("wake 4: prompts = %q, want [wake 4]", ags[3].prompts)
-	}
-}
-
 func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -1017,103 +942,6 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 		if p != want[i] {
 			t.Errorf("wake %d: prompt = %q, want %q without a role intro", i+2, p, want[i])
 		}
-	}
-}
-
-func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
-	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
-		t.Fatal(err)
-	}
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-		Team: "core",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ags []*recordingAgent
-	mk := func(string) (agent.Agent, error) {
-		ag := newRecordingAgent()
-		ags = append(ags, ag)
-		return ag, nil
-	}
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Run(ctx, "wake 1", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Run(ctx, "wake 2", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	editBot(t, st, "lead", func(m *store.Bot) { m.Description = "You lead with care." })
-	if err := s.Run(ctx, "wake 3", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Run(ctx, "wake 4", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if len(ags) != 1 || len(ags[0].prompts) != 4 {
-		t.Fatalf("agents = %d, prompts = %q, want 1 agent with 4 prompts", len(ags), ags[0].prompts)
-	}
-	want3 := "Your description or skills changed:\n\nYou lead with care.\n\n\n\nwake 3"
-	if ags[0].prompts[2] != want3 {
-		t.Errorf("wake 3: prompt = %q, want %q", ags[0].prompts[2], want3)
-	}
-	if ags[0].prompts[3] != "wake 4" {
-		t.Errorf("wake 4: prompt = %q, want wake 4", ags[0].prompts[3])
-	}
-}
-
-func TestSession_RunAsRoleChangedBackend(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	architect := store.Role{Name: "architect", Backend: "claude", Description: "You design."}
-	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
-		t.Fatal(err)
-	}
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-		Team: "core",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var ags []*recordingAgent
-	var backends []string
-	mk := func(backend string) (agent.Agent, error) {
-		ag := newRecordingAgent()
-		ags = append(ags, ag)
-		backends = append(backends, backend)
-		return ag, nil
-	}
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "architect", "plan it", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-
-	editBot(t, st, "architect", func(m *store.Bot) { m.Backend = "codex" })
-	if err := s.RunAs(ctx, "architect", "again", nil, nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if len(ags) != 2 || backends[1] != "codex" || !ags[1].started || ags[1].resumed != "" ||
-		!strings.HasPrefix(ags[1].prompts[0], "## You\nYou design.") {
-		t.Errorf("second architect: backend %q, started = %v, resumed = %q, prompts = %q, "+
-			"want codex, started fresh with the start prompt", backends[1], ags[1].started,
-			ags[1].resumed, ags[1].prompts)
 	}
 }
 
@@ -1313,7 +1141,7 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	turn, err := st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", SessionID: "sess-lead", WakeText: "go",
+		SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), BotSessionID: testBotSessionID(t, st, ch.ID, testBotID(t, st, "architect")), Backend: "claude", SessionID: "sess-lead", WakeText: "go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1337,7 +1165,7 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 		t.Errorf("resumed = %q, fork = %v, closed = %v, members = %d, want a closed copy of sess-lead",
 			ag.resumed, ag.cfg.Fork, ag.closed, len(s.members))
 	}
-	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, "claude")
+	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, *testBotSessionID(t, st, ch.ID, &s.leadID))
 	if err != nil || last.SessionID != "sess-lead" {
 		t.Errorf("session to resume = %q, %v, want sess-lead, not the wrap-up's sess-copy", last.SessionID, err)
 	}
@@ -1352,8 +1180,9 @@ func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	editBot(t, st, "architect", func(m *store.Bot) { m.Backend = "codex" })
 	turn, err := st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "codex", SessionID: "thread-lead", WakeText: "go",
+		SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), BotSessionID: testBotSessionID(t, st, ch.ID, testBotID(t, st, "architect")), Backend: "codex", SessionID: "thread-lead", WakeText: "go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1377,7 +1206,7 @@ func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
 		t.Errorf("started = %v, resumed = %q, closed = %v, members = %d, want a closed fresh thread",
 			ag.started, ag.resumed, ag.closed, len(s.members))
 	}
-	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, "codex")
+	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, *testBotSessionID(t, st, ch.ID, &s.leadID))
 	if err != nil || last.SessionID != "thread-lead" {
 		t.Errorf("thread to resume = %q, %v, want thread-lead, not the wrap-up's thread-wrap", last.SessionID, err)
 	}
@@ -1388,8 +1217,8 @@ func TestNewestSessionTurn_MissingSessionOnAWrapTurnResets(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	for _, turn := range []store.Turn{
-		{SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", SessionID: "sess-lead", WakeText: "go"},
-		{SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", Status: "failed", Error: "No conversation found with session ID: sess-lead"},
+		{SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), BotSessionID: testBotSessionID(t, st, ch.ID, testBotID(t, st, "architect")), Backend: "claude", SessionID: "sess-lead", WakeText: "go"},
+		{SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), BotSessionID: testBotSessionID(t, st, ch.ID, testBotID(t, st, "architect")), Backend: "claude", Status: "failed", Error: "No conversation found with session ID: sess-lead"},
 	} {
 		created, err := st.CreateTurn(ctx, turn)
 		if err != nil {
@@ -1404,7 +1233,7 @@ func TestNewestSessionTurn_MissingSessionOnAWrapTurnResets(t *testing.T) {
 		}
 	}
 
-	last, err := newestSessionTurn(ctx, st, ch.ID, *testBotID(t, st, "architect"), "claude")
+	last, err := newestSessionTurn(ctx, st, ch.ID, *testBotID(t, st, "architect"), *testBotSessionID(t, st, ch.ID, testBotID(t, st, "architect")))
 	if err != nil || last.SessionID != "" {
 		t.Errorf("session to resume = %q, %v, want none", last.SessionID, err)
 	}

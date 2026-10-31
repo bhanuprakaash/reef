@@ -53,6 +53,7 @@ type Runner struct {
 	ag        agent.Agent
 	spaceID   int64
 	botID     *int64
+	botSessID *int64
 	role      string
 	backend   string
 	preamble  string
@@ -100,8 +101,8 @@ func (r *Runner) Run(
 	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
-		SpaceID: r.spaceID, BotID: r.botID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
-		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
+		SpaceID: r.spaceID, BotID: r.botID, BotSessionID: r.botSessID, Role: r.role, Backend: r.backend,
+		SessionID: r.sessionID, WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
 		WakeMessageID: r.WakeMessage, Scopes: r.Scopes,
 	})
 	if err != nil {
