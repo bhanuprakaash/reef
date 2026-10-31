@@ -23,7 +23,7 @@ export function PinButton({
       title={label}
       disabled={toggle.isPending}
       onClick={() => toggle.mutate()}
-      className={`hover:text-fg focus-visible:ring-3 focus-visible:ring-ring aria-pressed:text-fg ${overlay ? 'absolute right-2 bottom-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100' : ''}`}
+      className={`max-md:size-11 hover:text-fg focus-visible:ring-3 focus-visible:ring-ring aria-pressed:text-fg ${overlay ? 'absolute right-2 bottom-1.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 max-md:right-0 max-md:bottom-1/2 max-md:translate-y-1/2 max-md:opacity-100 pointer-coarse:opacity-100' : ''}`}
     >
       <svg
         width="14"

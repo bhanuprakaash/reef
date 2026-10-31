@@ -15,7 +15,7 @@ export function Row(props: {
     <Link
       {...props.trigger}
       to={props.to}
-      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
+      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] max-md:pr-12 ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
     >
       {props.avatar}
       <span className="min-w-0 flex-1">

@@ -84,10 +84,10 @@ export function BotPage() {
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       {bot.description && <p className="max-w-xl text-sm text-soft">{bot.description}</p>}
 
-      <Card title="Teams" flush>
+      <Card title="Crews" flush>
         {memberships.length === 0 ? (
           <div className="px-6 pb-5">
-            <EmptyState title="In no Team yet" body="Add it from a Team's page." compact />
+            <EmptyState title="In no Crew yet" body="Add it from a Crew's page." compact />
           </div>
         ) : (
           <ul>
@@ -130,7 +130,10 @@ export function BotPage() {
         <ul>
           {chats?.map((c) => (
             <li key={c.id} className="group relative border-t border-hairline">
-              <Link to={`/spaces/${c.id}`} className="flex items-baseline gap-3 px-6 py-3.5">
+              <Link
+                to={`/spaces/${c.id}`}
+                className="flex items-baseline gap-3 px-6 py-3.5 max-md:pr-12"
+              >
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm">{c.name}</span>
                   {c.lastMessage && (
