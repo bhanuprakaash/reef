@@ -610,7 +610,30 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
 	if after != nil {
 		afterID = *after
 	}
-	ms, err := s.st.Messages(r.Context(), *spaceID, afterID)
+	before, err := queryID(r, "before")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	limit, err := queryID(r, "limit")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var ms []store.Message
+	if before != nil || limit != nil {
+		n := int64(_defaultPage)
+		if limit != nil && *limit > 0 {
+			n = min(*limit, _maxPage)
+		}
+		var beforeID int64
+		if before != nil {
+			beforeID = *before
+		}
+		ms, err = s.st.MessagesPage(r.Context(), *spaceID, beforeID, int(n))
+	} else {
+		ms, err = s.st.Messages(r.Context(), *spaceID, afterID)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

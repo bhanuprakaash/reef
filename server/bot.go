@@ -52,7 +52,24 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	cs, err := s.st.BotConversations(r.Context(), id)
+	var page store.ConversationPage
+	if page.ProjectID, err = queryID(r, "project"); err != nil {
+		writeError(w, err)
+		return
+	}
+	if page.Before, err = queryID(r, "before"); err != nil {
+		writeError(w, err)
+		return
+	}
+	limit, err := queryID(r, "limit")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if limit != nil && *limit > 0 {
+		page.Limit = int(min(*limit, _maxPage))
+	}
+	cs, err := s.st.BotConversationsPage(r.Context(), id, page)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -347,6 +347,12 @@ neither a working directory nor permission to change a repository, and filters n
   associated with: the Space moves to the work item's project and is associated with it too, and its
   other associations stay.
 
+### pin
+
+Migration 80 [`080_pin.sql`](../store/migrations/080_pin.sql). `kind` (`bot`, `chat`, `space`),
+`target_id` (no foreign key, since it points at a Bot or a Space; triggers delete the pin with its
+target) and `createdAt`; the key is `(kind, target_id)`.
+
 ### message
 
 | Field | JSON | Notes |
@@ -611,7 +617,7 @@ tool calls.
 | `GET /bots/{id}` | | 200 | 404 |
 | `PUT /bots/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
 | `DELETE /bots/{id}` | | 204 | 400 the bot is in a team or a Space (names it), 404 |
-| `GET /bots/{id}/conversations` | | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 404 |
+| `GET /bots/{id}/conversations` | `?project=ID` (only those associated with the Project), `?limit=N` (at most 200; without it all), `?before=ID` (only those after that conversation in the list, so the last id of a page is the next `before`) | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Pages follow the list order by (newest activity, id), so they never repeat or skip one unless a listed conversation gets a message while the pages are read. `?project=N&limit=1` is the Bot's latest chat under Project N and `limit=1` alone its latest overall; `[]` means none, and the server never creates one: the client offers New chat (`POST /spaces`). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 400 bad id, 404 |
 | `POST /teams/{name}/members` | `botId`, `lead` | 201 the role as `GET /teams/{name}` shows it | 400 unknown bot, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
@@ -639,7 +645,11 @@ tool calls.
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
-| `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no Space, 404 unknown Space |
+| `GET /pins` | | 200 every pin, newest first, `[{kind, id, title, createdAt}]`; `kind` is `bot`, `chat` (a personal conversation) or `space` (any other Space), `title` the target's current name. Pins are global: no Project filters them | |
+| `PUT /pins/{kind}/{id}` | | 204; pinning again keeps the first pin time | 400 `kind` not `bot`, `chat` or `space`, 404 no such target of that kind (a chat is not pinnable as a space) |
+| `DELETE /pins/{kind}/{id}` | | 204, also when it was not pinned. Deleting a Bot or Space removes its pins | |
+| `GET /find` | `?q=TEXT` (required), `limit=N` (per kind, default 20, at most 200) | 200 `[{kind, id, title, projectId?}]` of the Bots, chats, Spaces and Work items (`workItem`, with its `projectId`) whose name or title contains `q`, case ignored for ASCII, in that order and each by name, `[]` when none. `kind` and `id` open the original resource | 400 no `q` |
+| `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids). `?limit=N` (at most 200, default 50) and `?before=ID` give a page instead: the newest `limit` messages with an id below `before` (all ids when it is left out), oldest first; the first id of a page is the next `before`, and an empty page is the start of the history | 200, each with `parentId` | 400 no Space, 404 unknown Space |
 | `POST /messages` | `spaceId`, `parentId`, `author`, `body` | 201 | 400 unknown Space, missing field, or a `parentId` that is not a top-level message of that Space |
 | `GET /turns` | `?space=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `space`; only the turns with a `checkpoint` taken in the tree the Space runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a Space, 404 `rollbackable` on an unknown Space |
 | `POST /turns` | `spaceId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown Space, public message or direct message |
