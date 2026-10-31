@@ -246,7 +246,7 @@ async function teamManagement() {
 
   await main.getByLabel('Description').fill('Own desktop releases and rollback.');
   await main.getByRole('button', { name: 'Save crew' }).click();
-  await main.getByText('Saved').waitFor();
+  await main.getByText('Saved', { exact: true }).waitFor();
   saved = await getJson(`/teams/${name}`);
   check(saved.responsibility === 'Own desktop releases and rollback.', 'editing responsibility saves through REST', saved.responsibility);
   await shot('team-1280x800');
@@ -1073,7 +1073,7 @@ async function memory() {
   check(sql(`select base_branch from project where id=${pid}`) === '', 'a base branch that is not a branch name is refused and not stored');
   await baseField.fill('dev');
   await baseCard.getByRole('button', { name: 'Save' }).click();
-  await baseCard.getByText('Saved').waitFor();
+  await baseCard.getByText('Saved', { exact: true }).waitFor();
   check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'saving the Base branch stores it', sql(`select id,base_branch from project where id=${pid}`));
   await page.reload();
   await baseField.waitFor();
@@ -1791,7 +1791,7 @@ async function skills() {
   await main.getByRole('combobox', { name: / add skill$/ }).click();
   await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option', { name: /^triage · Reef/ }).click();
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await page.getByText('Saved').waitFor();
+  await page.getByText('Saved', { exact: true }).waitFor();
   await shot('picked');
   check(JSON.stringify((await getJson(`/bots/${lead.id}`)).skills) === '["reef:triage"]', 'the saved skill is picked for a Bot through the picker', JSON.stringify((await getJson(`/bots/${lead.id}`)).skills));
 
@@ -1861,7 +1861,7 @@ async function workshop() {
   await pick(`${mate} backend`, 'Claude Code', main);
   await pick(`${mate} permission mode`, 'acceptEdits', main);
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await page.getByText('Saved').waitFor();
+  await page.getByText('Saved', { exact: true }).waitFor();
   await shot('persona-saved');
   check(row('bot.description') === persona, "saving the developer's description on the Bots page updates the Bot row");
   check(row('bot.face') === 'otter', "picking a creature for the developer saves it to the Bot row");
@@ -1890,7 +1890,7 @@ async function workshop() {
   await main.getByLabel('developer tool Write').uncheck();
   await shot('role-tools-mcp');
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await page.getByText('Saved').waitFor();
+  await page.getByText('Saved', { exact: true }).waitFor();
   check(row('bot.tools').includes('Bash(git log:*)') && row('bot.tools').includes('"WebFetch"') && !row('bot.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the Bot", row('bot.tools'));
   check(row('bot.connections') === connBefore, "the Bot's selected connection is unchanged by the panel", row('bot.connections'));
 
@@ -3122,7 +3122,7 @@ async function providers() {
   };
   const saveMate = async () => {
     await main.getByRole('button', { name: 'Save Bot' }).click();
-    await page.getByText('Saved').waitFor();
+    await page.getByText('Saved', { exact: true }).waitFor();
   };
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   const setTheme = (t) => page.evaluate((t) => localStorage.setItem('reef.theme', t), t);
@@ -3265,8 +3265,8 @@ async function bots() {
   const after = async () => getJson(`/bots/${id}`);
   const save = async () => {
     await panel.getByRole('button', { name: 'Save Bot' }).click();
-    await panel.getByText('Saved').waitFor();
-    await panel.getByText('Saved').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    await panel.getByText('Saved', { exact: true }).waitFor();
+    await panel.getByText('Saved', { exact: true }).waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
     return after();
   };
   await pick(`${mate} model`, 'Sonnet', panel);
@@ -3396,7 +3396,7 @@ async function creatures() {
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Blue colour', exact: true }).click();
   await main.getByRole('button', { name: 'Save Bot' }).click();
-  await main.getByText('Saved').waitFor();
+  await main.getByText('Saved', { exact: true }).waitFor();
   check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Bot panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
 
   for (const route of ['/bots', `/teams?team=${teamB}`]) {

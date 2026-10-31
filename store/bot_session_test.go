@@ -42,7 +42,14 @@ func TestBotSession_AdoptKeepsSettingsAcrossBotEdits(t *testing.T) {
 		t.Fatalf("active session = %+v, %v, want the settings adopted before the edit", got, err)
 	}
 
+	if _, err := s.SetRefreshPending(ctx, chat.ID, sam.ID); err != nil {
+		t.Fatal(err)
+	}
 	second, err := s.AdoptBotSession(ctx, chat.ID, sam.ID)
+	var pending int
+	if err := s.db.QueryRowContext(ctx, "SELECT refresh_pending FROM bot_session WHERE id = ?", first.ID).Scan(&pending); err != nil || pending != 0 {
+		t.Errorf("replaced session refresh_pending = %d, %v, want 0", pending, err)
+	}
 	if err != nil || second.ID == first.ID || second.Model != "opus" || second.Description != "You review." ||
 		!reflect.DeepEqual(second.Tools, []string{"Grep"}) || second.PermissionMode != "default" {
 		t.Fatalf("second session = %+v, %v, want the edited settings", second, err)

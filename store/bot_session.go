@@ -94,7 +94,7 @@ func (s *Store) AdoptBotSessionWith(
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE bot_session SET status = ?, ended_at = ? WHERE space_id = ? AND bot_id = ? AND status = ?",
+		"UPDATE bot_session SET status = ?, ended_at = ?, refresh_pending = 0 WHERE space_id = ? AND bot_id = ? AND status = ?",
 		BotSessionReplaced, now, spaceID, botID, BotSessionActive); err != nil {
 		return BotSession{}, fmt.Errorf("replace bot session: %w", err)
 	}
@@ -216,7 +216,7 @@ func (s *Store) EndBotSession(ctx context.Context, id int64, status string) erro
 		return fmt.Errorf("%w: a bot session ends as replaced or revoked, not %q", ErrInvalid, status)
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE bot_session SET status = ?, ended_at = ? WHERE id = ? AND status = ?",
+		"UPDATE bot_session SET status = ?, ended_at = ?, refresh_pending = 0 WHERE id = ? AND status = ?",
 		status, time.Now().UTC().Format(time.RFC3339Nano), id, BotSessionActive)
 	if err != nil {
 		return fmt.Errorf("end bot session: %w", err)
