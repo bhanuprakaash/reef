@@ -2300,6 +2300,14 @@ async function team() {
   check(after.width === before.width, 'opening it does not change the Space width', `${before.width} -> ${after.width}`);
   const rows = await panel.locator('ul').first().getByRole('listitem').allInnerTexts();
   check(rows.length === 4 && rows.some((r) => /developer[\s\S]*working/i.test(r)), 'it lists four roles and the developer as working', rows.join(' | ').replace(/\n/g, ' '));
+  await panel.getByRole('listitem').filter({ hasText: /^developer/i }).getByRole('button', { name: 'Remove' }).click();
+  const leaves = panel.getByText('Leaves after its current turn.');
+  await leaves.waitFor();
+  const box = await panel.boundingBox();
+  const note = await leaves.boundingBox();
+  const select = await panel.getByRole('combobox').first().boundingBox();
+  check(note.height < 20 && note.x + note.width <= box.x + box.width, 'the leaving note is one line inside the popover', JSON.stringify(note));
+  check(select.x >= box.x && select.x + select.width <= box.x + box.width, 'the coordinator select is inside the popover', JSON.stringify(select));
   await shot('popover-working');
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'hidden' });
@@ -2775,7 +2783,7 @@ async function consult() {
   check(shape === 'conversation|1|1', 'the chat stays one conversation with one member', shape);
   const consultation = (await link.getAttribute('href')).split('/').pop();
   const kinds = sql(`select kind, name from Space where id=${consultation}`);
-  check(kinds === 'consultation|Consultation from sam · Please review the login plan and…', 'the link opens a consultation titled by its origin', kinds);
+  check(kinds === `consultation|Consultation from sam · Please review the login plan and… #${consultation}`, 'the link opens a consultation titled by its origin', kinds);
   await main.getByText('Asked kit: Please review the login plan').waitFor();
   await shot('desktop-chat');
   await link.click();

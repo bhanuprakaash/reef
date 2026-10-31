@@ -99,6 +99,10 @@ func TestSendToSpaceQuestionAnswersOnceInExistingSession(t *testing.T) {
 	if turns, sessions := e.turnCount(t, _work), e.sessions(t, _work); turns != 1 || sessions != 1 {
 		t.Errorf("Space 4 has %d turns and %d sessions, want 1 and 1", turns, sessions)
 	}
+	ada := chatLines(getJSON[[]store.BotChat](t, fmt.Sprintf("%s/bots/%d/chats", e.url, e.ada)))
+	if want := []string{fmt.Sprintf(`chat 2 bot %d "ada chat"`, e.ada)}; !slices.Equal(ada, want) {
+		t.Errorf("Ada's chats = %q, want %q: she only sent into Space 4", ada, want)
+	}
 }
 
 func TestSendToSpaceInstructionWaitsForPausedSpaceAndFailsVisibly(t *testing.T) {

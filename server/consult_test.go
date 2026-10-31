@@ -160,7 +160,7 @@ func TestConsultKeepsTheChatAndLinksEveryExchange(t *testing.T) {
 		t.Errorf("Ben's own chat = %q, want nothing written", lines)
 	}
 	consultation, err := e.st.Space(ctx, 4)
-	if err != nil || consultation.Kind != store.KindConsultation || consultation.Name != "Consultation from ada · q1" ||
+	if err != nil || consultation.Kind != store.KindConsultation || consultation.Name != "Consultation from ada · q1 #4" ||
 		consultation.BotID == nil || *consultation.BotID != e.ben {
 		t.Errorf("consultation = %+v, %v", consultation, err)
 	}
@@ -201,6 +201,23 @@ func TestConsultKeepsTheChatAndLinksEveryExchange(t *testing.T) {
 		if got := e.turnCount(t, space); got != n {
 			t.Errorf("turns in consultation %d = %d, want %d", space, got, n)
 		}
+	}
+}
+
+func TestConsultationsWithTheSameOpeningHaveDistinctNames(t *testing.T) {
+	e := newConsultEnv(t)
+	e.consult(t, 1, `[{"bot":"ben","body":"same words"}]`)
+	e.consult(t, 2, `[{"bot":"ben","body":"same words"}]`)
+	var names []string
+	for _, id := range []int64{4, 5} {
+		c, err := e.st.Space(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		names = append(names, c.Name)
+	}
+	if want := []string{"Consultation from ada · same words #4", "Consultation from ada · same words #5"}; !slices.Equal(names, want) {
+		t.Errorf("names = %q, want %q", names, want)
 	}
 }
 

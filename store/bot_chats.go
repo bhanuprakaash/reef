@@ -38,13 +38,14 @@ type BotChat struct {
 }
 
 // _involved is true for a Space the Bot, bound five times, is a member of, or a work item or
-// free Space it has a turn, a message or an exchange in, so the record of a Bot that left stays
+// free Space it has a turn, a message or a handoff in, so the record of a Bot that left stays
 // readable. A chat or consultation belongs to its members alone.
 const _involved = "(EXISTS (SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = ?) " +
 	"OR (space.kind IN ('work_item', 'free') AND (" +
 	"EXISTS (SELECT 1 FROM turn WHERE space_id = space.id AND bot_id = ?) " +
 	"OR EXISTS (SELECT 1 FROM message WHERE space_id = space.id AND bot_id = ?) " +
-	"OR EXISTS (SELECT 1 FROM direct_message WHERE space_id = space.id AND (from_bot_id = ? OR to_bot_id = ?)))))"
+	"OR EXISTS (SELECT 1 FROM direct_message WHERE space_id = space.id AND (from_bot_id = ? OR to_bot_id = ?) " +
+	"AND (origin_space_id IS NULL OR origin_space_id = space.id)))))"
 
 // _consultRequest is the request that began a consultation: the first with an origin chat.
 const _consultRequest = "(SELECT MIN(id) FROM direct_message WHERE space_id = space.id " +

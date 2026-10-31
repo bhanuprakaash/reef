@@ -539,7 +539,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 			return nil, fmt.Errorf("read Space kind: %w", err)
 		}
 		body := fmt.Sprintf("%s failed: %s.", strings.Join(names, ", "), _restartError)
-		if kind != KindConversation && kind != KindConsultation {
+		if kind == KindWorkItem {
 			body += " " + _restartAdvice
 		}
 		names = nil

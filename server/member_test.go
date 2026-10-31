@@ -3,10 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -220,5 +223,41 @@ func TestAddMember_UserAdditionNeedsNoApprovalBotProposalDoes(t *testing.T) {
 	}
 	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/member-proposals", ""); status != 200 || body != "[]" {
 		t.Errorf("proposals after = %d %q, want none", status, body)
+	}
+}
+
+func TestProposeMemberIsOnlyOfferedWhereItCanWork(t *testing.T) {
+	ctx := context.Background()
+	e := newSendEnv(t)
+	e.consult(t, 1, `[{"bot":"ben","body":"q1"}]`)
+	offered := map[int64]bool{}
+	for _, space := range []int64{_adaChat, _work, 5} {
+		bot := e.ada
+		if space == _work || space == 5 {
+			bot = e.ben
+		}
+		tok, err := e.st.CreateToken(ctx, space, bot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ct, st := mcp.NewInMemoryTransports()
+		ss, err := NewMCP(e.st, openMemory(t, e.st), tok, t.TempDir()).Connect(ctx, st, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, ct, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tools, err := cs.ListTools(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		offered[space] = slices.ContainsFunc(tools.Tools, func(tool *mcp.Tool) bool { return tool.Name == "propose_member" })
+		_ = cs.Close()
+		_ = ss.Wait()
+	}
+	if want := map[int64]bool{_adaChat: false, _work: true, 5: false}; !maps.Equal(offered, want) {
+		t.Errorf("propose_member offered in Spaces %v, want %v: not in a conversation or a consultation", offered, want)
 	}
 }

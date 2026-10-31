@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -81,6 +82,40 @@ func TestAskerIsWokenAfterItsChatResumesAndARestart(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("Ada woke %d times for the one reply, want 1", n)
+	}
+}
+
+func TestReplyUnderAShortClaimWakesTheAskerWhenItReleases(t *testing.T) {
+	ctx := context.Background()
+	e := newConsultEnv(t)
+	key := "q"
+	ex, _, err := e.st.Consult(ctx, store.DirectMessage{
+		OriginSpaceID: ptr(int64(_adaChat)), From: "ada", To: "ben", FromBotID: &e.ada, ToBotID: &e.ben,
+		Body: "q1", RequestKey: &key}, "Consultation from ada", "Asked ben: q1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := e.h.s.claim(ctx, _adaChat, _noTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.h.s.deliverExchange(ctx, ex.SpaceID, ex.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.waitState(t, ex.ID, store.DirectAnswered)
+	e.waitIdle(t, int(ex.SpaceID))
+	wake := "[Space 2, consultation 4, exchange 1]\nben replied: hi"
+	if space, err := e.st.Space(ctx, _adaChat); err != nil || space.Paused != "" || slices.Contains(e.ranTexts(), wake) {
+		t.Fatalf("under the claim: paused = %q, %v, ran = %q, want a running chat and no wake yet",
+			space.Paused, err, e.ranTexts())
+	}
+	_ = c.release(nil)
+	for !slices.Contains(e.ranTexts(), wake) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	e.waitIdle(t, _adaChat)
+	if space, err := e.st.Space(ctx, _adaChat); err != nil || space.Paused != "" {
+		t.Errorf("paused = %q, %v, want running", space.Paused, err)
 	}
 }
 

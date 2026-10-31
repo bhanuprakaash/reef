@@ -99,6 +99,20 @@ func (s *Store) ClaimHolds(ctx context.Context, spaceID int64) ([]Hold, error) {
 	return hs, nil
 }
 
+// PendingReplyExchanges lists the exchanges whose reply wake is a pending hold of the Space.
+func (s *Store) PendingReplyExchanges(ctx context.Context, spaceID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT m.exchange_id FROM approval a JOIN message m ON m.id = a.message_id WHERE a.space_id = ? "+
+			"AND a.status = ? AND a.kind = ? AND m.exchange_id IS NOT NULL ORDER BY a.id",
+		spaceID, HoldPending, _holdKind)
+	if err != nil {
+		return nil, fmt.Errorf("list reply holds: %w", err)
+	}
+	return scanAll(rows, func(r interface{ Scan(...any) error }) (id int64, err error) {
+		return id, r.Scan(&id)
+	})
+}
+
 // ClaimExchangeHold claims the pending hold that wakes the asker of exchange id with its reply.
 // It returns false when there is none, because it is claimed or the exchange has no such hold.
 func (s *Store) ClaimExchangeHold(ctx context.Context, id int64) (Hold, bool, error) {

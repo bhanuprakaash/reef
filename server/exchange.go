@@ -210,6 +210,14 @@ func (s *server) deliverWaiting(id int64) {
 			log.Printf("deliver exchange %d: %v", ex.ID, err)
 		}
 	}
+	replies, err := s.st.PendingReplyExchanges(s.ctx, id)
+	if err != nil {
+		log.Printf("list reply holds of Space %d: %v", id, err)
+		return
+	}
+	for _, ex := range replies {
+		s.wakeAsker(s.ctx, ex, id)
+	}
 }
 
 // runWake queues w behind the turn a running chain of Space spaceID is on, or starts a chain
@@ -320,8 +328,8 @@ func (s *server) wakeAsker(ctx context.Context, id, origin int64) {
 		log.Printf("reopen hold %d: %v", h.ID, rerr)
 	}
 	if errors.Is(err, errBusy) {
-		if err := s.parkBusy(ctx, origin); err != nil {
-			log.Printf("pause Space %d: %v", origin, err)
+		if err := s.deferDelivery(ctx, origin); err != nil {
+			log.Printf("defer the reply wake of exchange %d: %v", id, err)
 		}
 	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // Consult asks the Bot m.ToBotID, from the direct conversation m.OriginSpaceID, in a
-// consultation Space: m.SpaceID continues that one, 0 makes a new one titled title. The
+// consultation Space: m.SpaceID continues that one, 0 makes a new one titled title followed by its id, so two consultations with the same opening differ. The
 // exchange is created like CreateExchange creates one, in one transaction with the new Space,
 // and a key already stored returns the first row and makes no Space.
 func (s *Store) Consult(
@@ -50,6 +50,10 @@ func (s *Store) Consult(
 	return s.createExchange(ctx, m, originNote, func(tx *sql.Tx, m *DirectMessage) error {
 		id, err := s.insertSpaceTx(ctx, tx, c, nil, leadMember(ctx, *m.ToBotID))
 		m.SpaceID = id
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE space SET name = name || ' #' || id WHERE id = ?", id)
 		return err
 	})
 }

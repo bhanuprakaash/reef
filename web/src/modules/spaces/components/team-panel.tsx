@@ -153,7 +153,7 @@ export function TeamPanel({
                   </span>
                 )}
                 {role.session && <SessionSummary session={role.session} />}
-                <div className="flex basis-full gap-2 pl-[42px]">
+                <div className="flex basis-full flex-wrap items-center gap-2 pl-[42px]">
                   <TextField
                     aria-label={`Model for ${role.name}`}
                     placeholder={shown.model || 'model'}
@@ -171,7 +171,7 @@ export function TeamPanel({
                   </Button>
                   {roles.length > 1 &&
                     (role.leaving ? (
-                      <span className="self-center text-[12.5px] text-muted">
+                      <span className="text-[12.5px] text-muted">
                         Leaves after its current turn.
                       </span>
                     ) : (
