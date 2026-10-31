@@ -1097,6 +1097,7 @@ async function memory() {
   const session = `quick-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New free Space' }).click();
   const sessionDialog = page.getByRole('dialog', { name: 'New free Space' });
+  await sessionDialog.getByLabel(/^Include /).first().check();
   await sessionDialog.getByLabel('Name', { exact: true }).fill(session);
   await sessionDialog.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
@@ -2560,7 +2561,7 @@ async function conversationMove() {
     for (let i = 0; i < 150 && (await movedTo(id)) === null; i++) await page.waitForTimeout(200);
     return movedTo(id);
   };
-  const members = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).sort().join();
+  const members = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).join();
   const kitAnswered = async (id) => {
     for (let i = 0; i < 150 && sql(`select count(*) from message where space_id=${id} and author='kit'`) === '0'; i++) await page.waitForTimeout(200);
     return sql(`select count(*) from message where space_id=${id} and author='kit'`) !== '0';

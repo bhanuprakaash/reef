@@ -374,10 +374,10 @@ REEF_VERIFY_RUN=<id> $H ui global-chats # All projects in the switcher; a Bot's 
 REEF_VERIFY_RUN=<id> $H ui navigate # a Bot, a chat and a Space pin from their own buttons and list under Pinned with their kind, sidebar search finds a Bot, a chat, a Space and a Work item and each result opens its resource, a Bot with no chat opens its page and starts none, Unpin, `PUT /spaces/{id}/coordinator` (REST); needs no team applied
 ```
 
-`teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
+`teams` needs the teams `duo` and `full` (`team-management` needs `full`; `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
 `$H team-apply FILE.json` for each after `serve-start --data-name ui` (the
 files are `teams/duo.json` and `teams/full.json`; both define `lead` and `architect`, so apply the one a scenario needs last). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `duo` applied). `inspector`, `review` and `workshop`
+on a folder of its own (`--data-name inbox`, with `duo` applied). `team-management`, `inspector`, `review` and `workshop`
 need the team `full` applied: `$H team-apply "$PWD/teams/full.json"` (the server must run; it makes the four Bots, then `reef team apply`).
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
@@ -598,7 +598,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|bot|space-header|global-chats` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|bot|space-header\|global-chats\|navigate` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

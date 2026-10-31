@@ -67,6 +67,7 @@ Preconditions:
 - `ui teams` also needs the teams `duo` and `full` applied to the `ui` folder: `$H team-apply ...` after `serve-start --data-name ui` (files and commands in `bots.md`, Window).
 - `ui inbox` needs `duo` too, and checks that a waiting item is FYI, so the Needs you badge stays absent, so it fails on a server that already lists needs-you items: run it first, or on its own folder (`serve-start --data-name inbox`, then `$H team-apply $E/duo.json`).
 - `ui first-run` needs a server with no profile and no project: run it on its own folder (`serve-start --data-name first-run`).
+- `ui team-management` needs the team `full` applied to the `ui` folder: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui` (or `verify-reef one team-management full`).
 - `ui inspector` needs the team `full` applied to the `ui` folder: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
 - `ui review` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
 - `ui theme` needs the team `duo` applied (like `ui inbox`) and leaves a waiting item for the inbox screen.
