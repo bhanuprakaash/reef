@@ -142,8 +142,12 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
-	if err := st.PauseInterrupted(ctx, failed); err != nil {
+	paused, err := st.PauseInterrupted(ctx, failed)
+	if err != nil {
 		return fmt.Errorf("pause interrupted work: %w", err)
+	}
+	if err := server.NoteInterrupted(ctx, st, paused, failed); err != nil {
+		logger.Printf("note interrupted work: %v", err)
 	}
 	leaving, err := st.LeavingMembers(ctx, 0)
 	if err != nil {

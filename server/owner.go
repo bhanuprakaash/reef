@@ -64,7 +64,7 @@ func (s *server) transferOwner(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyTransfers makes the Bots of the transfers pending in Space id the owners and delivers each
-// handover to its new owner. A failure is logged and returned; the transfer stays pending.
+// handover to its new owner. A failure is returned; the transfer stays pending.
 func (s *server) applyTransfers(ctx context.Context, id int64) error {
 	ctx = context.WithoutCancel(ctx)
 	items, err := s.st.PendingOwnerTransfers(ctx, id)
@@ -75,8 +75,7 @@ func (s *server) applyTransfers(ctx context.Context, id int64) error {
 	for _, item := range items {
 		ex, made, err := s.st.ApplyOwnerTransfer(ctx, item)
 		if err != nil {
-			log.Printf("transfer work item %d in Space %d: %v", item, id, err)
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("transfer work item %d in Space %d: %w", item, id, err))
 			continue
 		}
 		if !made {

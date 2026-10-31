@@ -50,9 +50,9 @@ func TestOwnerTransfer_SurvivesARestartAndHandsOverOnce(t *testing.T) {
 		t.Fatalf("pending after restart = %v, %v, want [%d]", got, err, item.ID)
 	}
 	dm, made, err := s.ApplyOwnerTransfer(ctx, item.ID)
-	if err != nil || !made || dm.State != DirectWaiting || *dm.ToBotID != bots[1] ||
+	if err != nil || !made || dm.State != DirectWaiting || *dm.ToBotID != bots[1] || dm.IsUserGuidance() ||
 		*dm.RequestKey != fmt.Sprintf("owner:1:%d:0", bots[1]) {
-		t.Fatalf("apply = %+v, %v, %v, want one waiting handover to bea with key owner:1:<bea>:0", dm, made, err)
+		t.Fatalf("apply = %+v, %v, %v, want one waiting handover to bea, not shared guidance, with key owner:1:<bea>:0", dm, made, err)
 	}
 	if _, made, err := s.ApplyOwnerTransfer(ctx, item.ID); err != nil || made {
 		t.Errorf("second apply = %v, %v, want nothing", made, err)

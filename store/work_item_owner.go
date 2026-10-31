@@ -114,7 +114,7 @@ func (s *Store) ApplyOwnerTransfer(ctx context.Context, id int64) (DirectMessage
 	key := fmt.Sprintf("owner:%d:%d:%d", id, *botID, n)
 	dm, created, err := s.createExchange(ctx, DirectMessage{
 		SpaceID: *spaceID, OriginSpaceID: spaceID, From: "user", To: name, ToBotID: botID,
-		Body: body, Kind: ExchangeGuidance, RequestKey: &key,
+		Body: body, Kind: ExchangeRequest, RequestKey: &key,
 	}, note, func(tx *sql.Tx, _ *DirectMessage) error {
 		if err := setOwner(ctx, tx, id, *botID); err != nil {
 			return err

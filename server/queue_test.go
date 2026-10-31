@@ -35,6 +35,7 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 		!strings.Contains(body, `"status":"in_progress"`) {
 		t.Fatalf("queue the item = %d %s, want 200 in_progress", status, body)
 	}
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
 
 	want := "Work item 1: Login\nDescription: email and password\nBrief: sessions, not JWT"
@@ -55,6 +56,7 @@ func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
 	}
 
 	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
 
 	want := "Work item 1: Login\nDescription: none\nBrief: none"
@@ -102,6 +104,7 @@ func TestStartedItemSpaceIsLedByTheOwnerWithTheParticipants(t *testing.T) {
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	do(t, http.MethodPut, env.url+"/work-items/1/participants", `{"ownerBotId":2,"participantBotIds":[1]}`)
 	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
 
 	_, body := do(t, http.MethodGet, env.url+"/spaces/2", "")
@@ -120,6 +123,7 @@ func TestPutCannotChangeTheOwnerOfAStartedItem(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
 
 	status, body := do(t, http.MethodPut, env.url+"/work-items/1", `{"title":"Login","ownerBotId":null,"participantBotIds":[]}`)
@@ -136,6 +140,7 @@ func TestDropClosesTheSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
 
 	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"dropped"}`); status != 200 ||

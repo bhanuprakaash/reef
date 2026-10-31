@@ -306,7 +306,10 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), reviewed: make(chan int64, 1), directStart: make(chan struct{}, 2)}}
 	env.st, env.fake.st = st, st
 	env.serve(t)
-	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	gitIn(t, repo, "commit", "--allow-empty", "-m", "first")
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+repo+`"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"scratch"}`)
 	return env
 }

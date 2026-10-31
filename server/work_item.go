@@ -308,6 +308,12 @@ func (s *server) addTarget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if s.begin() {
+		go func() {
+			defer s.wg.Done()
+			s.openAddedTarget(s.ctx, id, in.ProjectID)
+		}()
+	}
 	writeJSON(w, http.StatusCreated, t)
 }
 

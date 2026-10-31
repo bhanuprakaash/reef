@@ -3,11 +3,10 @@ package server
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/bhanuprakaash/reef/store"
 )
 
 func (e *liveEnv) count(t *testing.T, query string) int {
@@ -57,18 +56,14 @@ func TestTwoApprovedItemsOfOneOwnerRunAtTheSameTime(t *testing.T) {
 
 func TestItemWithNoReadyRepositoryWaitsInNeedsYouAndOthersStart(t *testing.T) {
 	env := newLiveEnv(t)
-	ready := false
-	env.h.s.ensure = func(_ context.Context, w store.WorkItem) ([]store.Workspace, error) {
-		state, note := store.WorkspaceReady, ""
-		if w.ID == 1 && !ready {
-			state, note = store.WorkspacePaused, "base branch not found"
-		}
-		return []store.Workspace{{ProjectID: 1, State: state, Note: note}}, nil
+	bare := t.TempDir()
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"bare","path":"`+bare+`"}`)
+	for i, project := range []string{"2", "1"} {
+		do(t, http.MethodPost, env.url+"/work-items", `{"projectId":`+project+`,"title":"Item","ownerBotId":1}`)
+		do(t, http.MethodPost, env.url+"/work-items/"+string(rune('1'+i))+"/approve", `{"key":"k`+string(rune('1'+i))+`"}`)
 	}
-	for i, key := range []string{"k1", "k2"} {
-		do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Item","ownerBotId":1}`)
-		do(t, http.MethodPost, env.url+"/work-items/"+string(rune('1'+i))+"/approve", `{"key":"`+key+`"}`)
-	}
+	env.waitCount(t, "SELECT COUNT(*) FROM work_item WHERE id = 1 AND status = 'needs_you'", 1)
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 3 AND author != 'reef'", 1)
 	env.waitIdle(t, 3)
 
 	if _, body := do(t, http.MethodGet, env.url+"/work-items/1", ""); !strings.Contains(body, `"status":"needs_you"`) {
@@ -77,20 +72,43 @@ func TestItemWithNoReadyRepositoryWaitsInNeedsYouAndOthersStart(t *testing.T) {
 	if _, body := do(t, http.MethodGet, env.url+"/work-items/2", ""); !strings.Contains(body, `"status":"in_progress"`) {
 		t.Errorf("next item = %s, want in_progress", body)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/messages?space=2", ""); !strings.Contains(body, "reef") ||
-		!strings.Contains(body, "base branch not found") {
-		t.Errorf("messages of the blocked Space = %s, want a note naming the cause", body)
+	if _, body := do(t, http.MethodGet, env.url+"/messages?space=2", ""); !strings.Contains(body, "bare: ") ||
+		!strings.Contains(body, "Not started: no repository of this Work item is ready") {
+		t.Errorf("messages of the blocked Space = %s, want a note naming the repository", body)
 	}
 	if n := env.count(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'"); n != 0 {
 		t.Errorf("prompts in the blocked Space = %d, want 0", n)
 	}
 
-	ready = true
+	gitIn(t, bare, "init", "-b", "main")
+	writeIn(t, bare, "README", "x")
+	gitIn(t, bare, "add", ".")
+	gitIn(t, bare, "commit", "-m", "init")
 	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/continue", ""); status != 204 {
 		t.Fatalf("continue = %d %s, want 204", status, body)
 	}
 	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
 	env.waitIdle(t, 2)
+}
+
+func TestItemWhoseBranchIsTakenWaitsInNeedsYouWithTheError(t *testing.T) {
+	env := newLiveEnv(t)
+	p, err := env.st.Project(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, p.Path, "worktree", "add", filepath.Join(t.TempDir(), "other"), "-b", "work-item/1")
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Item","ownerBotId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	env.waitCount(t, "SELECT COUNT(*) FROM work_item WHERE id = 1 AND status = 'needs_you'", 1)
+
+	if _, body := do(t, http.MethodGet, env.url+"/messages?space=2", ""); !strings.Contains(body, "reef: ") ||
+		!strings.Contains(body, "checked out") {
+		t.Errorf("messages = %s, want a note naming the repository and the error", body)
+	}
+	if _, body := do(t, http.MethodGet, env.url+"/work-items/1", ""); !strings.Contains(body, `"status":"needs_you"`) {
+		t.Errorf("item = %s, want needs_you", body)
+	}
 }
 
 func TestRestartAfterTheClaimOpensTheSpaceOnce(t *testing.T) {
@@ -108,6 +126,19 @@ func TestRestartAfterTheClaimOpensTheSpaceOnce(t *testing.T) {
 	}
 	if n := env.count(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'"); n != 1 {
 		t.Errorf("prompts in the Space = %d, want 1", n)
+	}
+}
+
+func TestRestartStartsAnApprovedItemStillQueued(t *testing.T) {
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	env.exec(t, "UPDATE work_item SET status = 'queued', queue_position = 1, approved_at = '2026-01-01T00:00:00Z', approval_key = 'k' WHERE id = 1")
+	env.restart(t)
+	env.waitCount(t, "SELECT COUNT(*) FROM message WHERE space_id = 2 AND author != 'reef'", 1)
+	env.waitIdle(t, 2)
+
+	if _, body := do(t, http.MethodGet, env.url+"/work-items/1", ""); !strings.Contains(body, `"status":"in_progress"`) {
+		t.Errorf("item after the restart = %s, want in_progress", body)
 	}
 }
 

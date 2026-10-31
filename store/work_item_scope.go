@@ -63,8 +63,9 @@ func withScope(ctx context.Context, q reader, w WorkItem) (WorkItem, error) {
 
 func readTargets(ctx context.Context, q reader, id int64) ([]Target, error) {
 	rows, err := q.QueryContext(ctx,
-		"SELECT t.project_id, p.name, t.authorized_by, t.origin_message_id, t.created_at "+
-			"FROM work_item_target t JOIN project p ON p.id = t.project_id "+
+		"SELECT t.project_id, COALESCE(p.name, 'deleted project ' || t.project_id), t.authorized_by, "+
+			"t.origin_message_id, t.created_at "+
+			"FROM work_item_target t LEFT JOIN project p ON p.id = t.project_id "+
 			"WHERE t.work_item_id = ? ORDER BY t.rowid", id)
 	if err != nil {
 		return nil, fmt.Errorf("read targets of work item %d: %w", id, err)

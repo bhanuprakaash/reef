@@ -35,7 +35,7 @@ func TestPauseInterruptedPausesCutWorkAndKeepsOtherPauses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PauseInterrupted(ctx, failed); err != nil {
+	if _, err := s.PauseInterrupted(ctx, failed); err != nil {
 		t.Fatal(err)
 	}
 

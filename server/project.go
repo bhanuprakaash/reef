@@ -3,6 +3,7 @@ package server
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -184,6 +185,12 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	held, unlock, err := s.holdTargetingItems(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer unlock()
 	fs, err := s.st.WorkItems(r.Context(), store.WorkItemFilter{ProjectID: &id})
 	if err != nil {
 		writeError(w, err)
@@ -225,7 +232,18 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	for _, x := range ws {
+		x.State, x.Note = store.WorkspaceRemoved, "project "+p.Name+" was deleted"
+		if err := s.st.SetWorkspace(r.Context(), x); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	if err := s.st.DeleteProject(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.pauseTargetingItems(r.Context(), held, p.Name); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -252,4 +270,77 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// holdTargetingItems stops every Space of the other Projects' assignments that have a target in
+// project id, and takes the writer lock of each assignment's folder until the returned func is
+// called, so no write lands while the workspace is removed. An assignment with a turn running
+// that cannot be stopped is 409. Items homed in the Project are deleted with it, not held.
+func (s *server) holdTargetingItems(ctx context.Context, id int64) ([]store.WorkItem, func(), error) {
+	targeting, err := s.st.ItemsTargeting(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	var held []store.WorkItem
+	var spaces []int64
+	for _, f := range targeting {
+		if f.ProjectID == id {
+			continue
+		}
+		held = append(held, f)
+		tree := []int64{f.ID}
+		subs, err := s.st.WorkItems(ctx, store.WorkItemFilter{ParentID: &f.ID})
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, sub := range subs {
+			tree = append(tree, sub.ID)
+		}
+		for _, wid := range tree {
+			cs, err := s.st.Spaces(ctx, store.SpaceFilter{WorkItemID: &wid})
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, c := range cs {
+				spaces = append(spaces, c.ID)
+			}
+		}
+	}
+	lift := s.stopForDelete(spaces...)
+	unlocks := []func(){lift}
+	release := func() {
+		for _, u := range unlocks {
+			u()
+		}
+	}
+	for _, f := range held {
+		root := space.WorkRoot(s.dataDir, f.TreeKey())
+		unlock, ok := s.trees.TryLock(root)
+		if !ok {
+			release()
+			return nil, nil, fmt.Errorf("%s has a turn running: %w", root, store.ErrConflict)
+		}
+		unlocks = append(unlocks, unlock)
+	}
+	return held, release, nil
+}
+
+// pauseTargetingItems tells the open Spaces of the held items that the Project is gone and pauses
+// them, which puts each item in Needs you. The target and workspace rows stay as the record.
+func (s *server) pauseTargetingItems(ctx context.Context, held []store.WorkItem, name string) error {
+	for _, f := range held {
+		sp, err := s.st.WorkItemActiveSpace(ctx, f.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		note := fmt.Sprintf("Project %s was deleted. Its workspace is removed; its branch stays in the repository. "+
+			"Decide how this Work item goes on, then continue the Space.", name)
+		if err := s.pauseWithNote(ctx, sp.ID, "project "+name+" was deleted", note); err != nil {
+			return err
+		}
+	}
+	return nil
 }
