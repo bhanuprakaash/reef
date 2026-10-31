@@ -142,6 +142,9 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
+	if err := st.PauseWaitingExchangeSpaces(ctx); err != nil {
+		return fmt.Errorf("pause Spaces with waiting exchanges: %w", err)
+	}
 	if err := st.ClearStaleActiveTurns(ctx, func(spaceID int64) bool {
 		return space.InUse(data, spaceID)
 	}); err != nil {

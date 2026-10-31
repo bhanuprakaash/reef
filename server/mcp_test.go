@@ -1121,7 +1121,7 @@ func TestMCPDirectMessages(t *testing.T) {
 	callDeveloper := callTool(t, st, developer)
 	got, isErr = callDeveloper("read_direct_messages", nil)
 	if want := `{"messages":[{"body":"build it","chainId":1,"createdAt":"T",` +
-		`"from":"lead","fromBotId":1,"id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"state":"waiting","status":"sent","to":"developer","toBotId":3}]}`; got != want || isErr {
+		`"from":"lead","fromBotId":1,"id":1,"kind":"request","replyToId":null,"sourceMessageId":null,"spaceId":5,"state":"waiting","status":"sent","to":"developer","toBotId":3}]}`; got != want || isErr {
 		t.Errorf("developer read = %q (error %v), want %q", got, isErr, want)
 	}
 	tester, err := testToken(t, st, ctx, ch.ID, "tester")

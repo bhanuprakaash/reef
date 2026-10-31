@@ -36,7 +36,7 @@ func talkTool(name string) bool {
 		strings.HasPrefix(name, "mcp__reef__") && !strings.HasPrefix(name, "mcp__reef__browser_")
 }
 
-const _restartReason = "app restarted: wakes were waiting to run"
+const _restartReason = store.RestartReason
 
 var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
 
@@ -525,6 +525,9 @@ func (s *server) runOne(
 			}
 		}
 	}
+	if errors.Is(err, store.ErrNotWaiting) {
+		return turnState{Role: w.role, BotID: w.botID, Status: "done", Note: err.Error()}, true, false
+	}
 	end = turnState{Role: w.role, BotID: w.botID, Status: "done", DirectMessageID: w.direct.IDRef()}
 	if errors.Is(err, space.ErrNoProposal) {
 		err = nil
@@ -724,6 +727,9 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		}
 		held = append(held, w)
 	}
+	if err == nil && wakeErr == nil {
+		held, err = s.withWaitingExchanges(r.Context(), id, held)
+	}
 	if wakeErr != nil {
 		for _, h := range holds {
 			if rerr := s.st.ReopenHold(context.WithoutCancel(r.Context()), h.ID); rerr != nil {
@@ -798,7 +804,8 @@ func (s *server) failSent(ctx context.Context, spaceID int64, botID *int64, afte
 		return
 	}
 	for _, m := range msgs {
-		if botID == nil || m.FromBotID == nil || *m.FromBotID != *botID || m.ReplyToID != nil {
+		if botID == nil || m.FromBotID == nil || *m.FromBotID != *botID || m.ReplyToID != nil ||
+			m.OriginSpaceID != nil {
 			continue
 		}
 		if err := recordFailedDirect(ctx, s.st, m.ID, m.To, body); err != nil {
@@ -1247,9 +1254,13 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 		body = "stopped"
 	}
 	kept := len(c.l.held)
+	closing := c.s.ctx.Err() != nil
 	for _, w := range c.l.queued {
 		if w.hold != 0 {
 			holds = append(holds, w.hold)
+			continue
+		}
+		if w.direct != nil && closing && w.direct.OriginSpaceID != nil {
 			continue
 		}
 		if w.direct != nil {
@@ -1262,6 +1273,9 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 	for _, w := range left {
 		if w.hold != 0 {
 			holds = append(holds, w.hold)
+			continue
+		}
+		if w.direct != nil && closing && w.direct.OriginSpaceID != nil {
 			continue
 		}
 		if w.direct != nil {

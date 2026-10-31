@@ -62,21 +62,26 @@ func (s *server) directWakes(
 		if m.FromBotID == nil || author == nil || *m.FromBotID != *author {
 			continue
 		}
-		if m.Status == store.DirectFailed {
+		if m.Status == store.DirectFailed || m.OriginSpaceID != nil {
 			continue
 		}
-		source := "direct request"
-		if m.ReplyToID != nil {
-			source = "direct response"
-		}
-		text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
-			spaceID, m.ID, m.ChainID, source, m.From, m.Body)
-		ws = append(ws, wake{
-			from: m.From, fromBotID: m.FromBotID, botID: m.ToBotID, messageID: m.ID,
-			role: m.To, text: text, direct: &msgs[i], stored: m.CreatedAt,
-		})
+		ws = append(ws, directWake(&msgs[i]))
 	}
 	return ws, after, nil
+}
+
+// directWake is the wake of direct message m for its recipient.
+func directWake(m *store.DirectMessage) wake {
+	source := "direct request"
+	if m.ReplyToID != nil {
+		source = "direct response"
+	}
+	text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
+		m.SpaceID, m.ID, m.ChainID, source, m.From, m.Body)
+	return wake{
+		from: m.From, fromBotID: m.FromBotID, botID: m.ToBotID, messageID: m.ID,
+		role: m.To, text: text, direct: m, stored: m.CreatedAt,
+	}
 }
 
 // inStoredOrder is the wakes of one routing read, the public ones and the direct ones, in the

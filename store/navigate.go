@@ -138,7 +138,7 @@ func (s *Store) MessagesPage(ctx context.Context, spaceID, before int64, limit i
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM ("+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at, exchange_id FROM ("+
 			"SELECT * FROM message WHERE space_id = ? AND (? = 0 OR id < ?) ORDER BY id DESC LIMIT ?"+
 			") ORDER BY id",
 		spaceID, before, before, limit)

@@ -23,6 +23,8 @@ type Message struct {
 	BotID     *int64    `json:"botId,omitempty"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
+	// ExchangeID links a message that stands for a cross-conversation exchange to it.
+	ExchangeID *int64 `json:"exchangeId,omitempty"`
 }
 
 // Kinds of search hit.
@@ -68,10 +70,14 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 		}
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO message (space_id, parent_id, author, bot_id, body, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?)",
-		m.SpaceID, m.ParentID, m.Author, m.BotID, m.Body, now.Format(time.RFC3339Nano))
+	return s.insertMessage(ctx, s.db, m, now)
+}
+
+func (s *Store) insertMessage(ctx context.Context, db execer, m Message, now time.Time) (Message, error) {
+	res, err := db.ExecContext(ctx,
+		"INSERT INTO message (space_id, parent_id, author, bot_id, body, created_at, exchange_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		m.SpaceID, m.ParentID, m.Author, m.BotID, m.Body, now.Format(time.RFC3339Nano), m.ExchangeID)
 	if err != nil {
 		return Message{}, s.writeErr(ctx, "insert message", err, ErrInvalid,
 			parent{table: "space", id: &m.SpaceID})
@@ -90,7 +96,7 @@ func (s *Store) Messages(ctx context.Context, spaceID, after int64) ([]Message, 
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message "+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at, exchange_id FROM message "+
 			"WHERE space_id = ? AND id > ? ORDER BY id",
 		spaceID, after)
 	if err != nil {
@@ -105,7 +111,7 @@ func (s *Store) MessagesBy(
 	ctx context.Context, spaceID int64, author string, since time.Time,
 ) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message "+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at, exchange_id FROM message "+
 			"WHERE space_id = ? AND author = ? ORDER BY id",
 		spaceID, author)
 	if err != nil {
@@ -125,7 +131,7 @@ func (s *Store) MessagesBy(
 }
 
 func (s *Store) MessagesByBot(ctx context.Context, spaceID, botID int64, since time.Time) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message WHERE space_id = ? AND bot_id = ? ORDER BY id", spaceID, botID)
+	rows, err := s.db.QueryContext(ctx, "SELECT id, space_id, parent_id, author, bot_id, body, created_at, exchange_id FROM message WHERE space_id = ? AND bot_id = ? ORDER BY id", spaceID, botID)
 	if err != nil {
 		return nil, fmt.Errorf("list messages by Bot: %w", err)
 	}
@@ -168,7 +174,7 @@ func (s *Store) LastMessageID(ctx context.Context, spaceID int64) (int64, error)
 // Thread lists the top-level message root of the Space and its replies, oldest first.
 func (s *Store) Thread(ctx context.Context, spaceID, root int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message "+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at, exchange_id FROM message "+
 			"WHERE space_id = ? AND (id = ? OR parent_id = ?) ORDER BY id",
 		spaceID, root, root)
 	if err != nil {
@@ -296,7 +302,7 @@ func (s *Store) SearchHistory(
 func scanMessage(r interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var created string
-	if err := r.Scan(&m.ID, &m.SpaceID, &m.ParentID, &m.Author, &m.BotID, &m.Body, &created); err != nil {
+	if err := r.Scan(&m.ID, &m.SpaceID, &m.ParentID, &m.Author, &m.BotID, &m.Body, &created, &m.ExchangeID); err != nil {
 		return Message{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

@@ -114,7 +114,17 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		return Turn{}, fmt.Errorf("%w: unknown backend %q", ErrInvalid, t.Backend)
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Turn{}, fmt.Errorf("begin turn: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if t.DirectMessageID != nil {
+		if err := claimExchange(ctx, tx, *t.DirectMessageID); err != nil {
+			return Turn{}, err
+		}
+	}
+	res, err := tx.ExecContext(ctx,
 		"INSERT INTO turn (space_id, role, backend, session_id, status, started_at, "+
 			"wake_text, wake_parent, direct_message_id, scopes, wake_message_id, bot_id, bot_session_id) "+
 			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?)",
@@ -129,6 +139,9 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	id, err := res.LastInsertId()
 	if err != nil {
 		return Turn{}, fmt.Errorf("insert turn: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Turn{}, fmt.Errorf("commit turn: %w", err)
 	}
 	if t.DirectMessageID != nil {
 		if err := s.startDirect(ctx, *t.DirectMessageID); err != nil {
@@ -477,18 +490,31 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 			// request (no reply_to), leave a failed response so the sender sees that
 			// delivery did not complete. A missing original message is not an error:
 			// there is nothing to answer.
-			var replyTo sql.NullInt64
+			var replyTo, origin sql.NullInt64
 			scanErr := tx.QueryRowContext(ctx,
-				"SELECT reply_to_id FROM direct_message WHERE id = ?",
-				*t.DirectMessageID).Scan(&replyTo)
+				"SELECT reply_to_id, origin_space_id FROM direct_message WHERE id = ?",
+				*t.DirectMessageID).Scan(&replyTo, &origin)
 			switch {
 			case errors.Is(scanErr, sql.ErrNoRows):
 				// missing original direct message: nothing to respond to.
 			case scanErr != nil:
 				return nil, fmt.Errorf("fail running turns: %w", scanErr)
 			case !replyTo.Valid:
+				var answered bool
+				if err := tx.QueryRowContext(ctx,
+					"SELECT EXISTS (SELECT 1 FROM direct_message WHERE reply_to_id = ? AND status = ?)",
+					*t.DirectMessageID, DirectDone).Scan(&answered); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+				if answered {
+					break
+				}
+				body := ""
+				if origin.Valid {
+					body = ExchangeInterrupted
+				}
 				if _, err := s.CreateFailedDirectResponseTx(ctx, tx, *t.DirectMessageID,
-					t.BotID, t.Role, ""); err != nil {
+					t.BotID, t.Role, body); err != nil {
 					return nil, fmt.Errorf("fail running turns: %w", err)
 				}
 			case replyTo.Valid:
@@ -528,7 +554,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 func (s *Store) failSentRequests(ctx context.Context, tx *sql.Tx, t Turn) error {
 	rows, err := tx.QueryContext(ctx,
 		`SELECT id, to_role, to_bot_id, created_at FROM direct_message d
-		WHERE space_id = ? AND from_bot_id = ? AND reply_to_id IS NULL
+		WHERE space_id = ? AND from_bot_id = ? AND reply_to_id IS NULL AND origin_space_id IS NULL
 		AND NOT EXISTS (SELECT 1 FROM direct_message r WHERE r.reply_to_id = d.id) ORDER BY id`,
 		t.SpaceID, t.BotID)
 	if err != nil {

@@ -386,6 +386,7 @@ adds `skill_draft`: a skill a Bot proposed with `propose_skill`, with its `space
 | `author` | string | required; free text, for example `user` or a role |
 | `body` | string | required |
 | `createdAt` | string | |
+| `exchangeId` | number? | the exchange (direct request) this message stands for, in the origin conversation: the note that says it was asked, and the reply posted when it was answered. The window links both sides |
 
 A top-level message is the root of a thread. The author of the root owns the thread.
 
@@ -686,7 +687,10 @@ tool calls.
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
-| `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed` or `stopped`), `createdAt` | 400 bad id, 404 |
+| `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed`, `stopped` or `cancelled`), `kind`, `originSpaceId?`, `originMessageId?`, `createdAt` | 400 bad id, 404 |
+| `GET /exchanges/{id}` | | 200 `{request, response}`: the exchange request (a direct request with `originSpaceId`; `spaceId` is its destination) and its newest response, `null` until there is one | 404 |
+| `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` exchange back to `waiting` and delivers it again | 404, 409 not `failed` (two retries at once: one wins), has a `done` response, or the destination has a turn running that cannot take it |
+| `POST /exchanges/{id}/cancel` | no body needed | 200 as `GET`; a `waiting` exchange becomes `cancelled` | 404, 409 not `waiting` |
 | `GET /search` | `?workItem=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the work item's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `work item`, missing `q` |
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
@@ -1005,6 +1009,31 @@ the end: the recipient's turn failed or was interrupted, a held wake was dropped
 restart cut it. A response has no response of its own, so a failed or dropped wake of it fails
 the request, and a request whose answer never reached its sender never reads `answered`.
 Retrying that wake puts `answered` back.
+
+### Exchanges
+
+An exchange is a direct request that lives in its destination Space (`spaceId`) and records the
+conversation it came from (`originSpaceId`, and `originMessageId`, the note there). `kind` is
+`request`, `question` or `guidance`; `requestKey` makes creating one idempotent, so a second create
+with the same key returns the first row and starts nothing. Its response is the usual response row;
+when the origin is another Space it is also posted there as a message from the recipient (a failed
+one reads `No reply: <state>, <reason>`), and both messages carry the exchange id. A request has
+one more state, `cancelled`, for an exchange withdrawn while `waiting`.
+
+Delivery is `deliverExchange`: it queues the wake behind the running chain's current turn, or starts
+a chain when the Space is idle. A paused Space leaves it `waiting`, and `continue` delivers it with
+the held wakes. A closed Space, or a recipient that is not a member, fails it with a response that
+says why. A turn is created for an exchange only from `waiting`, moving it to `delivered` in the same
+transaction, so delivering the same exchange twice runs it once. A wake whose exchange is no longer
+`waiting` is skipped. A response, its request's state and the reply in the origin conversation are
+stored together.
+
+After a restart `answered` and `failed` exchanges are unchanged. A `waiting` one stays `waiting`;
+at start, every open Space holding one is paused (`app restarted: wakes were waiting to run`) and
+`continue` delivers it. A `delivered` one whose turn the restart cut becomes `failed` with the
+response `interrupted while running; check its activity before retrying`: what the turn did is
+unknown, so it is never replayed, and the user retries it on purpose. An exchange that already has a
+`done` response cannot be retried.
 
 ### Space names
 

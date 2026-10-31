@@ -267,7 +267,7 @@ export type DirectMessage = {
   toBotId?: number | null;
   body: string;
   status: 'sent' | 'done' | 'failed';
-  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped';
+  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped' | 'cancelled';
   createdAt: string;
 };
 
