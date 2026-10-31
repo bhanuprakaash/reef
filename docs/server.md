@@ -338,7 +338,7 @@ neither a working directory nor permission to change a repository, and filters n
 - `GET /spaces?project=ID` lists the Spaces associated with the project, so a Space with two projects
   is listed under both. `GET /spaces/{id}/projects` lists a Space's projects. `PUT` and `DELETE
   /spaces/{id}/projects/{projectId}` add and remove one (a Space of a work item is 400: it stays in its
-  work item's project). The Space's messages, turns and sessions do not change when its projects do.
+  work item's project); each change that does something writes a note by `reef` in the Space's history, `You associated Project X with this conversation.` or `... removed Project X from this conversation.` (a Bot's change through the MCP tools carries its `botId`). The Space's messages, turns and sessions do not change when its projects do.
 - Moving a conversation to a new Space (`@name`) copies its projects to the new Space.
 - A Space's context prompt names the projects as `Associated projects, for context only; you do not
   work in them: <name> (<id>), ...`, never their folders. A Space with no project has no `project`
@@ -569,9 +569,9 @@ tool calls.
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /status` | | 200 `{"running":N}`, N the Spaces whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
-| `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
+| `POST /projects` | `name`, `path`, `purpose` (optional, plain words) | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
+| `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
 | `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept; a Space with no work item stays without this project | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
