@@ -3,7 +3,7 @@
 A user keeps projects (a name and a repo folder) and, inside a project, work items. A
 work item has a type, a title, a description, a status and acceptance lines; a top-level one has a
 brief that grows by versions, and one set of notes per role. Since memory items (`docs/product.md` decision 91) nothing reads the notes:
-a role's own items are in scope `teammate`. Their routes still work. Deleting a project deletes
+a role's own items are in scope `bot`. Their routes still work. Deleting a project deletes
 its work items.
 
 ## Sub-features
@@ -16,7 +16,7 @@ its work items.
 - `role-notes` `PUT .../notes/{role}` creates or replaces one note per work item and role; it can be deleted.
 - `project-cascade` deleting a project deletes its work items; ids are never reused.
 - `flow-sub-items` the lead of a work item's Team makes two sub-items with `create_sub_item`: both are top-level item 1's children (`parentId` 1, type `task`, status `backlog`), have no Space of their own, and the inbox has one `sub_item` FYI item for each (`$H feature work-item-flow flow`).
-- `flow-propose` a Teammate's `propose_work_item` in a Space of the project adds a top-level `backlog` item with `proposedBy` the Teammate, no Team, `suggestedTeamId` the Team whose responsibility text matches, its acceptance lines, and a `proposed` FYI item in the inbox (`$H feature work-item-flow conv`).
+- `flow-propose` a Bot's `propose_work_item` in a Space of the project adds a top-level `backlog` item with `proposedBy` the Bot, no Team, `suggestedTeamId` the Team whose responsibility text matches, its acceptance lines, and a `proposed` FYI item in the inbox (`$H feature work-item-flow conv`).
 - `decision-create` `POST /decisions` needs `workItemId`, `body` and `author`; `why` defaults to empty; `messageId` is optional.
 - `decision-message` a `messageId` must be a message in a Space of the same work item, else 400.
 - `decision-read` `GET /decisions?workItem=ID` lists a work item's decisions, oldest first; `GET /decisions/{id}` gets one.
@@ -41,7 +41,7 @@ Preconditions:
 - **Brief.** `$H api GET /work-items/1/brief` gives 404 (none yet). `$H api PUT /work-items/1/brief '{"body":"first","author":"user"}'` gives 201 id 1; `$H api PUT /work-items/1/brief '{"body":"second","author":"user"}'` gives id 2. `$H api GET /work-items/1/brief` shows `second`; `$H api GET /work-items/1/brief/versions` shows `first` then `second`. `$H api PUT /work-items/1/brief '{"body":"x"}'` gives 400; `$H api GET /work-items/99/brief` gives 404. `$H sql "select id, work_item_id, body, author from brief"` shows both rows.
 - **Notes.** `$H api GET /work-items/1/notes/developer` gives 404. `$H api PUT /work-items/1/notes/developer '{"body":"first"}'` then `$H api PUT /work-items/1/notes/developer '{"body":"second"}'` both give 200; `$H api GET /work-items/1/notes/developer` shows `second`; `$H sql "select work_item_id, role, body from role_notes"` has one row. `$H api PUT /work-items/1/notes/tester '{"body":""}'` gives 200 (empty is allowed). `$H api DELETE /work-items/1/notes/developer` gives 204, then `$H api GET /work-items/1/notes/developer` and a second `$H api DELETE /work-items/1/notes/developer` give 404. `$H api PUT /work-items/99/notes/developer '{"body":"x"}'` gives 404.
 - **Cascade and ids.** `$H api DELETE /projects/2` gives 204; `$H api GET /projects/2` gives 404; `$H sql "select id, project_id from work_item"` has no project 2 row. `$H api POST /projects '{"name":"new","path":"/"}'` gives id 3, not 2. `$H api DELETE /work-items/1` gives 204 and `$H sql "select count(*) from brief"` is 0.
-- **Sub-items and proposals by agents.** `$H feature work-item-flow flow` and `$H feature work-item-flow conv` drive `flow-sub-items` and `flow-propose` on the scripted `claude`: the lead's first turn replays `flow-lead-start` (two `create_sub_item` calls), a conversation Teammate's turn replays `flow-propose-kit` (one `propose_work_item`). The tools by hand are in `reef-mcp.md`.
+- **Sub-items and proposals by agents.** `$H feature work-item-flow flow` and `$H feature work-item-flow conv` drive `flow-sub-items` and `flow-propose` on the scripted `claude`: the lead's first turn replays `flow-lead-start` (two `create_sub_item` calls), a conversation Bot's turn replays `flow-propose-kit` (one `propose_work_item`). The tools by hand are in `reef-mcp.md`.
 
 Decisions, on a fresh server (`$H serve-stop`, then `$H serve-start --data-name decisions`). Ids below assume it:
 

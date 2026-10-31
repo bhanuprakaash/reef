@@ -19,7 +19,7 @@ func TestMemoryRoundTrip(t *testing.T) {
 
 	status, body = do(t, http.MethodPost, ts.URL+"/memory",
 		`{"kind":"decision","body":"sessions, not JWT","why":"revocation","scope":"work_item:1"}`)
-	if status != 201 || !strings.HasPrefix(body, `{"id":1,"kind":"decision","body":"sessions, not JWT","why":"revocation","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"`) ||
+	if status != 201 || !strings.HasPrefix(body, `{"id":1,"kind":"decision","body":"sessions, not JWT","why":"revocation","scope":"work_item:1","author":"user","role":"user","botId":null,"status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"`) ||
 		!strings.HasSuffix(body, `"}`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
@@ -139,7 +139,7 @@ func TestApproveRouteReturnsTheWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{
-		SpaceID: 1, Role: "lead", Brief: "v2",
+		SpaceID: 1, BotID: testServerBot(t, st, "lead"), Role: "lead", Brief: "v2",
 		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions", Scope: "work_item"}},
 	}); err != nil {
 		t.Fatal(err)

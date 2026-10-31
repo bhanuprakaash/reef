@@ -26,7 +26,7 @@ const (
 	ScopeProject      = "project"
 	ScopeWorkItem     = "work_item"
 	ScopeTeam         = "team"
-	ScopeTeammate     = "teammate"
+	ScopeBot          = "bot"
 	ScopeSpace        = "space"
 	ScopeConversation = "conversation"
 )
@@ -46,7 +46,7 @@ const (
 )
 
 const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
-	retired_at, replaced_by, created_at, accepted_at FROM memory`
+	retired_at, replaced_by, created_at, accepted_at, bot_id FROM memory`
 
 var (
 	// ErrNotFound is wrapped when the id matches no item.
@@ -64,13 +64,9 @@ var (
 	}
 	_scopeKinds = map[string]bool{
 		ScopeProject: true, ScopeWorkItem: true, ScopeTeam: true,
-		ScopeTeammate: true, ScopeSpace: true, ScopeConversation: true,
+		ScopeBot: true, ScopeSpace: true, ScopeConversation: true,
 	}
 	_rels = map[string]bool{RelAbout: true, RelSource: true, RelReplaces: true, RelRelated: true}
-	// A kind with no entry is accepted from any role.
-	_acceptedRoles = map[string]map[string]bool{
-		KindConvention: {"architect": true, "lead": true},
-	}
 )
 
 // Ref points at a target by kind and id; nothing checks that it exists.
@@ -91,6 +87,8 @@ type Link struct{ Rel, ToKind, ToID string }
 // Writer is who is writing and what every item they write carries.
 type Writer struct {
 	Author, Role string
+	BotID        *int64
+	Approved     bool
 	Scope        Ref
 	Links        []Link
 }
@@ -110,6 +108,7 @@ type Item struct {
 	Kind, Body, Why string
 	Scope           Ref
 	Author, Role    string
+	BotID           *int64
 	Status          string
 	RetiredAt       *time.Time
 	ReplacedBy      *int64
@@ -191,10 +190,10 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		acceptedAt = &now
 	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at,
-		 accepted_at, vector) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, status, now, acceptedAt,
-		blob)
+		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, bot_id, status, created_at,
+		 accepted_at, vector) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, w.BotID, status, now,
+		acceptedAt, blob)
 	if err != nil {
 		return Result{}, fmt.Errorf("insert item: %w", err)
 	}
@@ -365,6 +364,39 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// About returns the accepted items on a project shelf with an about link to ref, oldest first,
+// with their links.
+func (s *Store) About(ctx context.Context, ref Ref) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx,
+		_selectItem+` WHERE status = ? AND scope_kind = ? AND id IN (SELECT from_id FROM memory_link
+		 WHERE rel = ? AND to_kind = ? AND to_id = ?) ORDER BY id`,
+		StatusAccepted, ScopeProject, RelAbout, ref.Kind, ref.ID)
+	if err != nil {
+		return nil, fmt.Errorf("query items about %s:%s: %w", ref.Kind, ref.ID, err)
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan items about %s:%s: %w", ref.Kind, ref.ID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close items about %s:%s: %w", ref.Kind, ref.ID, err)
+	}
+	for i := range items {
+		if items[i].Links, err = links(ctx, s.db, items[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
 // _acceptedOrder sorts accepted_at newest first. The stored text drops trailing zeros of the
 // fraction, so the fraction is padded to nine digits; julianday would round it to milliseconds.
 const _acceptedOrder = `substr(accepted_at, 1, 19) DESC,
@@ -460,13 +492,16 @@ func statusFor(w Writer, n Note) string {
 	if n.NeedsApproval {
 		return StatusCandidate
 	}
-	if w.Author == "user" {
+	if w.Author == "user" && w.BotID == nil {
 		return StatusAccepted
 	}
 	if w.Scope.Kind == ScopeTeam {
 		return StatusCandidate
 	}
-	if roles := _acceptedRoles[n.Kind]; roles != nil && !roles[w.Role] {
+	if w.Approved {
+		return StatusAccepted
+	}
+	if n.Kind == KindConvention && w.Scope.Kind != ScopeBot {
 		return StatusCandidate
 	}
 	return StatusAccepted
@@ -642,7 +677,7 @@ func scanItem(rows *sql.Rows) (Item, error) {
 		acceptedAt sql.NullString
 	)
 	if err := rows.Scan(&it.ID, &it.Kind, &it.Body, &it.Why, &it.Scope.Kind, &it.Scope.ID,
-		&it.Author, &it.Role, &it.Status, &retiredAt, &replacedBy, &createdAt, &acceptedAt); err != nil {
+		&it.Author, &it.Role, &it.Status, &retiredAt, &replacedBy, &createdAt, &acceptedAt, &it.BotID); err != nil {
 		return Item{}, fmt.Errorf("scan item: %w", err)
 	}
 	var err error

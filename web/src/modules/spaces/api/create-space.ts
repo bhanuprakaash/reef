@@ -3,13 +3,13 @@ import { api } from '@/lib/api-client';
 import type { Space } from '@/types/api';
 
 type NewSpace = {
-  projectId: number;
+  projectId?: number;
   workItemId?: number | null;
   name: string;
   team?: string;
-  backend?: string;
-  permissionMode?: string;
-  teammateId?: number;
+  botId?: number;
+  botIds?: number[];
+  coordinatorBotId?: number;
   kind?: Space['kind'];
 };
 

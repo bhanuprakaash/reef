@@ -1,27 +1,27 @@
 import { useNavigate } from 'react-router';
-import { useTeammates } from '@/lib/api/get-teammates';
+import { useBots } from '@/lib/api/get-bots';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { GroupAvatar } from '@/components/creature';
 
-type Props = { projectId: number; onClose: () => void };
+type Props = { projectId?: number; onClose: () => void };
 
 export function NewConversationForm({ projectId, onClose }: Props) {
-  const teammates = useTeammates();
+  const bots = useBots();
   const create = useStartConversation();
   const navigate = useNavigate();
 
   return (
     <div className="space-y-3.5">
-      {teammates.data?.length === 0 && <p className="text-sm text-muted">No Teammates yet</p>}
+      {bots.data?.length === 0 && <p className="text-sm text-muted">No Bots yet</p>}
       <div className="grid grid-cols-2 gap-2">
-        {teammates.data?.map((t) => (
+        {bots.data?.map((t) => (
           <button
             key={t.id}
             type="button"
             disabled={create.isPending}
             onClick={() => {
               create.mutate(
-                { projectId, teammate: t },
+                { projectId, bot: t },
                 {
                   onSuccess: (space) => {
                     onClose();
@@ -32,13 +32,13 @@ export function NewConversationForm({ projectId, onClose }: Props) {
             }}
             className="flex min-w-0 items-center gap-2 rounded-menu border border-line p-2.5 text-left text-sm text-soft outline-none hover:text-fg focus-visible:ring-3 focus-visible:ring-ring"
           >
-            <GroupAvatar roles={[t.name]} faces={{ [t.name]: t }} size={26} />
+            <GroupAvatar roles={[t.id]} faces={{ [t.id]: t }} size={26} />
             <span className="truncate">{t.name}</span>
           </button>
         ))}
       </div>
-      {(teammates.isError || create.isError) && (
-        <p className="text-sm text-danger">{(teammates.error ?? create.error)?.message}</p>
+      {(bots.isError || create.isError) && (
+        <p className="text-sm text-danger">{(bots.error ?? create.error)?.message}</p>
       )}
     </div>
   );

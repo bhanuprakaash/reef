@@ -2,9 +2,9 @@ import type { Turn } from '@/types/api';
 import type { Thread } from '@/modules/spaces/utils/group-threads';
 
 // The bubble a checkpoint's rollback icon hangs on: the last top-level message
-// the checkpointed turn's own role posted. Turns of a Space run serially, so
+// the checkpointed turn's own Bot posted. Turns of a Space run serially, so
 // the turn's output is what sits between its start and the next turn's. A
-// checkpoint whose role posted no such message anchors nowhere.
+// checkpoint whose Bot posted no such message anchors nowhere.
 export function checkpointAnchor(
   turns: Turn[],
   checkpoints: Turn[],
@@ -18,7 +18,12 @@ export function checkpointAnchor(
     let anchor: Thread['root'] | undefined;
     for (const { root } of threads) {
       const at = Date.parse(root.createdAt);
-      if (root.author === c.role && at >= start && (next === undefined || at < next)) {
+      if (
+        root.botId != null &&
+        root.botId === c.botId &&
+        at >= start &&
+        (next === undefined || at < next)
+      ) {
         anchor = root;
       }
     }

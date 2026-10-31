@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"testing"
 
@@ -20,7 +19,7 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick"}`)
 	const ref = "refs/reef/checkpoints/2"
 	if err := worktree.Checkpoint(ctx, p.Path, ref); err != nil {
 		t.Fatal(err)
@@ -32,8 +31,8 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
 		t.Fatal(err)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); !strings.Contains(body, `"id":2,`) {
-		t.Errorf("rollbackable turns of the quick session = %s, want turn 2", body)
+	if status, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); status != 200 || body != "[]" {
+		t.Errorf("rollbackable turns of the quick session = %d %s, want 200 []: it runs outside the project", status, body)
 	}
 	search, err := env.st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 2, Title: "Search"})
 	if err != nil {

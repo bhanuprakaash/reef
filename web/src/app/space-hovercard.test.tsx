@@ -32,12 +32,12 @@ const space: SpacePreview = {
   name: 'build',
   team: 'full',
   role: 'lead',
-  backend: 'claude',
-  permissionMode: 'default',
+  botId: 1,
   paused: '',
   createdAt: '',
   closedAt: null,
   movedTo: null,
+  members: [1],
   lastMessage: null,
 };
 
@@ -60,20 +60,14 @@ const files: FileDiff[] = [
   { path: 'b.txt', status: 'added', hunks: [{ header: '', lines: [{ kind: 'add', text: 'q' }] }] },
 ];
 
-const faces = { lead: undefined, developer: undefined };
+const members = { 1: { name: 'lead' }, 2: { name: 'developer', face: 'penguin' } };
 const text = (markup: string) => markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 describe('SpaceCard', () => {
   it('shows the branch, the changes and who is working', () => {
     useDiff.mockReturnValue({ data: files });
     const markup = renderToStaticMarkup(
-      <SpaceCard
-        space={space}
-        workItem={workItem}
-        faces={faces}
-        working={['developer']}
-        waiting={[]}
-      />,
+      <SpaceCard space={space} workItem={workItem} members={members} working={[2]} waiting={[]} />,
     );
     expect(text(markup)).toBe(
       ' #build Working Branch work-item/2 Changes 2 files +3 −1 lead idle developer working ',
@@ -87,7 +81,7 @@ describe('SpaceCard', () => {
       <SpaceCard
         space={{ ...space, workItemId: null }}
         workItem={undefined}
-        faces={faces}
+        members={members}
         working={[]}
         waiting={[]}
       />,
@@ -96,10 +90,24 @@ describe('SpaceCard', () => {
     expect(useDiff).not.toHaveBeenCalled();
   });
 
+  it('marks working by Bot id, so a renamed Bot and a new Bot with its old name stay apart', () => {
+    const renamed = { 7: { name: 'sally' }, 9: { name: 'sam' } };
+    const markup = renderToStaticMarkup(
+      <SpaceCard
+        space={{ ...space, workItemId: null }}
+        workItem={undefined}
+        members={renamed}
+        working={[7]}
+        waiting={[]}
+      />,
+    );
+    expect(text(markup)).toBe(' #build Working sally working sam idle ');
+  });
+
   it('says so when the Work item has no changes', () => {
     useDiff.mockReturnValue({ data: [] });
     const markup = renderToStaticMarkup(
-      <SpaceCard space={space} workItem={workItem} faces={faces} working={[]} waiting={[]} />,
+      <SpaceCard space={space} workItem={workItem} members={members} working={[]} waiting={[]} />,
     );
     expect(text(markup)).toContain('Changes No changes yet');
   });
@@ -109,19 +117,19 @@ describe('spaceState', () => {
   const open = { closedAt: null, paused: '' };
 
   it('picks the first of wrapped, paused, failed, working, waiting, idle', () => {
-    expect(spaceState({ closedAt: 'x', paused: 'cap' }, ['lead'], ['waiting'])).toEqual({
+    expect(spaceState({ closedAt: 'x', paused: 'cap' }, [1], ['waiting'])).toEqual({
       status: 'done',
       label: 'Wrapped',
     });
-    expect(spaceState({ closedAt: null, paused: 'token budget' }, ['lead'], ['waiting'])).toEqual({
+    expect(spaceState({ closedAt: null, paused: 'token budget' }, [1], ['waiting'])).toEqual({
       status: 'paused',
       label: 'Paused: token budget',
     });
-    expect(spaceState(open, ['lead'], ['waiting', 'failed'])).toEqual({
+    expect(spaceState(open, [1], ['waiting', 'failed'])).toEqual({
       status: 'failed',
       label: 'A turn failed',
     });
-    expect(spaceState(open, ['lead'], ['waiting'])).toEqual({
+    expect(spaceState(open, [1], ['waiting'])).toEqual({
       status: 'working',
       label: 'Working',
     });

@@ -9,10 +9,11 @@ import { HomePage } from '@/app/routes/home';
 import { InboxPage } from '@/app/routes/inbox';
 import { ProjectPage } from '@/app/routes/project';
 import { ReviewPage } from '@/app/routes/review';
+import { SpaceProposalPage } from '@/app/routes/space-proposal';
 import { SettingsPage } from '@/app/routes/settings';
-import { TeammatePage } from '@/app/routes/teammate';
-import { TeammatesPage } from '@/app/routes/teammates';
-import { TeamPage } from '@/app/routes/team';
+import { BotChatPage } from '@/app/routes/bot-chat';
+import { BotPage } from '@/app/routes/bot';
+import { BotsPage } from '@/app/routes/bots';
 import { TeamsPage } from '@/app/routes/teams';
 
 export const router = createBrowserRouter([
@@ -29,10 +30,11 @@ export const router = createBrowserRouter([
       { path: '/spaces/:id', element: <SpacePage /> },
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },
+      { path: '/space-proposals/:id', element: <SpaceProposalPage /> },
       { path: '/teams', element: <TeamsPage /> },
-      { path: '/teams/:name', element: <TeamPage /> },
-      { path: '/teammates', element: <TeammatesPage /> },
-      { path: '/teammates/:id', element: <TeammatePage /> },
+      { path: '/bots', element: <BotsPage /> },
+      { path: '/bots/:id', element: <BotPage /> },
+      { path: '/bots/:id/chat', element: <BotChatPage /> },
       { path: '/settings', element: <SettingsPage /> },
     ],
   },

@@ -1,39 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import type { Space, Message, Team } from '@/types/api';
+import type { SpacePreview, Message, Bot } from '@/types/api';
 import { pickSpace, pickRoot, reviewText } from './send-review';
 
-const space = (id: number, team: string): Space => ({
+const space = (id: number, members: number[]): SpacePreview => ({
   id,
   kind: 'work_item',
   projectId: 1,
   workItemId: 1,
   name: `c${id}`,
-  team,
+  team: 'solo',
   role: 'lead',
-  backend: 'claude',
-  permissionMode: 'acceptEdits',
+  botId: 1,
   paused: '',
   createdAt: '',
   closedAt: null,
   movedTo: null,
+  members,
+  lastMessage: null,
 });
 
-const team = (name: string, roles: string[]): Team => ({
-  id: 1,
+const bot = (id: number, name: string): Bot => ({
+  id,
   name,
-  responsibility: '',
-  roles: roles.map((r, i) => ({
-    teammateId: i + 1,
-    name: r,
-    lead: r === 'lead',
-    write: false,
-    backend: 'claude',
-    permissionMode: '',
-    persona: '',
-    skills: [],
-    tools: [],
-    mcp: [],
-  })),
+  write: false,
+  backend: 'claude',
+  permissionMode: '',
+  description: '',
+  skills: [],
+  tools: [],
+  mcp: [],
 });
 
 const msg = (id: number, parentId: number | null, author: string): Message => ({
@@ -63,14 +58,15 @@ describe('reviewText', () => {
 });
 
 describe('pickSpace', () => {
-  it('picks the most recent Space whose team has a developer role', () => {
-    const teams = [team('solo', ['lead']), team('full', ['lead', 'developer'])];
-    const spaces = [space(1, 'solo'), space(2, 'full'), space(3, 'full')];
-    expect(pickSpace(spaces, teams)?.id).toBe(3);
+  const bots = [bot(1, 'lead'), bot(2, 'developer')];
+
+  it('picks the most recent Space with a developer among its members, whatever its Crew', () => {
+    const spaces = [space(1, [1]), space(2, [1, 2]), space(3, [1, 2])];
+    expect(pickSpace(spaces, bots)?.id).toBe(3);
   });
 
-  it('returns undefined when no Space has a developer role', () => {
-    expect(pickSpace([space(1, 'solo')], [team('solo', ['lead'])])).toBeUndefined();
+  it('returns undefined when no Space has a developer member', () => {
+    expect(pickSpace([space(1, [1])], bots)).toBeUndefined();
   });
 });
 

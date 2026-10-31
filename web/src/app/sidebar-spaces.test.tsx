@@ -4,10 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SpacePreview, WorkItem, Project } from '@/types/api';
 import { SidebarSpaces } from './sidebar-spaces';
 
-const { useQuery, useWorkItems, useTeams, useInbox, useRunningTurns } = vi.hoisted(() => ({
+const { useQuery, useWorkItems, useInbox, useRunningTurns } = vi.hoisted(() => ({
   useQuery: vi.fn(),
   useWorkItems: vi.fn(),
-  useTeams: vi.fn(),
   useInbox: vi.fn(),
   useRunningTurns: vi.fn(),
 }));
@@ -20,11 +19,21 @@ vi.mock('@/modules/work-items/api/get-work-items', () => ({
   workItemsQuery: { queryKey: ['work-items'] },
   useWorkItems,
 }));
-vi.mock('@/lib/api/get-teams', () => ({ useTeams }));
+vi.mock('@/lib/api/pins', () => ({
+  pinKindOf: () => 'space',
+  useTogglePin: () => ({ pinned: false, toggle: { isPending: false, mutate: vi.fn() } }),
+}));
 vi.mock('@/modules/inbox/api/get-inbox', () => ({ useInbox }));
 vi.mock('@/modules/spaces/api/get-turns', () => ({ useRunningTurns }));
 
-const project: Project = { id: 1, name: 'reef', path: '/reef', baseBranch: 'main', createdAt: '' };
+const project: Project = {
+  id: 1,
+  name: 'reef',
+  path: '/reef',
+  purpose: '',
+  baseBranch: 'main',
+  createdAt: '',
+};
 
 const workItem: WorkItem = {
   id: 2,
@@ -52,31 +61,30 @@ const space: SpacePreview = {
   name: 'build',
   team: 'core',
   role: 'lead',
-  backend: 'claude',
-  permissionMode: 'default',
+  botId: 1,
   paused: '',
   createdAt: '',
   closedAt: null,
   movedTo: null,
+  members: [1],
   lastMessage: null,
 };
 
-function render(item: WorkItem = workItem) {
+function render(item: WorkItem = workItem, inProject: Project | null = project) {
   useQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => ({
     data: queryKey[0] === 'spaces' ? [space] : [item],
   }));
   useWorkItems.mockReturnValue({ data: [item] });
-  useTeams.mockReturnValue({ data: [] });
   useInbox.mockReturnValue({ data: [] });
   return renderToStaticMarkup(
     <MemoryRouter>
-      <SidebarSpaces project={project} query="" />
+      <SidebarSpaces project={inProject ?? undefined} />
     </MemoryRouter>,
   );
 }
 
 describe('SidebarSpaces', () => {
-  it('shows a working tooltip on a Space whose teammate is running', () => {
+  it('shows a working tooltip on a Space whose bot is running', () => {
     useRunningTurns.mockReturnValue({
       data: [{ spaceId: 4, role: 'developer', status: 'running' }],
     });
@@ -99,5 +107,23 @@ describe('SidebarSpaces', () => {
 
     expect(render()).toContain('#build');
     expect(render({ ...workItem, status: 'review' })).not.toContain('#build');
+  });
+
+  it('asks for the Spaces of the project, and for all of them under All projects', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+    useQuery.mockClear();
+
+    render(workItem, project);
+    render(workItem, null);
+
+    const keys = useQuery.mock.calls.map((call: { queryKey: string[] }[]) => call[0]?.queryKey);
+    expect(keys).toContainEqual(['spaces', 'project', 1]);
+    expect(keys).toContainEqual(['spaces']);
+  });
+
+  it('labels the section All projects when no project is picked', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+
+    expect(render(workItem, null)).toContain('aria-label="All projects"');
   });
 });

@@ -9,6 +9,7 @@ export const kindLabels: Record<InboxItem['kind'], string> = {
   sub_item: 'Sub-item',
   proposed: 'Proposed',
   started: 'Started',
+  space_proposed: 'Space proposed',
 };
 
 export function itemKey(i: InboxItem): string {

@@ -119,8 +119,8 @@ func TestRemember_Status(t *testing.T) {
 		want  string
 	}{
 		{"convention by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindConvention, false, "candidate"},
-		{"convention by architect", Writer{Author: "bo", Role: "architect", Scope: project}, KindConvention, false, "accepted"},
-		{"convention by lead", Writer{Author: "di", Role: "lead", Scope: project}, KindConvention, false, "accepted"},
+		{"convention by architect", Writer{Author: "bo", Role: "architect", Scope: project}, KindConvention, false, "candidate"},
+		{"convention by lead", Writer{Author: "di", Role: "lead", Scope: project}, KindConvention, false, "candidate"},
 		{"convention by user", Writer{Author: "user", Scope: project}, KindConvention, false, "accepted"},
 		{"decision by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindDecision, false, "accepted"},
 		{"decision by tester", Writer{Author: "cy", Role: "tester", Scope: project}, KindDecision, false, "accepted"},
@@ -591,8 +591,8 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 	if _, err := Open(db, nil); err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
-	if n := count(t, db, `SELECT version FROM memory_version`); n != 3 {
-		t.Fatalf("version = %d, want 3", n)
+	if n := count(t, db, `SELECT version FROM memory_version`); n != 5 {
+		t.Fatalf("version = %d, want 5", n)
 	}
 	if n := count(t, db, `SELECT count(*) FROM memory_version`); n != 1 {
 		t.Fatalf("version rows = %d, want 1", n)
@@ -641,7 +641,7 @@ func TestOpen_RefusesNewerMemorySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Open(db, nil)
-	want := "memory tables are newer than this reef (version 99, this reef knows 3)"
+	want := "memory tables are newer than this reef (version 99, this reef knows 5)"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Open err = %v, want it to contain %q", err, want)
 	}
@@ -725,5 +725,41 @@ func TestRescope_MovesLiveItemsOfOneScope(t *testing.T) {
 	}
 	if _, err := s.Rescope(ctx, from, Ref{Kind: "nowhere", ID: "1"}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Rescope to an unknown kind = %v, want ErrInvalid", err)
+	}
+}
+
+func TestRemember_KeepsBotID(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	botID := int64(5)
+	w := writer()
+	w.BotID = &botID
+	res, err := s.Remember(ctx, w, Note{Kind: KindFact, Body: "uses sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read(ctx, res.Item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.BotID == nil || *got.BotID != 5 || got.Author != "ada" {
+		t.Fatalf("item = %+v", got)
+	}
+}
+
+func TestAbout_OnlyProjectShelves(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	about := []Ref{{Kind: ScopeProject, ID: "2"}}
+	for _, scope := range []Ref{{Kind: ScopeProject, ID: "1"}, {Kind: ScopeBot, ID: "3"}, {Kind: ScopeConversation, ID: "4"}} {
+		w := writer()
+		w.Scope = scope
+		if _, err := s.Remember(ctx, w, Note{Kind: KindFact, Body: "on " + scope.Kind, About: about}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.About(ctx, about[0])
+	if err != nil || len(got) != 1 || got[0].Body != "on project" {
+		t.Errorf("About = %+v, %v, want only the project-shelf item", got, err)
 	}
 }

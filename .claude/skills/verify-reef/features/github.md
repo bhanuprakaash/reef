@@ -2,37 +2,37 @@
 
 `reef serve` polls `gh pr view` for each work item with a worktree, every `REEF_GH_INTERVAL`,
 and posts a `reef` note in the work item's active Space when the PR appears, changes
-state, or a check run finishes. A check run that finishes failed also wakes the `developer`
-role in that Space, once per run, so it can look at the failure without the user pasting
-in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decision 48).
+state, or a check run finishes. A check run that finishes failed also wakes the Space's
+coordinator (the lead), once per run, so it can look at the failure without the user pasting
+in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decisions 48 and 156).
 
 ## Sub-features
 
 - `pr-note` a fake `gh` reporting an open PR: the work item's Space gets one `PR #N open: <url>` note.
 - `pr-repeat` the same PR answer on a later poll posts nothing more.
 - `check-success` a finished successful check posts one note naming the check.
-- `check-failed-wake` a finished failed check posts a note and wakes the `developer` role: the turn's `wake_text` names the PR and the check, plus the tail of `gh run view <run id> --log-failed`.
+- `check-failed-wake` a finished failed check posts a note and wakes the Space coordinator (the `lead`): the turn's `wake_text` names the PR and the check, plus the tail of `gh run view <run id> --log-failed`.
 - `restart-no-repeat` a restart of `reef serve` does not repeat the note or the wake.
-- `check-rerun-wakes-again` the same check name finishing failed again, with a new run id, posts a new note and wakes the developer again.
-- `solo-note-only` a work item on the `solo` team (no `developer` role) gets the failed-check note and no turn runs.
+- `check-rerun-wakes-again` the same check name finishing failed again, with a new run id, posts a new note and wakes the lead again.
+- `solo-note-wakes-lead` a work item on the `solo` team gets the failed-check note, and its lead (the coordinator) is woken.
 - `two-runs-same-name-both-noted` a rollup with two check runs under the same name (a matrix job, two workflows) notes both, once each, across repeat polls.
 - `wake-retries-after-busy` a failed check on a paused Space still posts its note; the busy cause is logged once, and the wake runs once the Space is no longer paused.
 - `no-gh-logged-once` with no `gh` on `PATH`, the server keeps running, posts nothing, and logs the cause once, not every poll.
 - `hop-cap` the wake is attributed to an author other than the user, so it counts as a hop like
-  any agent-originated wake: a run of distinct failed checks, one per poll, wakes the developer
-  up to `store.HopCap` times, then the next one is noted but pauses the Space at the hop cap
-  instead of waking it again.
+  any agent-originated wake: a run of distinct failed checks, one per poll, wakes the coordinator
+  up to `store.HopCap` times, counting every agent turn of the Space (the scripted lead hands one wake to the
+  architect), then the next one is noted but pauses the Space at the hop cap instead of waking it again.
 - `lost-note-no-space` a PR that opens while the work item has a worktree but no Space yet is
   not recorded as posted (no `work_item_github` row), so it is not lost; once the first Space
   exists, the next poll posts it, once.
-- `many-failed-checks-one-wake` a rollup with two failed checks posts one developer wake whose
+- `many-failed-checks-one-wake` a rollup with two failed checks posts one coordinator wake whose
   `wake_text` names both, not one turn per check.
 
 ## How to get to it (user POV)
 
-- `reef team apply teams/full.json`, add a project that is a git repo, add a work item, make
+- Make the team `full` (`$H team-apply teams/full.json`, or the Bots and Teams pages), add a project that is a git repo, add a work item, make
   its worktree, open a Space on team `full`. Once the PR exists on GitHub, its status and a
-  failed check show up as `reef` notes; a failed check also starts the developer, as if the
+  failed check show up as `reef` notes; a failed check also starts the Space's lead, as if the
   user had pasted in the failure and asked it to look.
 - REST: nothing new. The poll uses `GET /work-items`, `GET /projects/{id}` and posts through
   the existing message and turn paths.
@@ -44,7 +44,7 @@ in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decisio
 Preconditions:
 
 - Baseline from the README. `ANTHROPIC_MODEL=sonnet` on every `serve-start`; the default
-  fake `claude` is enough, since the developer's turn is proven by its stored `wake_text`,
+  fake `claude` is enough, since the lead's turn is proven by its stored `wake_text`,
   not by what it replies.
 - In every Bash call set `H=.claude/skills/verify-reef/scripts/verify-reef`,
   `REEF_VERIFY_RUN=<id>`, `E=~/.reef-verify/<id>`, `S=$(cd /tmp && pwd -P)/reef-verify/<id>`

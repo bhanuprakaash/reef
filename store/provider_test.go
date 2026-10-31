@@ -77,8 +77,8 @@ func TestStore_ProviderBinAndDelete(t *testing.T) {
 	if bin, err := p.Bin(); err != nil || bin != filepath.Join(dir, "bin", "codex") {
 		t.Errorf("Bin() = %q, %v, want %s/bin/codex", bin, err, dir)
 	}
-	lead := Role{Name: "lead", Lead: true, Backend: "codex", Provider: "cx"}
-	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{lead}}); err != nil {
+	lead := Role{Name: "t-lead", Lead: true, Backend: "codex", Provider: "cx"}
+	if _, err := testApplyTeam(t, st, ctx, Team{Name: "t", Roles: []Role{lead}}); err != nil {
 		t.Fatalf("ApplyTeam with a provider: %v", err)
 	}
 	got, err := st.Team(ctx, "t")
@@ -86,18 +86,18 @@ func TestStore_ProviderBinAndDelete(t *testing.T) {
 		t.Errorf("Team roles = %+v, %v, want provider cx", got.Roles, err)
 	}
 	lead.Backend = "claude"
-	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{lead}}); !errors.Is(err, ErrInvalid) {
+	if _, err := testApplyTeam(t, st, ctx, Team{Name: "t", Roles: []Role{lead}}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("ApplyTeam with a codex provider on a claude role error = %v, want ErrInvalid", err)
 	}
 	lead.Backend, lead.Provider = "codex", "gone"
-	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{lead}}); !errors.Is(err, ErrInvalid) {
+	if _, err := testApplyTeam(t, st, ctx, Team{Name: "t", Roles: []Role{lead}}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("ApplyTeam with an unknown provider error = %v, want ErrInvalid", err)
 	}
 	err = st.DeleteProvider(ctx, "cx")
-	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by teammate t-lead") {
-		t.Errorf("DeleteProvider of a provider a role names error = %v, want ErrConflict naming teammate t-lead", err)
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by bot t-lead") {
+		t.Errorf("DeleteProvider of a provider a role names error = %v, want ErrConflict naming bot t-lead", err)
 	}
-	if _, err := st.UpdateTeammate(ctx, Teammate{ID: got.Roles[0].TeammateID, Name: "t-lead", Backend: "codex"}); err != nil {
+	if _, err := st.UpdateBot(ctx, Bot{ID: got.Roles[0].BotID, Name: "t-lead", Backend: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.DeleteProvider(ctx, "cx"); err != nil {

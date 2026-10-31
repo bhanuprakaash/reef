@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { useTeams } from '@/lib/api/get-teams';
+import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import type { Role } from '@/types/api';
@@ -15,16 +15,8 @@ function modelLabel(role: Role) {
   return known ? known.label : role.model;
 }
 
-export function MentionCard({
-  team,
-  role,
-  working,
-}: {
-  team: string;
-  role: Role;
-  working: boolean;
-}) {
-  const persona = role.persona.split('\n')[0];
+export function MentionCard({ role, working }: { role: Role; working: boolean }) {
+  const description = role.description.split('\n')[0];
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2.5">
@@ -36,13 +28,13 @@ export function MentionCard({
           </div>
         </div>
         <Link
-          to={`/teams?${new URLSearchParams({ team, role: role.name })}`}
+          to={`/bots?bot=${role.botId}`}
           className="rounded-sm text-[13px] text-soft outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-ring"
         >
           Edit
         </Link>
       </div>
-      {persona && <p className="truncate text-[13px] text-soft">{persona}</p>}
+      {description && <p className="truncate text-[13px] text-soft">{description}</p>}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">
         <dt className="text-muted">State</dt>
         <dd className="flex items-center gap-2">
@@ -64,22 +56,21 @@ export function MentionCard({
 
 export function MentionCardsProvider({
   spaceId,
-  team,
+
   children,
 }: {
   spaceId: number;
-  team: string;
+
   children: ReactNode;
 }) {
-  const teams = useTeams();
+  const members = useSpaceMembers(spaceId);
   const running = useRunningTurns();
-  const found = teams.data?.find((t) => t.name === team);
-  const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.role);
+  const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.botId);
 
   function card(name: string) {
-    const role = found?.roles.find((r) => r.name === name);
-    if (!found || !role) return null;
-    return <MentionCard team={team} role={role} working={working.includes(name)} />;
+    const role = members.data?.find((r) => r.name === name);
+    if (!role) return null;
+    return <MentionCard role={role} working={working.includes(role.botId)} />;
   }
 
   return <MentionCards.Provider value={card}>{children}</MentionCards.Provider>;

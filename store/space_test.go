@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -28,6 +30,9 @@ func TestSpace_NilTeamIsNoTeam(t *testing.T) {
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSpaceProject(ctx, id, project.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -219,7 +224,7 @@ func TestSpace_NameSteps(t *testing.T) {
 	}
 	mk := func(name string) int64 {
 		t.Helper()
-		c, err := s.CreateSpace(ctx, Space{ProjectID: p.ID, Name: name, Backend: "claude"})
+		c, err := s.CreateSpace(ctx, Space{ProjectID: p.ID, Name: name})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,10 +291,207 @@ func TestSpace_NameSteps(t *testing.T) {
 	if err := s.MarkNamePending(ctx, same); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpdateSpace(ctx, Space{ID: same, Name: "claude 02:35 PM", PermissionMode: "acceptEdits"}); err != nil {
+	if _, err := s.UpdateSpace(ctx, Space{ID: same, Name: "claude 02:35 PM"}); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := s.ClaimName(ctx, same); err != nil || !ok {
 		t.Errorf("ClaimName after an update that kept the name = %v, %v, want true", ok, err)
+	}
+}
+
+func TestSpace_RoleFollowsLeadBotRename(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	project, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateBotSpace(ctx, Space{ProjectID: project.ID, Name: "chat", Role: "sam"}, sam.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BotID == nil || *c.BotID != sam.ID || c.Role != "sam" {
+		t.Fatalf("created Space botId = %v, role = %q", c.BotID, c.Role)
+	}
+	sam.Name = "sally"
+	if _, err = s.UpdateBot(ctx, sam); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Space(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != "sally" || got.BotID == nil || *got.BotID != sam.ID {
+		t.Fatalf("renamed Space role = %q, botId = %v, want sally, %d", got.Role, got.BotID, sam.ID)
+	}
+	previews, err := s.SpacePreviews(ctx, SpaceFilter{})
+	if err != nil || len(previews) != 1 || previews[0].Role != "sally" || *previews[0].BotID != sam.ID {
+		t.Fatalf("previews = %+v, %v", previews, err)
+	}
+}
+
+func TestSpace_PreviewListsMembersLeadFirst(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ada, err := s.CreateBot(ctx, Bot{Name: "ada", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bo, err := s.CreateBot(ctx, Bot{Name: "bo", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateSpaceOf(ctx, Space{Name: "duo"}, []int64{ada.ID, bo.ID}, bo.ID); err != nil {
+		t.Fatal(err)
+	}
+	previews, err := s.SpacePreviews(ctx, SpaceFilter{})
+	if err != nil || len(previews) != 1 ||
+		!slices.Equal(previews[0].Members, []int64{bo.ID, ada.ID}) {
+		t.Fatalf("previews = %+v, %v; want members [%d %d]", previews, err, bo.ID, ada.ID)
+	}
+}
+
+func TestSpace_WithoutProjectSurvivesReopen(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot, err := s.CreateBot(ctx, Bot{Name: "ada", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat, err := s.CreateBotSpace(ctx, Space{Name: "ideas", Kind: KindConversation}, bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateBotSpace(ctx, Space{Name: "scratch"}, bot.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateMessage(ctx, Message{SpaceID: chat.ID, Author: "user", Body: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	spaces, err := s.Spaces(ctx, SpaceFilter{})
+	if err != nil || len(spaces) != 2 ||
+		spaces[0].ID != 1 || spaces[0].Name != "ideas" || spaces[0].Kind != KindConversation || spaces[0].ProjectID != 0 ||
+		spaces[1].ID != 2 || spaces[1].Name != "scratch" || spaces[1].Kind != KindFree || spaces[1].ProjectID != 0 {
+		t.Fatalf("Spaces() = %+v, %v, want conversation 1 and free Space 2, both without a project", spaces, err)
+	}
+	msgs, err := s.Messages(ctx, chat.ID, 0)
+	if err != nil || len(msgs) != 1 || msgs[0].Body != "hello" {
+		t.Errorf("Messages(%d) = %+v, %v, want the one message hello", chat.ID, msgs, err)
+	}
+}
+
+func TestSpace_FilterByProjectUsesAssociation(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for _, name := range []string{"shop", "blog"} {
+		if _, err := s.CreateProject(ctx, Project{Name: name, Path: "/tmp/" + name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bot, err := s.CreateBot(ctx, Bot{Name: "ada", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []Space{
+		{Name: "global", Kind: KindConversation},
+		{Name: "in shop", Kind: KindConversation, ProjectID: 1},
+		{Name: "in blog", Kind: KindFree, ProjectID: 2},
+	} {
+		if _, err := s.CreateBotSpace(ctx, c, bot.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.AddSpaceProject(ctx, 1, 2, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddSpaceProject(ctx, 1, 2, nil); err != nil {
+		t.Fatalf("adding the same project twice: %v", err)
+	}
+
+	projectNames := func(projectID int64) []string {
+		spaces, err := s.Spaces(ctx, SpaceFilter{ProjectID: &projectID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var names []string
+		for _, c := range spaces {
+			names = append(names, c.Name)
+		}
+		return names
+	}
+	if got, want := projectNames(1), []string{"in shop"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Spaces of project 1 = %v, want %v", got, want)
+	}
+	if got, want := projectNames(2), []string{"global", "in blog"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Spaces of project 2 = %v, want %v", got, want)
+	}
+
+	if err := s.RemoveSpaceProject(ctx, 1, 2, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := projectNames(2); !reflect.DeepEqual(got, []string{"in blog"}) {
+		t.Errorf("Spaces of project 2 after remove = %v, want [in blog]", got)
+	}
+	global, err := s.Space(ctx, 1)
+	if err != nil || global.ProjectID != 0 {
+		t.Errorf("Space 1 after remove = %+v, %v, want no project", global, err)
+	}
+}
+
+func TestSpace_WorkItemSpaceKeepsItsProject(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "login"}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	if _, err := s.CreateSpace(ctx, Space{Name: "login", WorkItemID: &one}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("work item Space with no project: err = %v, want ErrInvalid", err)
+	}
+	c, err := s.CreateSpace(ctx, Space{Name: "login", ProjectID: 1, WorkItemID: &one})
+	if err != nil || c.ProjectID != 1 {
+		t.Fatalf("CreateSpace = %+v, %v, want project 1", c, err)
+	}
+	if err := s.RemoveSpaceProject(ctx, c.ID, 1, nil); !errors.Is(err, ErrInvalid) {
+		t.Errorf("RemoveSpaceProject on a work item Space: err = %v, want ErrInvalid", err)
 	}
 }

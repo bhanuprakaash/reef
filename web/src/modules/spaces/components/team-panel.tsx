@@ -1,6 +1,10 @@
+import { Link } from 'react-router';
+import { useSetCoordinator } from '@/modules/spaces/api/set-coordinator';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
-import type { Role } from '@/types/api';
+import { SpaceProjects } from '@/modules/spaces/components/space-projects';
+import type { Project, Role } from '@/types/api';
+import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
 import { Creature, type CreatureState } from '@/components/creature';
@@ -9,7 +13,8 @@ type Props = {
   spaceId: number;
   workItemId: number | null;
   roles: Role[];
-  working: string | null;
+  projects: Project[];
+  working: number | null;
   brief?: string;
   onClose: () => void;
 };
@@ -24,22 +29,31 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
-export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose }: Props) {
+export function TeamPanel({
+  spaceId,
+  workItemId,
+  roles,
+  projects,
+  working,
+  brief,
+  onClose,
+}: Props) {
   const inspector = useInspector(spaceId, true);
+  const setCoordinator = useSetCoordinator(spaceId);
 
   function stateOf(role: Role): CreatureState {
-    if (role.name === working) return 'working';
+    if (role.botId === working) return 'working';
     return role.lead ? 'idle' : 'asleep';
   }
 
   return (
-    <aside aria-label="Team" className="space-y-6">
+    <aside aria-label="Bots" className="space-y-6">
       <div>
         <div className="mb-2 flex items-center">
-          <h2 className="text-[13px] text-muted">Team</h2>
+          <h2 className="text-[13px] text-muted">Bots</h2>
           <button
             type="button"
-            aria-label="Close team"
+            aria-label="Close Bots"
             onClick={onClose}
             className="ml-auto flex size-8 items-center justify-center rounded-field text-soft hover:bg-card max-md:hidden"
           >
@@ -60,10 +74,10 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
         <ul className="space-y-0.5">
           {roles.map((role) => {
             const state = stateOf(role);
-            const usage = inspector.data?.roles.find((r) => r.role === role.name)?.usage;
+            const usage = inspector.data?.roles.find((r) => r.botId === role.botId)?.usage;
             return (
               <li
-                key={role.name}
+                key={role.botId}
                 className={`flex items-center gap-3 rounded-field px-1.5 py-2 ${state === 'working' ? 'bg-card' : ''}`}
               >
                 <Creature look={role} state={state} size={30} animate />
@@ -71,8 +85,10 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
                   <span
                     className={`flex items-center gap-2 text-[14.5px] ${state === 'asleep' ? 'text-muted' : ''}`}
                   >
-                    <span className="truncate capitalize">{role.name}</span>
-                    {role.lead && <Chip className="h-5 px-2 text-[11px]">lead</Chip>}
+                    <Link to={`/bots?bot=${role.botId}`} className="truncate capitalize">
+                      {role.name}
+                    </Link>
+                    {role.lead && <Chip className="h-5 px-2 text-[11px]">coordinator</Chip>}
                   </span>
                   <span className="block text-[12.5px] text-muted">
                     {[backendLabel[role.backend] ?? role.backend, stateLabel[state]]
@@ -80,6 +96,16 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
                       .join(' · ')}
                   </span>
                 </span>
+                {!role.lead && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={setCoordinator.isPending}
+                    onClick={() => setCoordinator.mutate(role.botId)}
+                  >
+                    Make coordinator
+                  </Button>
+                )}
                 {usage && (
                   <span className="text-[12.5px] tabular-nums text-muted">
                     {formatTokens(usage.inputTokens + usage.outputTokens)} tokens
@@ -89,7 +115,11 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
             );
           })}
         </ul>
+        {setCoordinator.isError && (
+          <p className="mt-1.5 text-sm text-danger">{setCoordinator.error.message}</p>
+        )}
       </div>
+      <SpaceProjects spaceId={spaceId} projects={projects} readOnly={workItemId !== null} />
       {workItemId !== null && (
         <div>
           <h2 className="mb-1.5 text-[13px] text-muted">Brief</h2>

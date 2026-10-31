@@ -39,13 +39,14 @@ type (
 		About         []string `json:"about,omitempty" jsonschema:"what it is about, each as kind:id, such as work_item:3"`
 		Replaces      []int64  `json:"replaces,omitempty" jsonschema:"ids of accepted items this one amends or replaces; they are retired"`
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
-		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or teammate (you, on every work item)"`
+		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or bot (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
+		ProjectID     int64    `json:"projectId,omitempty" jsonschema:"with scope project, which associated Project to keep it with; default the first"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
-		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or teammate; omit for all you can read"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or bot; omit for all you can read"`
 	}
 	readMemoryIn struct {
 		ID int64 `json:"id" jsonschema:"memory id"`
@@ -62,6 +63,7 @@ type (
 		Scope      string     `json:"scope"`
 		Author     string     `json:"author"`
 		Role       string     `json:"role"`
+		BotID      *int64     `json:"botId"`
 		Status     string     `json:"status"`
 		RetiredAt  *time.Time `json:"retiredAt"`
 		ReplacedBy *int64     `json:"replacedBy"`
@@ -108,8 +110,8 @@ type (
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
 	directIn struct {
-		To   string `json:"to" jsonschema:"exactly one teammate role"`
-		Body string `json:"body" jsonschema:"the private message for that teammate"`
+		To   string `json:"to" jsonschema:"exactly one bot role"`
+		Body string `json:"body" jsonschema:"the private message for that bot"`
 	}
 	directListIn struct {
 		After int64 `json:"after,omitempty" jsonschema:"only direct messages with a larger id"`
@@ -119,7 +121,7 @@ type (
 	}
 	wrapIn struct {
 		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, teammate, or team for a team lead), replaces (ids of live items it replaces)"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, bot, or team for a team lead), replaces (ids of live items it replaces)"`
 		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
@@ -139,6 +141,11 @@ type (
 		Title       string   `json:"title" jsonschema:"what the work item is, in one line"`
 		Description string   `json:"description" jsonschema:"what to do and why"`
 		Acceptance  []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+	}
+	proposeSpaceIn struct {
+		Name          string  `json:"name" jsonschema:"what the Space is for, in a few words"`
+		BotIDs        []int64 `json:"botIds" jsonschema:"ids of the Bots to put in the Space, from find_bots"`
+		CoordinatorID int64   `json:"coordinatorBotId,omitempty" jsonschema:"the Bot that gets messages that mention nobody; default the first Bot"`
 	}
 	subItemIn struct {
 		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
@@ -171,12 +178,36 @@ type (
 		Ref  string `json:"ref" jsonschema:"a ref from browser_snapshot, such as e12"`
 		Text string `json:"text" jsonschema:"the text to type"`
 	}
+	findBotsIn struct {
+		Query string  `json:"query,omitempty" jsonschema:"words describing the expertise you need; omit to list every other Bot"`
+		IDs   []int64 `json:"ids,omitempty" jsonschema:"Bot ids you already hold, to check each still exists"`
+	}
+	botCard struct {
+		ID           int64         `json:"id"`
+		Name         string        `json:"name,omitempty"`
+		Description  string        `json:"description,omitempty"`
+		Missing      bool          `json:"missing,omitempty"`
+		Capabilities *capabilities `json:"capabilities,omitempty"`
+	}
+	capabilities struct {
+		Backend        string    `json:"backend"`
+		Model          string    `json:"model,omitempty"`
+		Write          bool      `json:"write"`
+		PermissionMode string    `json:"permissionMode,omitempty"`
+		Skills         []string  `json:"skills"`
+		Tools          []string  `json:"tools"`
+		MCP            []mcpView `json:"mcp"`
+	}
+	findBotsOut struct {
+		Note string    `json:"note"`
+		Bots []botCard `json:"bots"`
+	}
 	browserTextOut struct {
 		Text string `json:"text"`
 	}
 )
 
-// NewMCP returns the MCP server for one teammate: tok names the Space it
+// NewMCP returns the MCP server for one bot: tok names the Space it
 // works in, the role it speaks as and, through the Space, the work item.
 // dataDir is the Reef data folder, where the Reef app's browser socket is.
 func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) *mcp.Server {
@@ -192,9 +223,8 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"the work goes, not progress, proof or a won't-fix list. The default scope keeps it " +
 			"on this work item, free Space or direct conversation, whichever you are in (a " +
 			"conversation item is found only with recall), project on every work item of the project, " +
-			"teammate on you across work items. Pass replaces when it amends or replaces " +
-			"earlier items: they are retired. A convention from a role other than architect " +
-			"or lead waits for the user's approval.",
+			"bot on you across work items. Pass replaces when it amends or replaces " +
+			"earlier items: they are retired. Shared conventions wait for the user's approval.",
 	}, m.remember)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "recall",
@@ -216,13 +246,20 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"Give root, a top-level message id, to read just that message and its replies.",
 	}, m.readThread)
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "find_bots",
+		Description: "Find other Bots by expertise, or check that Bot ids you hold still exist. " +
+			"Each result has the Bot's stable id, name, description and configured capabilities. " +
+			"Finding a Bot adds it to no Space, gives it nothing to do and grants no access: " +
+			"recommend it to the user, who decides.",
+	}, m.findBots)
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "post_to_space",
 		Description: "Post a message to this Space as yourself. Start a line with @name to wake " +
-			"that teammate when your turn ends; a post with no such line wakes no one.",
+			"that bot when your turn ends; a post with no such line wakes no one.",
 	}, m.postToSpace)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "send_to_role",
-		Description: "Send a private message to exactly one teammate. The teammate's ordinary " +
+		Description: "Send a private message to exactly one bot. The bot's ordinary " +
 			"reply comes back privately once; use send_to_role again to continue.",
 	}, m.sendToRole)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -236,7 +273,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
 			"decisions, open questions). items are memory items made in this Space that " +
 			"are not saved with remember yet, each with a kind, body, why, a scope " +
-			"(work_item by default; project, teammate, or team when you are the team lead: " +
+			"(work_item by default; project, bot, or team when you are the team lead: " +
 			"team items wait for the user) and replaces for earlier items it replaces. " +
 			"retire lists ids of live memory items that are stale or duplicate.",
 	}, m.proposeWrap)
@@ -260,6 +297,12 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"responsibility fits it best suggested. The user decides whether and when to queue it; " +
 			"a proposal never starts work.",
 	}, m.proposeWorkItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_space",
+		Description: "Propose a new Space with participants and a coordinator. It lands in the " +
+			"user's inbox; the user accepts or changes the selection before the Space is created. " +
+			"A proposal creates nothing and grants no access.",
+	}, m.proposeSpace)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sub_items",
 		Description: "List this work item's sub-items with their status, oldest first.",
@@ -314,7 +357,24 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "List the browser pane's network requests since the last navigation, " +
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
+	m.registerProjectTools(srv)
 	return srv
+}
+
+func (m *mcpServer) currentName(ctx context.Context) (string, error) {
+	if m.tok.BotID == nil {
+		return "", fmt.Errorf("%w: token has no Bot ID", store.ErrInvalid)
+	}
+	team, err := m.st.SpaceTeam(ctx, m.tok.SpaceID)
+	if err != nil {
+		return "", err
+	}
+	for _, role := range team.Roles {
+		if role.BotID == *m.tok.BotID {
+			return role.Name, nil
+		}
+	}
+	return "", fmt.Errorf("%w: token Bot is not a Space member", store.ErrInvalid)
 }
 
 func (m *mcpServer) workItem(ctx context.Context) (store.WorkItem, error) {
@@ -345,11 +405,15 @@ func (m *mcpServer) getBrief(
 func (m *mcpServer) remember(
 	ctx context.Context, _ *mcp.CallToolRequest, in rememberIn,
 ) (*mcp.CallToolResult, rememberOut, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
-	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := m.withProjects(ctx, space.BotScopes(c, *m.tok.BotID))
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
@@ -357,13 +421,16 @@ func (m *mcpServer) remember(
 	case "":
 		in.Scope = scopes[0].Kind
 	case memory.ScopeWorkItem, memory.ScopeSpace, memory.ScopeConversation, memory.ScopeProject,
-		memory.ScopeTeammate:
+		memory.ScopeBot:
 	default:
 		return nil, rememberOut{}, fmt.Errorf(
-			"%w: scope %q is not work_item, space, conversation, project or teammate",
+			"%w: scope %q is not work_item, space, conversation, project or bot",
 			store.ErrInvalid, in.Scope)
 	}
-	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
+	i := slices.IndexFunc(scopes, func(r memory.Ref) bool {
+		return r.Kind == in.Scope && (in.Scope != memory.ScopeProject || in.ProjectID == 0 ||
+			r.ID == strconv.FormatInt(in.ProjectID, 10))
+	})
 	if i < 0 && in.Scope == memory.ScopeWorkItem {
 		return nil, rememberOut{}, errors.New("this Space has no work item")
 	}
@@ -385,7 +452,7 @@ func (m *mcpServer) remember(
 	}
 	res, err := m.ms.Remember(ctx,
 		memory.Writer{
-			Author: m.tok.Role, Role: m.tok.Role, Scope: scopes[i],
+			Author: name, Role: name, BotID: m.tok.BotID, Scope: scopes[i],
 			Links: []memory.Link{{
 				Rel: memory.RelSource, ToKind: "space", ToID: strconv.FormatInt(m.tok.SpaceID, 10),
 			}},
@@ -405,6 +472,10 @@ func (m *mcpServer) remember(
 func (m *mcpServer) recall(
 	ctx context.Context, _ *mcp.CallToolRequest, in recallIn,
 ) (*mcp.CallToolResult, recallOut, error) {
+	_, err := m.currentName(ctx)
+	if err != nil {
+		return nil, recallOut{}, err
+	}
 	if in.Query == "" {
 		return nil, recallOut{}, errors.New("query is required")
 	}
@@ -412,7 +483,10 @@ func (m *mcpServer) recall(
 	if err != nil {
 		return nil, recallOut{}, err
 	}
-	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := space.ReadBotScopes(ctx, m.st, c, *m.tok.BotID)
+	if err == nil {
+		scopes, err = m.withProjects(ctx, scopes)
+	}
 	if err != nil {
 		return nil, recallOut{}, err
 	}
@@ -439,11 +513,18 @@ func (m *mcpServer) recall(
 func (m *mcpServer) readMemory(
 	ctx context.Context, _ *mcp.CallToolRequest, in readMemoryIn,
 ) (*mcp.CallToolResult, itemOut, error) {
+	_, err := m.currentName(ctx)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
-	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := space.ReadBotScopes(ctx, m.st, c, *m.tok.BotID)
+	if err == nil {
+		scopes, err = m.withProjects(ctx, scopes)
+	}
 	if err != nil {
 		return nil, itemOut{}, err
 	}
@@ -468,6 +549,9 @@ func (m *mcpServer) readable(ctx context.Context, scopes []memory.Ref, id int64)
 func (m *mcpServer) searchSessions(
 	ctx context.Context, _ *mcp.CallToolRequest, in searchIn,
 ) (*mcp.CallToolResult, searchOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, searchOut{}, err
+	}
 	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, searchOut{}, err
@@ -478,13 +562,19 @@ func (m *mcpServer) searchSessions(
 	if in.Limit <= 0 {
 		in.Limit = _defaultSearchLimit
 	}
-	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.Role)
+	if m.tok.BotID == nil {
+		return nil, searchOut{}, fmt.Errorf("token has no Bot ID: %w", store.ErrInvalid)
+	}
+	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.BotID)
 	return nil, searchOut{Hits: hits}, err
 }
 
 func (m *mcpServer) readThread(
 	ctx context.Context, _ *mcp.CallToolRequest, in threadIn,
 ) (*mcp.CallToolResult, threadOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, threadOut{}, err
+	}
 	c, err := m.st.Space(ctx, in.SpaceID)
 	if err != nil {
 		return nil, threadOut{}, err
@@ -509,6 +599,10 @@ func (m *mcpServer) readThread(
 func (m *mcpServer) postToSpace(
 	ctx context.Context, _ *mcp.CallToolRequest, in postIn,
 ) (*mcp.CallToolResult, store.Message, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.Message{}, err
+	}
 	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, store.Message{}, err
@@ -517,7 +611,7 @@ func (m *mcpServer) postToSpace(
 		return nil, store.Message{}, err
 	}
 	msg, err := m.st.CreateMessage(ctx, store.Message{
-		SpaceID: m.tok.SpaceID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, ParentID: in.Parent, Author: name, Body: in.Body,
 	})
 	return nil, msg, err
 }
@@ -525,8 +619,9 @@ func (m *mcpServer) postToSpace(
 func (m *mcpServer) sendToRole(
 	ctx context.Context, _ *mcp.CallToolRequest, in directIn,
 ) (*mcp.CallToolResult, store.DirectMessage, error) {
-	if in.To == m.tok.Role {
-		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.DirectMessage{}, err
 	}
 	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
@@ -551,7 +646,7 @@ func (m *mcpServer) sendToRole(
 		if t.WakeText == "" {
 			return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
 		}
-		if t.Role != m.tok.Role {
+		if t.BotID == nil || *t.BotID != *m.tok.BotID {
 			continue
 		}
 		sending = true
@@ -566,28 +661,28 @@ func (m *mcpServer) sendToRole(
 		source = woken.SourceMessageID
 	}
 	if !sending {
-		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, m.tok.Role)
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, name)
 	}
 	team, err := m.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
-	found := false
+	var recipient *int64
 	for _, role := range team.Roles {
-		name := role.Name
-		if role.Lead {
-			name = ch.Role
-		}
-		if name == in.To {
-			found = true
+		if role.Name == in.To {
+			id := role.BotID
+			recipient = &id
 			break
 		}
 	}
-	if !found {
+	if recipient == nil {
 		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this Space's team", store.ErrInvalid, in.To)
 	}
+	if *recipient == *m.tok.BotID {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
+	}
 	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: m.tok.SpaceID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
+		SpaceID: m.tok.SpaceID, SourceMessageID: source, From: name, To: in.To, FromBotID: m.tok.BotID, ToBotID: recipient, Body: in.Body,
 	})
 	return nil, dm, err
 }
@@ -595,15 +690,25 @@ func (m *mcpServer) sendToRole(
 func (m *mcpServer) readDirectMessages(
 	ctx context.Context, _ *mcp.CallToolRequest, in directListIn,
 ) (*mcp.CallToolResult, directListOut, error) {
+	if _, err := m.currentName(ctx); err != nil {
+		return nil, directListOut{}, err
+	}
 	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, directListOut{}, err
 	}
 	var msgs []store.DirectMessage
-	if ch.ActiveTurn == store.ActiveTurnWrap && m.tok.Role == ch.Role {
+	lead, err := m.isLead(ctx)
+	if err != nil {
+		return nil, directListOut{}, err
+	}
+	if ch.ActiveTurn == store.ActiveTurnWrap && lead {
 		msgs, err = m.st.DirectMessages(ctx, ch.ID, in.After)
 	} else {
-		msgs, err = m.st.DirectMessagesForRole(ctx, ch.ID, m.tok.Role, in.After)
+		if m.tok.BotID == nil {
+			return nil, directListOut{}, fmt.Errorf("token has no Bot ID: %w", store.ErrInvalid)
+		}
+		msgs, err = m.st.DirectMessagesForBot(ctx, ch.ID, *m.tok.BotID, in.After)
 	}
 	if msgs == nil {
 		msgs = []store.DirectMessage{}
@@ -614,6 +719,10 @@ func (m *mcpServer) readDirectMessages(
 func (m *mcpServer) proposeWrap(
 	ctx context.Context, _ *mcp.CallToolRequest, in wrapIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
 	if _, err := m.workItem(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
@@ -621,10 +730,7 @@ func (m *mcpServer) proposeWrap(
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
-	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
-	if err != nil {
-		return nil, wrapOut{}, err
-	}
+	scopes := space.BotScopes(c, *m.tok.BotID)
 	for i := range in.Items {
 		it := &in.Items[i]
 		if it.Scope == "" {
@@ -655,7 +761,7 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		SpaceID: m.tok.SpaceID, Role: m.tok.Role, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, Role: name, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
@@ -680,13 +786,17 @@ func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return slices.ContainsFunc(t.Roles, func(r store.Role) bool {
-		return r.Lead && r.Name == m.tok.Role
+		return r.Lead && m.tok.BotID != nil && r.BotID == *m.tok.BotID
 	}), nil
 }
 
 func (m *mcpServer) createSubItem(
 	ctx context.Context, _ *mcp.CallToolRequest, in createSubItemIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
 	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, store.WorkItem{}, err
@@ -698,7 +808,7 @@ func (m *mcpServer) createSubItem(
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
-	text := fmt.Sprintf("%s added sub-item %d to work item %d: %s", m.tok.Role, w.ID, f.ID, w.Title)
+	text := fmt.Sprintf("%s added sub-item %d to work item %d: %s", name, w.ID, f.ID, w.Title)
 	if err := m.st.AddFYI(ctx, store.KindSubItem, w.ID, text); err != nil {
 		return nil, store.WorkItem{}, err
 	}
@@ -708,13 +818,20 @@ func (m *mcpServer) createSubItem(
 func (m *mcpServer) proposeWorkItem(
 	ctx context.Context, _ *mcp.CallToolRequest, in proposeWorkItemIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
+	if c.ProjectID == 0 {
+		return nil, store.WorkItem{}, errors.New("this Space has no project, so it cannot propose a work item")
+	}
 	w := store.WorkItem{
 		ProjectID: c.ProjectID, Type: in.Type, Title: in.Title, Description: in.Description,
-		ProposedBy: m.tok.Role,
+		ProposedBy: name,
 	}
 	for _, text := range in.Acceptance {
 		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
@@ -731,7 +848,7 @@ func (m *mcpServer) proposeWorkItem(
 		return nil, store.WorkItem{}, err
 	}
 	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
-		m.tok.Role, w.ID, w.Title)
+		name, w.ID, w.Title)
 	if team.Name != "" {
 		text += fmt.Sprintf(" Suggested team: %s.", team.Name)
 	}
@@ -739,6 +856,82 @@ func (m *mcpServer) proposeWorkItem(
 		return nil, store.WorkItem{}, err
 	}
 	return nil, w, nil
+}
+
+func (m *mcpServer) proposeSpace(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeSpaceIn,
+) (*mcp.CallToolResult, store.SpaceProposal, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.SpaceProposal{}, err
+	}
+	p, err := m.st.CreateSpaceProposal(ctx, store.SpaceProposal{
+		ProposedBy: name, Name: in.Name, BotIDs: in.BotIDs, CoordinatorBotID: in.CoordinatorID,
+	})
+	return nil, p, err
+}
+
+func (m *mcpServer) findBots(
+	ctx context.Context, _ *mcp.CallToolRequest, in findBotsIn,
+) (*mcp.CallToolResult, findBotsOut, error) {
+	bots, err := m.st.Bots(ctx)
+	if err != nil {
+		return nil, findBotsOut{}, err
+	}
+	out := findBotsOut{
+		Note: "Capabilities are what each Bot is configured with, not permission for you or anyone to use them.",
+		Bots: []botCard{},
+	}
+	card := func(b store.Bot) botCard {
+		return botCard{ID: b.ID, Name: b.Name, Description: b.Description, Capabilities: &capabilities{
+			Backend: b.Backend, Model: b.Model, Write: b.Write, PermissionMode: b.PermissionMode,
+			Skills: nonNilStrings(b.Skills), Tools: nonNilStrings(b.Tools), MCP: viewMCP(b.MCPServers),
+		}}
+	}
+	if len(in.IDs) > 0 {
+		for _, id := range in.IDs {
+			i := slices.IndexFunc(bots, func(b store.Bot) bool { return b.ID == id })
+			if i < 0 {
+				out.Bots = append(out.Bots, botCard{ID: id, Missing: true})
+				continue
+			}
+			out.Bots = append(out.Bots, card(bots[i]))
+		}
+		return nil, out, nil
+	}
+	words := strings.Fields(strings.ToLower(in.Query))
+	type hit struct {
+		bot   store.Bot
+		score int
+	}
+	var hits []hit
+	for _, b := range bots {
+		if m.tok.BotID != nil && b.ID == *m.tok.BotID {
+			continue
+		}
+		text := strings.ToLower(b.Name + " " + b.Description + " " + strings.Join(b.Skills, " "))
+		score := 0
+		for _, w := range words {
+			if strings.Contains(text, w) {
+				score++
+			}
+		}
+		if len(words) == 0 || score > 0 {
+			hits = append(hits, hit{b, score})
+		}
+	}
+	slices.SortStableFunc(hits, func(a, b hit) int { return b.score - a.score })
+	for _, h := range hits {
+		out.Bots = append(out.Bots, card(h.bot))
+	}
+	return nil, out, nil
+}
+
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 func (m *mcpServer) listSubItems(
@@ -839,11 +1032,15 @@ func (m *mcpServer) subItem(ctx context.Context, id int64) (store.WorkItem, erro
 func (m *mcpServer) proposeBrief(
 	ctx context.Context, _ *mcp.CallToolRequest, in briefIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
 	if _, err := m.workItem(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		SpaceID: m.tok.SpaceID, Role: m.tok.Role, Kind: store.ProposalBrief, Brief: in.Brief,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, Role: name, Kind: store.ProposalBrief, Brief: in.Brief,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
@@ -922,7 +1119,7 @@ func toItemOut(it memory.Item) itemOut {
 	}
 	return itemOut{
 		ID: it.ID, Kind: it.Kind, Body: it.Body, Why: it.Why, Scope: refString(it.Scope),
-		Author: it.Author, Role: it.Role, Status: it.Status, RetiredAt: it.RetiredAt,
+		Author: it.Author, Role: it.Role, BotID: it.BotID, Status: it.Status, RetiredAt: it.RetiredAt,
 		ReplacedBy: it.ReplacedBy, CreatedAt: it.CreatedAt, Links: links,
 	}
 }

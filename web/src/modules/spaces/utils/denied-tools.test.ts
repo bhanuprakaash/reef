@@ -2,10 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { deniedTools, isAllowed } from './denied-tools';
 import type { InspectorTurn } from '@/types/api';
 
-function turn(id: number, role: string, calls: [string, string, string][], status = 'done') {
+function turn(
+  id: number,
+  botId: number | null,
+  calls: [string, string, string][],
+  status = 'done',
+) {
   return {
     id,
-    role,
+    role: `bot-${botId}`,
+    botId,
     status,
     toolCalls: calls.map(([name, input, result]) => ({ name, input, result })),
   } as InspectorTurn;
@@ -17,8 +23,8 @@ const disabled =
 
 describe('deniedTools', () => {
   it('finds a tool the role was not granted', () => {
-    expect(deniedTools([turn(1, 'lead', [['WebFetch', '{}', notGranted]])])).toEqual([
-      { turnId: 1, role: 'lead', pattern: 'WebFetch', needsWrite: false },
+    expect(deniedTools([turn(1, 1, [['WebFetch', '{}', notGranted]])])).toEqual([
+      { turnId: 1, botId: 1, pattern: 'WebFetch', needsWrite: false },
     ]);
   });
 
@@ -26,6 +32,7 @@ describe('deniedTools', () => {
     const nested = {
       id: 1,
       role: 'lead',
+      botId: 1,
       status: 'done',
       toolCalls: [
         {
@@ -37,7 +44,7 @@ describe('deniedTools', () => {
       ],
     } as InspectorTurn;
     expect(deniedTools([nested])).toEqual([
-      { turnId: 1, role: 'lead', pattern: 'WebFetch', needsWrite: false },
+      { turnId: 1, botId: 1, pattern: 'WebFetch', needsWrite: false },
     ]);
   });
 
@@ -50,7 +57,7 @@ describe('deniedTools', () => {
         "mkdir in '/w/out' needs approval. The path is inside the working directories for this session ('/w'), and Claude Code asks first.",
       ],
     ];
-    expect(deniedTools([turn(1, 'dev', calls)]).map((d) => d.pattern)).toEqual([
+    expect(deniedTools([turn(1, 3, calls)]).map((d) => d.pattern)).toEqual([
       'Bash(npm:*)',
       'Bash(mkdir:*)',
     ]);
@@ -60,12 +67,12 @@ describe('deniedTools', () => {
     const calls: [string, string, string][] = [
       ['Bash', '{"command":"mkdir a && git status"}', 'This command requires approval'],
     ];
-    expect(deniedTools([turn(1, 'dev', calls)])).toEqual([]);
+    expect(deniedTools([turn(1, 3, calls)])).toEqual([]);
   });
 
   it('marks a disabled edit tool as needing write access', () => {
-    expect(deniedTools([turn(1, 'tester', [['Write', '{}', disabled]])])).toEqual([
-      { turnId: 1, role: 'tester', pattern: 'Write', needsWrite: true },
+    expect(deniedTools([turn(1, 2, [['Write', '{}', disabled]])])).toEqual([
+      { turnId: 1, botId: 2, pattern: 'Write', needsWrite: true },
     ]);
   });
 
@@ -75,20 +82,20 @@ describe('deniedTools', () => {
       ['Skill', '{}', 'Error: No such tool available: Skill. Skill is disabled for this session'],
       ['Read', '{}', 'docs: This command requires approval'],
     ];
-    expect(deniedTools([turn(1, 'dev', calls)])).toEqual([]);
+    expect(deniedTools([turn(1, 3, calls)])).toEqual([]);
   });
 
-  it('keeps only each role newest turn, once the turn has ended', () => {
+  it('keeps only each Bot newest turn, once the turn has ended', () => {
     const turns = [
-      turn(1, 'lead', [['WebFetch', '{}', notGranted]]),
-      turn(2, 'lead', []),
-      turn(3, 'tester', [['WebFetch', '{}', notGranted]], 'running'),
-      turn(4, 'dev', [
+      turn(1, 1, [['WebFetch', '{}', notGranted]]),
+      turn(2, 1, []),
+      turn(3, 2, [['WebFetch', '{}', notGranted]], 'running'),
+      turn(4, 3, [
         ['WebFetch', '{}', notGranted],
         ['WebFetch', '{}', notGranted],
       ]),
     ];
-    expect(deniedTools(turns).map((d) => `${d.role}:${d.pattern}`)).toEqual(['dev:WebFetch']);
+    expect(deniedTools(turns).map((d) => `${d.botId}:${d.pattern}`)).toEqual(['3:WebFetch']);
   });
 });
 

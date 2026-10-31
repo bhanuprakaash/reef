@@ -31,7 +31,7 @@ func TestCLI_Token(t *testing.T) {
 			mustReef(t, tt.give, "project", "add", "--name", "shop")
 			mustReef(t, tt.give, "work-item", "add", "Login")
 
-			out := mustReef(t, tt.give, "token", "1", "--role", "architect")
+			out := mustReef(t, tt.give, "token", "1", "--role", "lead")
 
 			m := regexp.MustCompile(`REEF_TOKEN=([0-9a-f]{64}) `).FindStringSubmatch(out)
 			if m == nil {
@@ -49,13 +49,12 @@ func TestCLI_Token(t *testing.T) {
 			}
 			defer func() { _ = st.Close() }()
 			tok, err := st.Token(context.Background(), m[1])
-			if err != nil || tok.Role != "architect" || tok.SpaceID != 1 {
-				t.Errorf("token = %+v, %v, want role architect on Space 1", tok, err)
+			if err != nil || tok.Role != "lead" || tok.SpaceID != 1 {
+				t.Errorf("token = %+v, %v, want role lead on Space 1", tok, err)
 			}
 			ch, err := st.Space(context.Background(), 1)
-			if err != nil || ch.Name != "architect (claude code)" || ch.Role != "lead" ||
-				ch.Backend != "claude" {
-				t.Errorf("space = %+v, %v, want lead role and claude backend", ch, err)
+			if err != nil || ch.Name != "lead (claude code)" || ch.Role != "lead" {
+				t.Errorf("space = %+v, %v, want lead role", ch, err)
 			}
 		})
 	}
@@ -77,6 +76,13 @@ func TestCLI_TokenAttachesToTheActiveSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	mustReef(t, dir, "token", "1", "--role", "lead")
+	for _, name := range []string{"developer", "tester"} {
+		id := testCLIBot(t, st, name)
+		if _, err := st.AddSpaceMember(ctx, 1, *id); err != nil {
+			t.Fatal(err)
+		}
+	}
 	mustReef(t, dir, "token", "1", "--role", "developer")
 	out := mustReef(t, dir, "token", "1", "--role", "tester")
 

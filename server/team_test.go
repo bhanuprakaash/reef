@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +20,7 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "keys", Roles: []store.Role{{
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "keys", Roles: []store.Role{{
 		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
 			{Command: "my-mcp", Args: []string{"--key", "sk-secret-123"}},
 		},
@@ -52,7 +53,7 @@ func TestSpaceMembersOmitMCPServers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	ctx := context.Background()
-	_, err = st.ApplyTeam(ctx, store.Team{Name: "keys", Roles: []store.Role{{
+	_, err = testServerTeam(t, st, ctx, store.Team{Name: "keys", Roles: []store.Role{{
 		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
 			{Command: "my-mcp", Env: map[string]string{"API_KEY": "sk-secret-123"}},
 		},
@@ -63,7 +64,7 @@ func TestSpaceMembersOmitMCPServers(t *testing.T) {
 	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys", Backend: "claude"}); err != nil {
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys"}); err != nil {
 		t.Fatal(err)
 	}
 	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
@@ -84,7 +85,7 @@ func TestTeamsReturnFace(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude", Face: "otter"},
 		{Name: "tester", Backend: "claude"},
 	}})
@@ -108,7 +109,7 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	developer, err := st.CreateTeammate(context.Background(), store.Teammate{
+	developer, err := st.CreateBot(context.Background(), store.Bot{
 		Name: "developer", Backend: "claude", Write: true,
 	})
 	if err != nil {
@@ -124,15 +125,13 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 
 	status, body := do(t, http.MethodPost, ts.URL+"/teams", `{
 		"name":"release","responsibility":"Ship Reef safely.",
-		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
-		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+		"roles":[{"botId":1,"lead":true},{"botId":2}]}`)
 	if status != http.StatusCreated || !strings.Contains(body, `"responsibility":"Ship Reef safely."`) {
 		t.Fatalf("POST /teams = %d %s, want 201 with responsibility", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/teams/release", `{
 		"responsibility":"Own releases and rollback.",
-		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
-		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+		"roles":[{"botId":1,"lead":true},{"botId":2}]}`)
 	if status != http.StatusOK || !strings.Contains(body, `"responsibility":"Own releases and rollback."`) {
 		t.Fatalf("PUT /teams/release = %d %s, want 200 with updated responsibility", status, body)
 	}
@@ -146,14 +145,14 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 	}
 }
 
-func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.CreateTeam(ctx, store.Team{Name: "release", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "release", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -180,32 +179,8 @@ func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
 	res := httptest.NewRecorder()
 	(&server{st: st}).deleteTeam(res, req)
 	status, body := res.Code, strings.TrimSpace(res.Body.String())
-	want := `{"error":"conflict: team release has work item \"Ship desktop updater\" in queued"}`
-	if status != http.StatusConflict || body != want {
-		t.Errorf("DELETE /teams/release = %d %s, want 409 %s", status, body, want)
-	}
-}
-
-func TestPutTeamModel(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
-	ts := httptest.NewServer(h)
-	t.Cleanup(ts.Close)
-	t.Cleanup(h.Close)
-
-	code, body := do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[
-		{"name":"lead","lead":true,"backend":"claude","model":"opus"},
-		{"name":"developer","backend":"codex"}]}`)
-	if code != http.StatusOK || !strings.Contains(body, `"model":"opus"`) || strings.Count(body, `"model"`) != 1 {
-		t.Errorf("PUT /teams/crew = %d %s, want model opus on the lead only", code, body)
-	}
-	_, body = do(t, http.MethodGet, ts.URL+"/teams/crew", "")
-	if !strings.Contains(body, `"model":"opus"`) || strings.Count(body, `"model"`) != 1 {
-		t.Errorf("GET /teams/crew = %s, want model opus on the lead only", body)
+	if status != http.StatusNoContent || body != "" {
+		t.Errorf("DELETE /teams/release = %d %s, want 204", status, body)
 	}
 }
 
@@ -215,15 +190,15 @@ func TestSpaceTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "codex", PermissionMode: "read-only"},
-		{Name: "architect", Write: true, Backend: "claude"},
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "core", Roles: []store.Role{
+		{Name: "core-lead", Lead: true, Backend: "codex", PermissionMode: "read-only"},
+		{Name: "core-architect", Write: true, Backend: "claude"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "boss", Lead: true, Backend: "claude"},
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "crew-boss", Lead: true, Backend: "claude"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -241,13 +216,11 @@ func TestSpaceTeam(t *testing.T) {
 		wantIn     string
 	}{
 		{"no team is solo", `{"projectId":1,"name":"a"}`, 201,
-			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo"`},
-		{"team lead sets defaults", `{"projectId":1,"name":"b","team":"core"}`, 201,
-			`"backend":"codex","permissionMode":"read-only","paused":"","tokenBudget":1000000,"team":"core"`},
-		{"request overrides lead", `{"projectId":1,"name":"c","team":"core","backend":"claude"}`, 201,
-			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"core"`},
+			`"role":"lead","botId":1,"paused":"","tokenBudget":1000000,"team":"solo"`},
+		{"team lead leads the space", `{"projectId":1,"name":"b","team":"core"}`, 201,
+			`"role":"core-lead","botId":2,"paused":"","tokenBudget":1000000,"team":"core"`},
 		{"lead role names the space", `{"projectId":1,"name":"e","team":"crew"}`, 201,
-			`"name":"e","role":"boss"`},
+			`"name":"e","role":"crew-boss"`},
 		{"unknown team", `{"projectId":1,"name":"d","team":"nope"}`, 400,
 			`{"error":"invalid: unknown team nope"}`},
 	}
@@ -262,9 +235,9 @@ func TestSpaceTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
-		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
-		`{"teammateId":3,"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
+	want := `{"id":2,"name":"core","responsibility":"","roles":[{"botId":2,"name":"core-lead","lead":true,"write":false,"backend":"codex",` +
+		`"permissionMode":"read-only","description":"","skills":[],"tools":[],"mcp":[]},` +
+		`{"botId":3,"name":"core-architect","lead":false,"write":true,"backend":"claude","permissionMode":"","description":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
@@ -280,11 +253,11 @@ func TestPutTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude", Persona: "old persona", MCPServers: []agent.MCPServer{
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "crew-lead", Lead: true, Backend: "claude", Description: "old description", MCPServers: []agent.MCPServer{
 			{Command: "my-mcp", Args: []string{"--key", "sk-secret-456"}},
 		}},
-		{Name: "developer", Backend: "claude", Write: true},
+		{Name: "crew-developer", Backend: "claude", Write: true},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -294,48 +267,48 @@ func TestPutTeam(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	// A body that omits mcpServers keeps the lead's stored one, and a persona in it does not rewrite the Teammate.
-	body := `{"name":"crew","roles":[` +
-		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":[],"tools":[]},` +
-		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[]}]}`
-	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew", body)
-	if status != 200 || strings.Contains(resBody, "mcpServers") {
-		t.Fatalf("PUT /teams/crew = %d %s, want 200 without mcpServers", status, resBody)
+	// A team body names Bot ids and a lead; the Bots keep their profile.
+	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew",
+		`{"name":"crew","roles":[{"botId":2,"lead":true}]}`)
+	if status != 200 || strings.Contains(resBody, "mcpServers") || !strings.Contains(resBody, `"description":"old description"`) {
+		t.Fatalf("PUT /teams/crew = %d %s, want 200 with the lead's own description and no mcpServers", status, resBody)
 	}
 	got, err := st.Team(context.Background(), "crew")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Roles[0].Persona != "old persona" {
-		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "old persona")
-	}
-	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
-		t.Errorf("lead mcpServers = %+v, want the stored one kept", got.Roles[0].MCPServers)
+	if len(got.Roles) != 1 || len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
+		t.Errorf("crew roles = %+v, want the lead with its stored mcpServers", got.Roles)
 	}
 
 	// The same error as `reef team apply`: two leads.
-	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[`+
-		`{"name":"lead","lead":true,"backend":"claude"},{"name":"developer","lead":true,"backend":"claude"}]}`)
-	want := `{"error":"invalid: team crew needs exactly one lead role, has 2"}`
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"botId":2,"lead":true},{"botId":3,"lead":true}]}`)
+	want := `{"error":"invalid: team crew has 2 coordinator suggestions, at most one"}`
 	if status != 400 || resBody != want {
 		t.Errorf("PUT /teams/crew two leads = %d %s, want 400 %s", status, resBody, want)
 	}
 
-	// The same error as `reef team apply`: unknown backend.
-	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"name":"lead","lead":true,"backend":"gemini"}]}`)
-	want = `{"error":"role lead: invalid: backend must be claude or codex"}`
+	// The same error as `reef team apply`: unknown bot.
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"botId":99,"lead":true}]}`)
+	want = `{"error":"invalid: unknown bot 99"}`
 	if status != 400 || resBody != want {
-		t.Errorf("PUT /teams/crew bad backend = %d %s, want 400 %s", status, resBody, want)
+		t.Errorf("PUT /teams/crew unknown bot = %d %s, want 400 %s", status, resBody, want)
+	}
+
+	// Per-member configuration is refused.
+	status, _ = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"botId":2,"lead":true,"write":true}]}`)
+	if status != 400 {
+		t.Errorf("PUT /teams/crew with member config = %d, want 400", status)
 	}
 
 	// A body name that does not match the path is invalid.
-	status, _ = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"name":"other","roles":[{"name":"lead","lead":true,"backend":"claude"}]}`)
+	status, _ = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"name":"other","roles":[{"botId":2,"lead":true}]}`)
 	if status != 400 {
 		t.Errorf("PUT /teams/crew with mismatched name = %d, want 400", status)
 	}
 
 	// A name with a space or a slash, as the URL-encoded path sends it, is a clear invalid error.
-	roleBody := `{"roles":[{"name":"lead","lead":true,"backend":"claude"}]}`
+	roleBody := `{"roles":[{"botId":2,"lead":true}]}`
 	for _, path := range []string{"/teams/a%20b", "/teams/a%2Fb"} {
 		status, resBody = do(t, http.MethodPut, ts.URL+path, roleBody)
 		if status != 400 || !strings.Contains(resBody, "must be letters, digits, _ or -") {
@@ -344,100 +317,19 @@ func TestPutTeam(t *testing.T) {
 	}
 }
 
-func TestPutTeamRemoveMCP(t *testing.T) {
+func TestPutTeamRejectsMembershipMCPRemoval(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	servers := func() []agent.MCPServer {
-		return []agent.MCPServer{
-			{Command: "first-mcp", Args: []string{"--key", "sk-secret-1"}},
-			{URL: "https://mcp.example.com/sse?key=sk-secret-2"},
-		}
-	}
-	reset := func() {
-		t.Helper()
-		_, err := st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-			{Name: "lead", Lead: true, Backend: "claude", MCPServers: servers()},
-		}})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	stored := func() []agent.MCPServer {
-		t.Helper()
-		got, err := st.Team(context.Background(), "crew")
-		if err != nil {
-			t.Fatal(err)
-		}
-		return got.Roles[0].MCPServers
-	}
 	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
-	put := func(remove string) (int, string) {
-		return do(t, http.MethodPut, ts.URL+"/teams/crew",
-			`{"roles":[{"name":"lead","lead":true,"backend":"claude","mcpRemove":`+remove+`}]}`)
-	}
-
-	// Removing mcp1 by name and label drops it and keeps the url server with its config.
-	reset()
-	status, resBody := put(`[{"name":"mcp1","label":"first-mcp"}]`)
-	if status != 200 || !strings.Contains(resBody, `"mcp":[{"name":"mcp1","label":"mcp.example.com"}]`) ||
-		strings.Contains(resBody, "sk-secret") {
-		t.Fatalf("PUT /teams/crew = %d %s, want one mcp labelled mcp.example.com", status, resBody)
-	}
-	if got := stored(); len(got) != 1 || got[0].URL != "https://mcp.example.com/sse?key=sk-secret-2" {
-		t.Errorf("lead mcpServers = %+v, want only the url server", got)
-	}
-
-	// A stale label is a conflict and changes nothing.
-	reset()
-	status, resBody = put(`[{"name":"mcp1","label":"other-mcp"}]`)
-	want := `{"error":"conflict: MCP servers changed since you loaded the team; reload"}`
-	if status != 409 || resBody != want {
-		t.Errorf("PUT /teams/crew stale label = %d %s, want 409 %s", status, resBody, want)
-	}
-	if got := stored(); len(got) != 2 {
-		t.Errorf("lead mcpServers = %+v, want both kept", got)
-	}
-
-	// A server added after the window loaded the team survives the removal.
-	reset()
-	_, resBody = do(t, http.MethodGet, ts.URL+"/teams/crew", "")
-	if !strings.Contains(resBody, `"mcp":[{"name":"mcp1","label":"first-mcp"},{"name":"mcp2","label":"mcp.example.com"}]`) {
-		t.Fatalf("GET /teams/crew = %s, want two mcp labels", resBody)
-	}
-	added := append(servers(), agent.MCPServer{Command: "third-mcp", Args: []string{"--key", "sk-secret-3"}})
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude", MCPServers: added},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status, resBody = put(`[{"name":"mcp1","label":"first-mcp"}]`); status != 200 {
-		t.Fatalf("PUT /teams/crew = %d %s, want 200", status, resBody)
-	}
-	if got := stored(); len(got) != 2 || got[0].URL != "https://mcp.example.com/sse?key=sk-secret-2" ||
-		got[1].Args[1] != "sk-secret-3" {
-		t.Errorf("lead mcpServers = %+v, want the url and third servers", got)
-	}
-
-	// Removing mcp1 and mcp2 together removes exactly those two.
-	reset()
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude", MCPServers: added},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status, resBody = put(`[{"name":"mcp1","label":"first-mcp"},{"name":"mcp2","label":"mcp.example.com"}]`); status != 200 {
-		t.Fatalf("PUT /teams/crew = %d %s, want 200", status, resBody)
-	}
-	if got := stored(); len(got) != 1 || got[0].Command != "third-mcp" {
-		t.Errorf("lead mcpServers = %+v, want only the third server", got)
+	status, body := do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"botId":1,"lead":true,"mcpRemove":[]}]}`)
+	if status != http.StatusBadRequest || !strings.Contains(body, "unknown field") {
+		t.Errorf("membership MCP removal = %d %s, want bad request", status, body)
 	}
 }
 
@@ -447,8 +339,8 @@ func TestPutTeamCopyFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "crew-lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
 			{Command: "my-mcp", Args: []string{"--key", "sk-secret-789"}},
 		}},
 	}})
@@ -460,8 +352,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
-		`"persona":"","skills":[],"tools":[]}]}`
+	body := `{"roles":[{"botId":2,"lead":true}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
 	if status != 200 || strings.Contains(resBody, "mcpServers") {
 		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200 without mcpServers", status, resBody)
@@ -471,7 +362,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-789" {
-		t.Errorf("copy's lead mcpServers = %+v, want the source's kept", got.Roles[0].MCPServers)
+		t.Errorf("copy's lead mcpServers = %+v, want the Bot's kept", got.Roles[0].MCPServers)
 	}
 
 	// A copy over a name that already exists is a conflict, not a silent replace.
@@ -499,8 +390,8 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
+	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "crew-lead", Lead: true, Backend: "claude"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -510,8 +401,7 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
-		`"persona":"","skills":[],"tools":[]}]}`
+	body := `{"roles":[{"botId":2,"lead":true}]}`
 	put := func() (int, error) {
 		req, err := http.NewRequest(http.MethodPut, ts.URL+"/teams/race?from=crew", strings.NewReader(body))
 		if err != nil {
@@ -556,7 +446,7 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 	}
 }
 
-func TestPutTeamSkills(t *testing.T) {
+func TestPutBotSkills(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -585,16 +475,113 @@ func TestPutTeamSkills(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body := `{"roles":[{"name":"lead","lead":true,"backend":"claude","skills":` + tt.skills + `}]}`
-			if status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew", body); status != tt.want {
+			body := `{"name":"lead","backend":"claude","skills":` + tt.skills + `}`
+			if status, resBody := do(t, http.MethodPut, ts.URL+"/bots/1", body); status != tt.want {
 				t.Errorf("PUT skills %s = %d %s, want %d", tt.skills, status, resBody, tt.want)
 			}
 		})
 	}
 
-	body := `{"roles":[{"name":"lead","lead":true,"backend":"claude","skills":[" how ","why"]}]}`
-	if status, resBody := do(t, http.MethodPut, ts.URL+"/teams/trim", body); status != http.StatusOK ||
+	body := `{"name":"lead","backend":"claude","skills":[" how ","why"]}`
+	if status, resBody := do(t, http.MethodPut, ts.URL+"/bots/1", body); status != http.StatusOK ||
 		!strings.Contains(resBody, `"skills":["how","why"]`) {
 		t.Errorf("PUT skills with a padded name = %d %s, want 200 and the trimmed names", status, resBody)
+	}
+}
+
+func TestCrewRosterOnly(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	ann, bob, cy := *testServerBot(t, st, "ann"), *testServerBot(t, st, "bob"), *testServerBot(t, st, "cy")
+	project, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, body string) (int, string) { return do(t, http.MethodPost, ts.URL+path, body) }
+	put := func(path, body string) (int, string) { return do(t, http.MethodPut, ts.URL+path, body) }
+
+	// A Crew needs no coordinator suggestion.
+	if status, body := post("/teams", fmt.Sprintf(
+		`{"name":"duo","responsibility":"pair","roles":[{"botId":%d},{"botId":%d}]}`, ann, bob)); status != 201 {
+		t.Fatalf("POST /teams = %d %s, want 201", status, body)
+	}
+	if status, body := post("/teams", fmt.Sprintf(
+		`{"name":"trio","roles":[{"botId":%d,"lead":true},{"botId":%d},{"botId":%d}]}`, bob, ann, cy)); status != 201 {
+		t.Fatalf("POST /teams = %d %s, want 201", status, body)
+	}
+
+	// Adding a Crew puts in only the missing Bots and keeps the coordinator.
+	status, body := post("/spaces", fmt.Sprintf(`{"projectId":%d,"name":"s","team":"duo"}`, project.ID))
+	if status != 201 {
+		t.Fatalf("POST /spaces = %d %s, want 201", status, body)
+	}
+	status, body = post("/spaces/1/members", `{"crew":"trio"}`)
+	if status != 200 || strings.Count(body, `"lead":true`) != 1 || strings.Count(body, `"botId"`) != 3 ||
+		!strings.HasPrefix(body, fmt.Sprintf(`[{"botId":%d,"name":"ann","lead":true`, ann)) {
+		t.Errorf("POST /spaces/1/members crew = %d %s, want ann still leading, three members", status, body)
+	}
+
+	// A start with a user-adjusted roster and coordinator.
+	status, body = post("/spaces", fmt.Sprintf(
+		`{"projectId":%d,"name":"t","team":"trio","botIds":[%d,%d,%d],"coordinatorBotId":%d}`,
+		project.ID, bob, ann, bob, ann))
+	if status != 201 {
+		t.Fatalf("POST /spaces adjusted = %d %s, want 201", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces/2/members", "")
+	if status != 200 || strings.Count(body, `"botId"`) != 2 ||
+		!strings.HasPrefix(body, fmt.Sprintf(`[{"botId":%d,"name":"ann","lead":true`, ann)) {
+		t.Errorf("GET /spaces/2/members = %d %s, want ann leading and bob", status, body)
+	}
+
+	// Changing and deleting a Crew leaves the Bots and the Space members.
+	if status, body := put("/teams/trio", fmt.Sprintf(`{"roles":[{"botId":%d}]}`, cy)); status != 200 {
+		t.Fatalf("PUT /teams/trio = %d %s, want 200", status, body)
+	}
+	if status, body := do(t, http.MethodDelete, ts.URL+"/teams/duo", ""); status != 204 {
+		t.Fatalf("DELETE /teams/duo = %d %s, want 204", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces/1/members", "")
+	if status != 200 || strings.Count(body, `"botId"`) != 3 {
+		t.Errorf("GET /spaces/1/members after = %d %s, want three members", status, body)
+	}
+	if status, body = do(t, http.MethodGet, ts.URL+"/bots", ""); status != 200 || !strings.Contains(body, `"name":"ann"`) {
+		t.Errorf("GET /bots after = %d %s, want ann kept", status, body)
+	}
+}
+
+func TestSpaceCoordinatorChange(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	ann, bob, cy := *testServerBot(t, st, "ann"), *testServerBot(t, st, "bob"), *testServerBot(t, st, "cy")
+	post := func(path, body string) (int, string) { return do(t, http.MethodPost, ts.URL+path, body) }
+	put := func(path, body string) (int, string) { return do(t, http.MethodPut, ts.URL+path, body) }
+	status, body := post("/spaces", fmt.Sprintf(`{"name":"s","botIds":[%d,%d]}`, ann, bob))
+	if status != 201 {
+		t.Fatalf("POST /spaces = %d %s, want 201", status, body)
+	}
+	if !strings.Contains(body, `"team":""`) {
+		t.Errorf("POST /spaces of Bots = %s, want no Crew", body)
+	}
+
+	status, body = put("/spaces/1/coordinator", fmt.Sprintf(`{"botId":%d}`, bob))
+	if status != 200 || strings.Count(body, `"lead":true`) != 1 ||
+		!strings.HasPrefix(body, fmt.Sprintf(`[{"botId":%d,"name":"bob","lead":true`, bob)) {
+		t.Errorf("PUT coordinator = %d %s, want bob the only coordinator", status, body)
+	}
+	if status, body = put("/spaces/1/coordinator", fmt.Sprintf(`{"botId":%d}`, cy)); status != 400 {
+		t.Errorf("PUT coordinator of a non-member = %d %s, want 400", status, body)
+	}
+
+	// A Bot added to a Space with no members becomes its coordinator.
+	if _, err := st.CreateSpace(ctx, store.Space{Name: "empty"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, "DELETE FROM space_member WHERE space_id = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if status, body = post("/spaces/2/members", fmt.Sprintf(`{"botId":%d}`, cy)); status != 201 ||
+		!strings.Contains(body, `"lead":true`) {
+		t.Errorf("POST first member = %d %s, want the coordinator", status, body)
 	}
 }

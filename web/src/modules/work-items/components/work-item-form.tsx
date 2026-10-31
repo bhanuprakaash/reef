@@ -45,14 +45,14 @@ export function WorkItemForm({ item, onDone }: { item: WorkItem; onDone: () => v
       </label>
       {item.parentId === null && (
         <div className="space-y-1">
-          <span className="text-sm text-muted">Team</span>
+          <span className="text-sm text-muted">Crew</span>
           <Select
             className="w-full"
-            aria-label="Team"
+            aria-label="Crew"
             value={teamId === null ? '' : String(teamId)}
             onChange={(v) => setTeamId(v === '' ? null : Number(v))}
             options={[
-              { value: '', label: 'No Team' },
+              { value: '', label: 'No Crew' },
               ...(teams.data ?? []).map((t) => ({ value: String(t.id), label: t.name })),
             ]}
           />

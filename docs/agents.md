@@ -1,5 +1,7 @@
 # Agents
 
+> **Target contract:** [Product decisions 143–155](product.md#decisions) define Bots, roster-only Crews, global conversations and execution boundaries. This document describes the existing runtime until those changes are implemented; its Team term does not define the target. Use a fresh development data directory for the new model. No legacy migration or compatibility path is required, but preserve histories created by the new runtime.
+
 Reef drives coding agents through one Go interface, [`agent/agent.go`](../agent/agent.go).
 Two backends implement it: Claude Code ([`agent/claude`](../agent/claude/claude.go)) and
 Codex ([`agent/codex`](../agent/codex/codex.go)). The code is the source of truth. This doc
@@ -315,7 +317,7 @@ MCP config injection
   you haven't granted it yet"). The adapter passes `--allowedTools`, one comma-joined value (the flag is
   variadic), for the `Tools` only: a caller that wants a server's tools approved lists
   `mcp__<name>__*` in `Tools` (`reef-agent --mcp` does so for every server in its file; a
-  Space's teammate does so for `reef` only). Other tools keep the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
+  Space's bot does so for `reef` only). Other tools keep the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
   inject extra patterns, and claude rewrites other characters in tool names (`reef.mem` never
   matches), so `Start` rejects them. `DisallowedTools` goes the same way as `--disallowedTools`:
   a deny beats an allow rule in the user's or the project's `.claude/settings.json`.

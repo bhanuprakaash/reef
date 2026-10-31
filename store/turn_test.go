@@ -140,7 +140,7 @@ func TestFailRunningTurns_MissingDirectMessageDoesNotBlock(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,15 +182,16 @@ func TestFailRunningTurns_ValidDirectRecovery(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: "lead", To: "architect", Body: "do"})
+	bots := identityTestBots(t, s)
+	req, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: bots["lead"], ToBotID: bots["architect"], Body: "do"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{SpaceID: ch.ID, Role: "architect", Backend: "claude",
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: ch.ID, Role: "architect", BotID: bots["architect"], Backend: "claude",
 		WakeText: "do", DirectMessageID: req.IDRef()}); err != nil {
 		t.Fatal(err)
 	}
@@ -220,11 +221,11 @@ func TestClearStaleActiveTurns(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	stale, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "stale", Backend: "claude"})
+	stale, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "stale"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kept, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "kept", Backend: "claude"})
+	kept, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "kept"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +258,7 @@ func TestClearActiveTurnIf(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}

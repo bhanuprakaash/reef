@@ -18,7 +18,7 @@ const (
 
 const _holdKind = "hold"
 
-const _holdCols = "id, space_id, from_role, to_role, message_id, direct_message_id, text, parent, status, created_at, scopes"
+const _holdCols = "id, space_id, from_role, to_role, message_id, direct_message_id, text, parent, status, created_at, scopes, from_bot_id, to_bot_id"
 
 // Hold is a wake kept from running by a paused Space. Text is what To would run for the
 // message MessageID that From wrote, as a reply in the thread of Parent when it is set.
@@ -27,6 +27,8 @@ type Hold struct {
 	SpaceID         int64
 	From            string
 	To              string
+	FromBotID       *int64
+	ToBotID         *int64
 	MessageID       int64
 	DirectMessageID *int64
 	Text            string
@@ -44,10 +46,10 @@ func (s *Store) CreateHold(ctx context.Context, h Hold) (Hold, error) {
 		messageID = h.MessageID
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO approval (space_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO approval (space_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes, from_bot_id, to_bot_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		h.SpaceID, h.From, h.To, messageID, h.DirectMessageID, h.Text, h.Parent, _holdKind,
-		now.Format(time.RFC3339Nano), h.Scopes)
+		now.Format(time.RFC3339Nano), h.Scopes, h.FromBotID, h.ToBotID)
 	if err != nil {
 		return Hold{}, s.writeErr(ctx, "insert hold", err, ErrNotFound,
 			parent{table: "space", id: &h.SpaceID}, parent{table: "message", id: &h.MessageID})
@@ -104,7 +106,7 @@ func scanHold(r interface{ Scan(...any) error }) (Hold, error) {
 	var messageID sql.NullInt64
 	var directMessageID sql.NullInt64
 	if err := r.Scan(&h.ID, &h.SpaceID, &h.From, &h.To, &messageID, &directMessageID, &h.Text, &h.Parent,
-		&h.Status, &created, &h.Scopes); err != nil {
+		&h.Status, &created, &h.Scopes, &h.FromBotID, &h.ToBotID); err != nil {
 		return Hold{}, err
 	}
 	if messageID.Valid {

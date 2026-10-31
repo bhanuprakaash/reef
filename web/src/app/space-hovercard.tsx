@@ -1,4 +1,4 @@
-import { Creature, type CreatureState, type Faces } from '@/components/creature';
+import { Creature, type CreatureState, type Look } from '@/components/creature';
 import { Skeleton } from '@/components/skeleton';
 import { StatusDot, type Status } from '@/components/status-dot';
 import { useDiff } from '@/modules/work-items/api/get-diff';
@@ -7,7 +7,7 @@ import type { SpacePreview, WorkItem, InboxItem } from '@/types/api';
 
 export function spaceState(
   space: Pick<SpacePreview, 'closedAt' | 'paused'>,
-  working: string[],
+  working: unknown[],
   waiting: InboxItem['kind'][],
 ): { status: Status; label: string } {
   if (space.closedAt !== null) return { status: 'done', label: 'Wrapped' };
@@ -35,19 +35,18 @@ function Changes({ workItemId }: { workItemId: number }) {
 export function SpaceCard({
   space,
   workItem,
-  faces,
+  members,
   working,
   waiting,
 }: {
   space: SpacePreview;
   workItem: WorkItem | undefined;
-  faces: Faces;
-  working: string[];
+  members: Record<string, Look & { name: string }>;
+  working: (number | null | undefined)[];
   waiting: InboxItem['kind'][];
 }) {
   const state = spaceState(space, working, waiting);
-  const roles = Object.keys(faces);
-  const team = [...roles, ...working.filter((r) => !roles.includes(r))];
+  const team = Object.entries(members).map(([id, m]) => ({ ...m, id: Number(id) }));
   return (
     <div className="flex flex-col gap-3">
       <div>
@@ -67,20 +66,24 @@ export function SpaceCard({
           </dd>
         </dl>
       )}
-      <ul aria-label="Team" className="flex flex-col gap-1.5">
-        {(team.length > 0 ? team : [space.role]).map((role) => {
-          const active = working.includes(role);
-          const creature: CreatureState = active ? 'working' : 'idle';
-          return (
-            <li key={role} className="flex items-center gap-2.5">
-              <Creature look={faces[role]} state={creature} size={22} animate={active} />
-              <span className="min-w-0 flex-1 truncate text-[13px] capitalize">{role}</span>
-              <span className={`text-xs ${active ? 'text-working' : 'text-muted'}`}>
-                {active ? 'working' : 'idle'}
-              </span>
-            </li>
-          );
-        })}
+      <ul aria-label="Bots" className="flex flex-col gap-1.5">
+        {(team.length > 0 ? team : [{ id: space.botId, name: space.role, face: undefined }]).map(
+          (member) => {
+            const active = working.includes(member.id);
+            const creature: CreatureState = active ? 'working' : 'idle';
+            return (
+              <li key={member.id ?? member.name} className="flex items-center gap-2.5">
+                <Creature look={member} state={creature} size={22} animate={active} />
+                <span className="min-w-0 flex-1 truncate text-[13px] capitalize">
+                  {member.name}
+                </span>
+                <span className={`text-xs ${active ? 'text-working' : 'text-muted'}`}>
+                  {active ? 'working' : 'idle'}
+                </span>
+              </li>
+            );
+          },
+        )}
       </ul>
     </div>
   );

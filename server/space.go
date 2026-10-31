@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -28,8 +30,13 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /spaces/{id}/members", s.listSpaceMembers)
 	mux.HandleFunc("POST /spaces/{id}/members", s.addSpaceMember)
 	mux.HandleFunc("/spaces/{id}/members", methodNotAllowed)
-	mux.HandleFunc("POST /spaces/{id}/members/{teammate}/tools", s.addSpaceMemberTool)
-	mux.HandleFunc("/spaces/{id}/members/{teammate}/tools", methodNotAllowed)
+	mux.HandleFunc("PUT /spaces/{id}/coordinator", s.setSpaceCoordinator)
+	mux.HandleFunc("/spaces/{id}/coordinator", methodNotAllowed)
+	mux.HandleFunc("GET /spaces/{id}/projects", s.listSpaceProjects)
+	mux.HandleFunc("/spaces/{id}/projects", methodNotAllowed)
+	mux.HandleFunc("PUT /spaces/{id}/projects/{projectId}", s.addSpaceProject)
+	mux.HandleFunc("DELETE /spaces/{id}/projects/{projectId}", s.removeSpaceProject)
+	mux.HandleFunc("/spaces/{id}/projects/{projectId}", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/reopen", s.reopenSpace)
 	mux.HandleFunc("/spaces/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/inspector", s.getInspector)
@@ -94,7 +101,7 @@ func (s *server) search(w http.ResponseWriter, r *http.Request) {
 	if n != nil && *n > 0 {
 		limit = *n
 	}
-	hits, err := s.st.SearchHistory(r.Context(), *workItemID, q, int(limit), "")
+	hits, err := s.st.SearchHistory(r.Context(), *workItemID, q, int(limit), nil)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -130,15 +137,17 @@ func (s *server) listSpaces(w http.ResponseWriter, r *http.Request) {
 func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		store.Space
-		TeammateID int64 `json:"teammateId"`
+		BotID         int64   `json:"botId"`
+		BotIDs        []int64 `json:"botIds"`
+		CoordinatorID int64   `json:"coordinatorBotId"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
 	if in.WorkItemID != nil {
-		if in.TeammateID != 0 {
-			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Teammate", store.ErrInvalid))
+		if in.BotID != 0 {
+			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Bot", store.ErrInvalid))
 			return
 		}
 		if err := s.useItemTeam(r.Context(), &in.Space); err != nil {
@@ -146,8 +155,8 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.TeammateID != 0 {
-		s.createTeammateSpace(w, r, in.Space, in.TeammateID)
+	if in.BotID != 0 {
+		s.createBotSpace(w, r, in.Space, in.BotID)
 		return
 	}
 	if in.Role == "" {
@@ -157,10 +166,25 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: role must be lead", store.ErrInvalid))
 		return
 	}
-	if in.Team == "" {
+	if in.Team == "" && len(in.BotIDs) == 0 {
 		in.Team = store.SoloTeam
 	}
-	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, in.Team))
+	autoName := isDefaultName(in.Name, cmp.Or(in.Team, "space"))
+	if len(in.BotIDs) > 0 {
+		c, err := s.st.CreateSpaceOf(r.Context(), in.Space, in.BotIDs, in.CoordinatorID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if autoName {
+			if err := s.st.MarkNamePending(r.Context(), c.ID); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusCreated, c)
+		return
+	}
 	team, err := s.st.Team(r.Context(), in.Team)
 	if errors.Is(err, store.ErrNotFound) {
 		err = fmt.Errorf("%w: unknown team %s", store.ErrInvalid, in.Team)
@@ -171,16 +195,6 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	lead := team.Roles[0]
 	in.Role = lead.Name
-	if in.Backend == "" {
-		in.Backend = lead.Backend
-	}
-	if in.PermissionMode == "" && in.Backend == lead.Backend {
-		in.PermissionMode = lead.PermissionMode
-	}
-	if err := store.ValidateAgent(in.Backend, in.PermissionMode); err != nil {
-		writeError(w, err)
-		return
-	}
 	c, err := s.st.CreateSpace(r.Context(), in.Space)
 	if err != nil {
 		writeError(w, err)
@@ -216,26 +230,26 @@ func (s *server) useItemTeam(ctx context.Context, in *store.Space) error {
 	return nil
 }
 
-// createTeammateSpace creates a Space with no Team and one member, the Teammate, which leads it
-// with its backend and default access rules.
-func (s *server) createTeammateSpace(
-	w http.ResponseWriter, r *http.Request, in store.Space, teammateID int64,
+// createBotSpace creates a Space with no Team and one member, the Bot, which leads it
+// and runs on its profile.
+func (s *server) createBotSpace(
+	w http.ResponseWriter, r *http.Request, in store.Space, botID int64,
 ) {
 	if in.Team != "" {
-		writeError(w, fmt.Errorf("%w: give teammateId or team, not both", store.ErrInvalid))
+		writeError(w, fmt.Errorf("%w: give botId or team, not both", store.ErrInvalid))
 		return
 	}
-	t, err := s.st.Teammate(r.Context(), teammateID)
+	t, err := s.st.Bot(r.Context(), botID)
 	if errors.Is(err, store.ErrNotFound) {
-		err = fmt.Errorf("%w: unknown teammate %d", store.ErrInvalid, teammateID)
+		err = fmt.Errorf("%w: unknown bot %d", store.ErrInvalid, botID)
 	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, t.Name))
-	in.Role, in.Backend, in.PermissionMode = t.Name, t.Backend, t.PermissionMode
-	c, err := s.st.CreateTeammateSpace(r.Context(), in, teammateID)
+	autoName := isDefaultName(in.Name, t.Name)
+	in.Role = t.Name
+	c, err := s.st.CreateBotSpace(r.Context(), in, botID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -250,7 +264,7 @@ func (s *server) createTeammateSpace(
 }
 
 // isDefaultName reports whether name is what the new-space form sends when its name field
-// is empty: the backend (or the team when there is none), a space and the time as hours and
+// is empty: the team (or the Bot's name), a space and the time as hours and
 // minutes, with AM or PM in a 12-hour locale.
 func isDefaultName(name, prefix string) bool {
 	return regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) +
@@ -286,8 +300,7 @@ func (s *server) updateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name           string  `json:"name"`
-		PermissionMode *string `json:"permissionMode"`
+		Name string `json:"name"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
@@ -297,13 +310,6 @@ func (s *server) updateSpace(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
-	}
-	if in.PermissionMode != nil {
-		current.PermissionMode = *in.PermissionMode
-		if err := store.ValidateAgent(current.Backend, current.PermissionMode); err != nil {
-			writeError(w, err)
-			return
-		}
 	}
 	current.Name = in.Name
 	c, err := s.st.UpdateSpace(r.Context(), current)
@@ -324,6 +330,9 @@ func (s *server) deleteSpace(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.DeleteSpace(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
+	}
+	if err := os.RemoveAll(space.ChatDir(s.dataDir, id)); err != nil {
+		log.Printf("remove folder of Space %d: %v", id, err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -365,7 +374,14 @@ func (s *server) attachSpace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (store.Space, error) {
-	p, err := s.st.Project(ctx, ch.ProjectID)
+	f, err := s.st.WorkItem(ctx, workItemID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Space{}, fmt.Errorf("%w: unknown work item %d", store.ErrInvalid, workItemID)
+	}
+	if err != nil {
+		return store.Space{}, err
+	}
+	p, err := s.st.Project(ctx, f.ProjectID)
 	if err != nil {
 		return store.Space{}, err
 	}
@@ -381,10 +397,6 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 	if _, err := s.ms.Rescope(ctx, from, to); err != nil {
 		return store.Space{}, err
 	}
-	f, err := s.st.WorkItem(ctx, workItemID)
-	if err != nil {
-		return store.Space{}, err
-	}
 	body := fmt.Sprintf("This Space is now attached to work item %q (%d). It works in %s on %s.",
 		f.Title, f.ID, worktree.Path(s.dataDir, p.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
 	if dirty, err := worktree.Dirty(ctx, p.Path); err != nil {
@@ -394,6 +406,55 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 	}
 	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: ch.ID, Author: store.ReefAuthor, Body: body})
 	return attached, err
+}
+
+func (s *server) listSpaceProjects(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	s.writeSpaceProjects(w, r, id)
+}
+
+func (s *server) addSpaceProject(w http.ResponseWriter, r *http.Request) {
+	s.editSpaceProject(w, r, s.st.AddSpaceProject)
+}
+
+func (s *server) removeSpaceProject(w http.ResponseWriter, r *http.Request) {
+	s.editSpaceProject(w, r, s.st.RemoveSpaceProject)
+}
+
+func (s *server) editSpaceProject(
+	w http.ResponseWriter, r *http.Request, edit func(ctx context.Context, id, projectID int64, by *int64) error,
+) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	projectID, err := strconv.ParseInt(r.PathValue("projectId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: project id %q is not a number", store.ErrInvalid, r.PathValue("projectId")))
+		return
+	}
+	if err := edit(r.Context(), id, projectID, nil); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.writeSpaceProjects(w, r, id)
+}
+
+func (s *server) writeSpaceProjects(w http.ResponseWriter, r *http.Request, id int64) {
+	ps, err := s.st.SpaceProjects(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if ps == nil {
+		ps = []store.Project{}
+	}
+	writeJSON(w, http.StatusOK, ps)
 }
 
 func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
@@ -417,21 +478,31 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TeammateID int64 `json:"teammateId"`
+		BotID int64  `json:"botId"`
+		Crew  string `json:"crew"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
+	if in.Crew != "" {
+		roles, err := s.st.AddSpaceCrew(r.Context(), id, in.Crew)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, viewTeam(store.Team{Roles: roles}).Roles)
+		return
+	}
 	if ch, err := s.st.Space(r.Context(), id); err == nil && ch.Kind == store.KindConversation {
-		if err := s.moveConversation(r.Context(), ch, in.TeammateID); err != nil {
+		if err := s.moveConversation(r.Context(), ch, in.BotID); err != nil {
 			writeError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	role, err := s.st.AddSpaceMember(r.Context(), id, in.TeammateID)
+	role, err := s.st.AddSpaceMember(r.Context(), id, in.BotID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -439,29 +510,33 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, role)
 }
 
-func (s *server) addSpaceMemberTool(w http.ResponseWriter, r *http.Request) {
+func (s *server) setSpaceCoordinator(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	teammateID, err := strconv.ParseInt(r.PathValue("teammate"), 10, 64)
-	if err != nil {
-		writeError(w, fmt.Errorf("%w: teammate %q is not a number", store.ErrInvalid, r.PathValue("teammate")))
-		return
-	}
 	var in struct {
-		Tool string `json:"tool"`
+		BotID int64 `json:"botId"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	if _, err := s.st.AddSpaceMemberTool(r.Context(), id, teammateID, in.Tool); err != nil {
+	c, _, err := s.claim(r.Context(), id, _noTurn)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	roles, err := s.st.SetSpaceCoordinator(r.Context(), id, in.BotID)
+	if err = c.release(err); err != nil {
+		writeError(w, err)
+		return
+	}
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
+	writeJSON(w, http.StatusOK, viewTeam(store.Team{Roles: roles}).Roles)
 }
 
 func (s *server) reopenSpace(w http.ResponseWriter, r *http.Request) {
@@ -536,7 +611,30 @@ func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
 	if after != nil {
 		afterID = *after
 	}
-	ms, err := s.st.Messages(r.Context(), *spaceID, afterID)
+	before, err := queryID(r, "before")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	limit, err := queryID(r, "limit")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var ms []store.Message
+	if before != nil || limit != nil {
+		n := int64(_defaultPage)
+		if limit != nil && *limit > 0 {
+			n = min(*limit, _maxPage)
+		}
+		var beforeID int64
+		if before != nil {
+			beforeID = *before
+		}
+		ms, err = s.st.MessagesPage(r.Context(), *spaceID, beforeID, int(n))
+	} else {
+		ms, err = s.st.Messages(r.Context(), *spaceID, afterID)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

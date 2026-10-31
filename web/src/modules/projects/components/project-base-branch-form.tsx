@@ -16,7 +16,7 @@ export function ProjectBaseBranchForm({ project }: { project: Project }) {
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          update.mutate(value.trim(), { onSuccess: () => setDraft(null) });
+          update.mutate({ baseBranch: value.trim() }, { onSuccess: () => setDraft(null) });
         }}
       >
         <TextField

@@ -1,7 +1,7 @@
-import type { Team } from '@/types/api';
+import type { Bot } from '@/types/api';
 
-export function roleFaces(teams: Team[] | undefined, team: string | undefined) {
+export function memberFaces(bots: Bot[] | undefined, members: number[] | undefined) {
   return Object.fromEntries(
-    (teams?.find((t) => t.name === team)?.roles ?? []).map((r) => [r.name, r]),
+    (members ?? []).flatMap((id) => bots?.find((b) => b.id === id) ?? []).map((b) => [b.id, b]),
   );
 }

@@ -59,8 +59,8 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	d1 := decide(t, e, "architect", "Use SQLite, not Postgres\nit is one file")
 	remember(t, e.s.ms, projectScope(store.WorkItem{ProjectID: e.ch.ProjectID}),
 		memory.KindFact, "lead", "Builds need cgo off")
-	remember(t, e.s.ms, teammateScope("3"), memory.KindFinding, "developer", "Name the table turn")
-	remember(t, e.s.ms, teammateScope("tester"), memory.KindFact, "tester", "Tester only")
+	remember(t, e.s.ms, botScope(strconv.FormatInt(*testBotID(t, e.st, "developer"), 10)), memory.KindFinding, "developer", "Name the table turn")
+	remember(t, e.s.ms, botScope("tester"), memory.KindFact, "tester", "Tester only")
 	if _, err := e.s.ms.Remember(ctx,
 		memory.Writer{Author: "lead", Role: "lead", Scope: wakeWork(e)},
 		memory.Note{Kind: memory.KindDecision, Body: "Maybe use Redis", NeedsApproval: true}); err != nil {
@@ -212,8 +212,12 @@ func TestWakeAs_ItemRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing
 func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *testing.T) {
 	ctx := context.Background()
 	e := newWakeEnv(t)
-	if _, err := e.st.DB().ExecContext(ctx,
-		"UPDATE space_member SET write = 1 WHERE space_id = ? AND name = 'developer'", e.ch.ID); err != nil {
+	bot, err := e.st.Bot(ctx, *testBotID(t, e.st, "developer"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Write = true
+	if _, err = e.st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	dir, _, err := WorkDir(ctx, e.st, e.s.dataDir, e.ch.ID)
@@ -262,7 +266,7 @@ func TestWakeAs_MemberAddedBetweenAFailedFirstSendAndItsRetryIsInTheRetriedPromp
 		t.Fatal("wake with a failing send succeeded")
 	}
 	e.sendErr = nil
-	tester, err := e.st.CreateTeammate(ctx, store.Teammate{Name: "tester", Backend: "claude"})
+	tester, err := e.st.CreateBot(ctx, store.Bot{Name: "tester", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,13 +292,13 @@ func TestRunner_FailedPromptBuildOfDirectTurnLeavesFailedResponse(t *testing.T) 
 		t.Fatal(err)
 	}
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "architect", Body: "plan",
+		SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: testBotID(t, st, "lead"), ToBotID: testBotID(t, st, "architect"), Body: "plan",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	ag := &fakeAgent{events: make(chan agent.Event, 8)}
-	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
 	r.FirstPrompt = func(context.Context) (string, error) { return "", errors.New("build broke") }
 
 	if err := r.RunDirect(ctx, "plan it", req, func(agent.Event) {}); err == nil {
@@ -358,7 +362,7 @@ func TestWakeAs_CompactionSeenBetweenTurnsIsKeptForARebuiltMember(t *testing.T) 
 
 	e.agents[0].events <- agent.Event{Kind: agent.KindCompacted}
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
-		compacted, err := e.st.SessionCompacted(ctx, e.ch.ID, "lead", "s1")
+		compacted, err := e.st.SessionCompacted(ctx, e.ch.ID, e.s.leadID, "s1")
 		if err != nil {
 			t.Fatal(err)
 		}

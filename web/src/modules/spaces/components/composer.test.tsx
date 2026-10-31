@@ -27,7 +27,7 @@ function render(props: { running: boolean; working?: string; parent?: number }) 
 }
 
 describe('Composer', () => {
-  it('keeps Send next to Stop and says the message runs next while a teammate works', () => {
+  it('keeps Send next to Stop and says the message runs next while a bot works', () => {
     const markup = render({ running: true, working: 'developer' });
     expect(markup).toContain('aria-label="Send"');
     expect(markup).toContain('aria-label="Stop"');

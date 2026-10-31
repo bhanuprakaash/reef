@@ -97,8 +97,7 @@ func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
 	}
 	lead := team.Roles[0]
 	sp, err := s.st.CreateSpace(ctx, store.Space{
-		ProjectID: w.ProjectID, WorkItemID: &w.ID, Name: w.Title, Role: lead.Name,
-		Backend: lead.Backend, PermissionMode: lead.PermissionMode, Team: team.Name,
+		ProjectID: w.ProjectID, WorkItemID: &w.ID, Name: w.Title, Role: lead.Name, Team: team.Name,
 	})
 	if err != nil {
 		return err

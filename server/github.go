@@ -451,7 +451,7 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.WorkItem, pr gh
 	if len(failed) == 0 {
 		return nil
 	}
-	return s.wakeDeveloper(ctx, f, pr, failed, ghPath, dir)
+	return s.wakeCoordinator(ctx, f, pr, failed, ghPath, dir)
 }
 
 // noteWorkItem posts a reef note in the work item's active Space, and tells an open
@@ -475,17 +475,8 @@ func (s *server) noteWorkItem(ctx context.Context, workItemID int64, body string
 	return true, nil
 }
 
-// wakeDeveloper wakes the developer role in the work item's active Space with one wake
-// naming every run in checks not already woken, each with its log tail, once per run, also
-// across restarts. Several failed runs in the same rollup are one wake, not one each. A
-// Space whose team has no developer gets the note only. The wake text is built, including
-// any log fetch, before the Space is claimed, so a user send during that fetch is not held
-// to a 409. A Space with a turn running, or paused, cannot take the wake now; that is logged
-// once and retried on a later poll, once the Space is idle. The wake runs as a new chain of
-// its own, the way a retried turn does (decision 39), attributed to store.ReefAuthor rather
-// than the user. It counts as a hop like any agent-originated wake, so a loop of failing checks
-// still pauses at the hop cap instead of resetting it every time.
-func (s *server) wakeDeveloper(
+// wakeCoordinator sends failed checks to the Space coordinator, once per run.
+func (s *server) wakeCoordinator(
 	ctx context.Context, f store.WorkItem, pr ghPR, checks []ghCheck, ghPath, dir string,
 ) error {
 	var unwoken []ghCheck
@@ -512,22 +503,23 @@ func (s *server) wakeDeveloper(
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(team.Roles, func(r store.Role) bool { return r.Name == "developer" }) {
-		return nil
+	if len(team.Roles) == 0 {
+		return fmt.Errorf("%w: Space has no coordinator", store.ErrInvalid)
 	}
 	text := s.ghWakeText(ctx, pr, unwoken, ghPath, dir)
 	chain, ch, err := s.claim(ctx, ch.ID, _message)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))
+			s.logGhErrOnce(f.ID, fmt.Errorf("wake coordinator: %w", err))
 			return nil
 		}
 		return err
 	}
-	w := wake{from: store.ReefAuthor, role: "developer", text: text}
+	botID := team.Roles[0].BotID
+	w := wake{from: store.ReefAuthor, role: team.Roles[0].Name, botID: &botID, text: text}
 	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))
+			s.logGhErrOnce(f.ID, fmt.Errorf("wake coordinator: %w", err))
 			return nil
 		}
 		return err

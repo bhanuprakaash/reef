@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DirectMessage, Message, Turn } from '@/types/api';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
+import { Creature, type Faces } from '@/components/creature';
 import { MessageList } from './message-list';
 
 const { useRollbackTurn } = vi.hoisted(() => ({
@@ -11,11 +12,13 @@ const { useRollbackTurn } = vi.hoisted(() => ({
 
 vi.mock('@/modules/spaces/api/rollback-turn', () => ({ useRollbackTurn }));
 
+const botIds: Record<string, number> = { developer: 1, tester: 2, lead: 3 };
 const message = (id: number, author: string, body: string, createdAt: string): Message => ({
   id,
   spaceId: 2,
   parentId: null,
   author,
+  botId: botIds[author] ?? null,
   body,
   createdAt,
 });
@@ -30,7 +33,9 @@ const direct: DirectMessage = {
   replyToId: null,
   sourceMessageId: 1,
   from: 'developer',
+  fromBotId: 1,
   to: 'tester',
+  toBotId: 2,
   body: 'Secret private body',
   status: 'sent',
   state: 'answered',
@@ -41,6 +46,7 @@ const turn = (id: number, role: string, startedAt: string): Turn => ({
   id,
   spaceId: 2,
   role,
+  botId: botIds[role],
   status: 'done',
   error: '',
   wakeText: '',
@@ -143,5 +149,47 @@ describe('MessageList', () => {
 
     expect(markup.match(/title="Before turn 7/g)).toHaveLength(1);
     expect(markup).not.toContain('Before turn 9');
+  });
+
+  describe('author identity', () => {
+    const jellyfish = renderToStaticMarkup(<Creature look={{ face: 'jellyfish' }} size={20} />);
+    const neutral = renderToStaticMarkup(<Creature size={20} />);
+    const faces: Faces = { 1: { face: 'jellyfish' } };
+    const byAuthor = (author: string, botId: number | null, faces: Faces) =>
+      renderToStaticMarkup(
+        <MessageList
+          spaceId={2}
+          threads={groupThreads([
+            { ...message(1, author, 'hello', '2026-10-18T10:00:00Z'), botId },
+          ])}
+          chains={[]}
+          faces={faces}
+          turns={[]}
+          checkpoints={[]}
+          onOpen={() => {}}
+          onOpenChain={() => {}}
+        />,
+      );
+
+    it('keeps the avatar of a renamed Bot and the recorded author text', () => {
+      const markup = byAuthor('old-name', 1, faces);
+
+      expect(markup).toContain(jellyfish);
+      expect(markup).toContain('>old-name<');
+    });
+
+    it('gives a new Bot that reuses an old name a different avatar than the old Bot', () => {
+      const markup = byAuthor('developer', 2, faces);
+
+      expect(markup).not.toContain(jellyfish);
+      expect(markup).toContain(neutral);
+    });
+
+    it('falls back to a neutral avatar when the message has no Bot id', () => {
+      const markup = byAuthor('developer', null, { ...faces, developer: { face: 'jellyfish' } });
+
+      expect(markup).not.toContain(jellyfish);
+      expect(markup).toContain(neutral);
+    });
   });
 });

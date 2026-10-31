@@ -12,33 +12,28 @@ import (
 
 const _tokenBytes = 32
 
-// Token lets one teammate's MCP process act as role in one Space.
+// Token lets one bot's MCP process act as role in one Space.
 type Token struct {
 	Token     string    `json:"token"`
 	SpaceID   int64     `json:"spaceId"`
 	Role      string    `json:"role"`
+	BotID     *int64    `json:"botId,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 // CreateToken adds a token. It never expires; it goes when its Space is deleted.
-func (s *Store) CreateToken(ctx context.Context, spaceID int64, role string) (Token, error) {
-	if role == "" {
-		return Token{}, fmt.Errorf("%w: token role is required", ErrInvalid)
-	}
+func (s *Store) CreateToken(ctx context.Context, spaceID, botID int64) (Token, error) {
 	raw := make([]byte, _tokenBytes)
 	if _, err := rand.Read(raw); err != nil {
 		return Token{}, fmt.Errorf("generate token: %w", err)
 	}
-	t := Token{
-		Token: hex.EncodeToString(raw), SpaceID: spaceID, Role: role,
-		CreatedAt: time.Now().UTC(),
+	t := Token{Token: hex.EncodeToString(raw), SpaceID: spaceID, BotID: &botID, CreatedAt: time.Now().UTC()}
+	err := s.db.QueryRowContext(ctx, "INSERT INTO token (token, space_id, role, bot_id, created_at) SELECT ?, ?, bot.name, bot.id, ? FROM bot JOIN space_member ON space_member.bot_id = bot.id WHERE space_member.space_id = ? AND bot.id = ? RETURNING role", t.Token, spaceID, t.CreatedAt.Format(time.RFC3339Nano), spaceID, botID).Scan(&t.Role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Token{}, fmt.Errorf("%w: Bot is not a Space member", ErrInvalid)
 	}
-	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO token (token, space_id, role, created_at) VALUES (?, ?, ?, ?)",
-		t.Token, t.SpaceID, t.Role, t.CreatedAt.Format(time.RFC3339Nano))
 	if err != nil {
-		return Token{}, s.writeErr(ctx, "insert token", err, ErrNotFound,
-			parent{table: "space", id: &spaceID})
+		return Token{}, fmt.Errorf("insert token: %w", err)
 	}
 	return t, nil
 }
@@ -48,8 +43,8 @@ func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	t := Token{Token: value}
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT space_id, role, created_at FROM token WHERE token = ?", value).
-		Scan(&t.SpaceID, &t.Role, &created)
+		"SELECT token.space_id, token.role, token.bot_id, token.created_at FROM token JOIN space_member ON space_member.space_id = token.space_id AND space_member.bot_id = token.bot_id WHERE token.token = ?", value).
+		Scan(&t.SpaceID, &t.Role, &t.BotID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Token{}, fmt.Errorf("token: %w", ErrNotFound)
 	}

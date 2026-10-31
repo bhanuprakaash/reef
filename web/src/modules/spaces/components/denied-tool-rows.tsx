@@ -1,4 +1,4 @@
-import { useAddRoleTool } from '@/lib/api/add-role-tool';
+import { useAddBotTool } from '@/lib/api/add-bot-tool';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { deniedTools, isAllowed } from '@/modules/spaces/utils/denied-tools';
 import type { Space, Role } from '@/types/api';
@@ -9,9 +9,9 @@ type Props = { space: Space; roles: Role[]; running: boolean };
 
 export function DeniedToolRows({ space, roles, running }: Props) {
   const inspector = useInspector(space.id, true);
-  const add = useAddRoleTool();
+  const add = useAddBotTool();
   const rows = deniedTools(inspector.data?.turns ?? []).flatMap((d) => {
-    const role = roles.find((r) => r.name === d.role);
+    const role = roles.find((r) => r.botId === d.botId);
     return role ? [{ ...d, role }] : [];
   });
 
@@ -22,7 +22,6 @@ export function DeniedToolRows({ space, roles, running }: Props) {
       <ul className="space-y-2">
         {rows.map((d) => {
           const lead = d.role.lead;
-          const backend = lead ? space.backend : d.role.backend;
           const added = isAllowed(d.role.tools, d.pattern);
           return (
             <li
@@ -35,7 +34,7 @@ export function DeniedToolRows({ space, roles, running }: Props) {
                 {' was denied '}
                 <code className="font-mono text-[13px]">{d.pattern}</code>
               </p>
-              {backend === 'codex' ? (
+              {d.role.backend === 'codex' ? (
                 <span className="text-[13px] text-muted">Codex ignores allowed tools</span>
               ) : d.needsWrite && !d.role.write ? (
                 <span className="text-[13px] text-muted">Needs write access</span>
@@ -48,8 +47,7 @@ export function DeniedToolRows({ space, roles, running }: Props) {
                   disabled={running || add.isPending}
                   onClick={() =>
                     add.mutate({
-                      space: space.id,
-                      teammateId: d.role.teammateId,
+                      role: d.role,
                       pattern: d.pattern,
                       stopSpace: lead ? space.id : undefined,
                     })

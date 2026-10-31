@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -11,6 +12,7 @@ import (
 // inspectorRole is one role's turn and token sums across the Space.
 type inspectorRole struct {
 	Role    string      `json:"role"`
+	BotID   *int64      `json:"botId"`
 	Turns   int         `json:"turns"`
 	Usage   agent.Usage `json:"usage"`
 	CostUSD *float64    `json:"costUsd"`
@@ -20,6 +22,7 @@ type inspectorRole struct {
 type inspectorTurn struct {
 	ID        int64                `json:"id"`
 	Role      string               `json:"role"`
+	BotID     *int64               `json:"botId"`
 	StartedAt time.Time            `json:"startedAt"`
 	Status    string               `json:"status"`
 	Model     string               `json:"model"`
@@ -63,12 +66,17 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 	var order []string
 	turnViews := make([]inspectorTurn, 0, len(turns))
 	for _, t := range turns {
-		role, ok := roles[t.Role]
-		if !ok {
-			role = &inspectorRole{Role: t.Role}
-			roles[t.Role] = role
-			order = append(order, t.Role)
+		key := "name:" + t.Role
+		if t.BotID != nil {
+			key = "bot:" + strconv.FormatInt(*t.BotID, 10)
 		}
+		role, ok := roles[key]
+		if !ok {
+			role = &inspectorRole{Role: t.Role, BotID: t.BotID}
+			roles[key] = role
+			order = append(order, key)
+		}
+		role.Role = t.Role
 		role.Turns++
 		role.Usage.Add(t.Usage)
 		if t.CostUSD != nil {
@@ -95,7 +103,7 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		turnViews = append(turnViews, inspectorTurn{
-			ID: t.ID, Role: t.Role, StartedAt: t.StartedAt, Status: t.Status,
+			ID: t.ID, Role: t.Role, BotID: t.BotID, StartedAt: t.StartedAt, Status: t.Status,
 			Model: t.Model, Usage: t.Usage, CostUSD: t.CostUSD, Prompt: t.Prompt, Reply: t.Reply, ToolCalls: tcs,
 		})
 	}

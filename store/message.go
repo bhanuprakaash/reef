@@ -20,6 +20,7 @@ type Message struct {
 	SpaceID   int64     `json:"spaceId"`
 	ParentID  *int64    `json:"parentId"`
 	Author    string    `json:"author"`
+	BotID     *int64    `json:"botId,omitempty"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
 }
@@ -68,9 +69,9 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO message (space_id, parent_id, author, body, created_at) "+
-			"VALUES (?, ?, ?, ?, ?)",
-		m.SpaceID, m.ParentID, m.Author, m.Body, now.Format(time.RFC3339Nano))
+		"INSERT INTO message (space_id, parent_id, author, bot_id, body, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?)",
+		m.SpaceID, m.ParentID, m.Author, m.BotID, m.Body, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Message{}, s.writeErr(ctx, "insert message", err, ErrInvalid,
 			parent{table: "space", id: &m.SpaceID})
@@ -89,7 +90,7 @@ func (s *Store) Messages(ctx context.Context, spaceID, after int64) ([]Message, 
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, body, created_at FROM message "+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message "+
 			"WHERE space_id = ? AND id > ? ORDER BY id",
 		spaceID, after)
 	if err != nil {
@@ -104,7 +105,7 @@ func (s *Store) MessagesBy(
 	ctx context.Context, spaceID int64, author string, since time.Time,
 ) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, body, created_at FROM message "+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message "+
 			"WHERE space_id = ? AND author = ? ORDER BY id",
 		spaceID, author)
 	if err != nil {
@@ -123,6 +124,36 @@ func (s *Store) MessagesBy(
 	return msgs, nil
 }
 
+func (s *Store) MessagesByBot(ctx context.Context, spaceID, botID int64, since time.Time) ([]Message, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message WHERE space_id = ? AND bot_id = ? ORDER BY id", spaceID, botID)
+	if err != nil {
+		return nil, fmt.Errorf("list messages by Bot: %w", err)
+	}
+	all, err := scanAll(rows, scanMessage)
+	if err != nil {
+		return nil, err
+	}
+	var messages []Message
+	for _, m := range all {
+		if m.CreatedAt.After(since) {
+			messages = append(messages, m)
+		}
+	}
+	return messages, nil
+}
+
+func (s *Store) ThreadOwnerBotID(ctx context.Context, id int64) (*int64, error) {
+	var botID *int64
+	err := s.db.QueryRowContext(ctx, "SELECT r.bot_id FROM message m JOIN message r ON r.id = COALESCE(m.parent_id, m.id) WHERE m.id = ?", id).Scan(&botID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("message %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("thread owner Bot: %w", err)
+	}
+	return botID, nil
+}
+
 // LastMessageID returns the id of the Space's newest message, 0 when it has none.
 func (s *Store) LastMessageID(ctx context.Context, spaceID int64) (int64, error) {
 	var id int64
@@ -137,7 +168,7 @@ func (s *Store) LastMessageID(ctx context.Context, spaceID int64) (int64, error)
 // Thread lists the top-level message root of the Space and its replies, oldest first.
 func (s *Store) Thread(ctx context.Context, spaceID, root int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, space_id, parent_id, author, body, created_at FROM message "+
+		"SELECT id, space_id, parent_id, author, bot_id, body, created_at FROM message "+
 			"WHERE space_id = ? AND (id = ? OR parent_id = ?) ORDER BY id",
 		spaceID, root, root)
 	if err != nil {
@@ -214,7 +245,7 @@ func (s *Store) SearchMessages(
 // SearchDirectMessages is SearchMessages over direct messages. A role other than "" sees
 // only the messages it sent or received.
 func (s *Store) SearchDirectMessages(
-	ctx context.Context, workItemID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, botID *int64,
 ) ([]MessageHit, error) {
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
@@ -222,9 +253,9 @@ func (s *Store) SearchDirectMessages(
 		  substr(d.body, max(instr(lower(d.body), lower(?)) - 40, 1), 120), d.created_at
 		FROM direct_message d JOIN space c ON c.id = d.space_id
 		WHERE c.work_item_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
-		  AND (? = '' OR d.from_role = ? OR d.to_role = ?)
+		  AND (? IS NULL OR d.from_bot_id = ? OR d.to_bot_id = ?)
 		ORDER BY d.id DESC LIMIT ?`,
-		query, workItemID, like, role, role, role, limit)
+		query, workItemID, like, botID, botID, botID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search direct messages: %w", err)
 	}
@@ -244,13 +275,13 @@ func (s *Store) SearchDirectMessages(
 
 // SearchHistory merges SearchMessages and SearchDirectMessages, newest first, up to limit.
 func (s *Store) SearchHistory(
-	ctx context.Context, workItemID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, botID *int64,
 ) ([]MessageHit, error) {
 	hits, err := s.SearchMessages(ctx, workItemID, query, limit)
 	if err != nil {
 		return nil, err
 	}
-	direct, err := s.SearchDirectMessages(ctx, workItemID, query, limit, role)
+	direct, err := s.SearchDirectMessages(ctx, workItemID, query, limit, botID)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +296,7 @@ func (s *Store) SearchHistory(
 func scanMessage(r interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var created string
-	if err := r.Scan(&m.ID, &m.SpaceID, &m.ParentID, &m.Author, &m.Body, &created); err != nil {
+	if err := r.Scan(&m.ID, &m.SpaceID, &m.ParentID, &m.Author, &m.BotID, &m.Body, &created); err != nil {
 		return Message{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

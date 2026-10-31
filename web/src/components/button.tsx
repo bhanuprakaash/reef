@@ -1,7 +1,7 @@
 import type { ComponentProps } from 'react';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'paused' | 'failed';
-type Size = 'sm' | 'md' | 'lg' | 'icon';
+type Size = 'sm' | 'md' | 'lg' | 'icon' | 'iconSm';
 
 const variants: Record<Variant, string> = {
   primary: 'bg-pill text-pill-ink',
@@ -17,11 +17,12 @@ const sizes: Record<Size, string> = {
   md: 'h-11 text-sm md:h-9',
   lg: 'h-11 text-[15px]',
   icon: 'size-11 md:size-10',
+  iconSm: 'size-7',
 };
 
 export function buttonClass(variant: Variant = 'secondary', size: Size = 'md') {
   const shape =
-    size === 'icon'
+    size === 'icon' || size === 'iconSm'
       ? 'rounded-full'
       : variant === 'ghost'
         ? 'rounded-field px-3'

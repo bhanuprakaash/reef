@@ -109,12 +109,12 @@ cat >"$E/realteam.json" <<'EOF'
   "name": "realteam",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Answer in one short sentence. Never @mention anyone."},
+     "description": "You are the lead. Answer in one short sentence. Never @mention anyone."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash(ls:*)"]}
   ]
 }
@@ -128,9 +128,9 @@ git -C "$S/real-proj" rev-parse --verify HEAD >/dev/null 2>&1 || {
 	git -C "$S/real-proj" -c user.name=v -c user.email=v@example.com commit -qm init
 }
 
-"$H" reef --data-name real -- team apply "$E/realteam.json" >/dev/null
 "$H" serve-start --data-name real
 A=$(cat "$S/serve.addr")
+"$H" team-apply "$E/realteam.json" >/dev/null
 "$H" api POST /projects '{"name":"real","path":"'"$S"'/real-proj"}' >/dev/null
 "$H" api POST /spaces '{"projectId":1,"name":"real1","team":"realteam"}' >/dev/null
 "$H" api POST /spaces '{"projectId":1,"name":"real2","team":"realteam"}' >/dev/null

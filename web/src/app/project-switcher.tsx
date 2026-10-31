@@ -16,12 +16,10 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
 
   useDismiss(open, ref, () => setOpen(false));
 
-  function pick(project: Project) {
+  function pick(project: Project | null) {
     onPick(project);
     setOpen(false);
   }
-
-  if (!current) return null;
 
   return (
     <div ref={ref} className="relative mt-3.5 mb-1.5">
@@ -29,7 +27,7 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
         type="button"
         aria-label="Switch project"
         aria-expanded={open}
-        title={current.path}
+        title={current?.path}
         onClick={() => setOpen(!open)}
         className="flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] hover:bg-hover"
       >
@@ -46,7 +44,7 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
         >
           <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
         </svg>
-        {current.name}
+        {current?.name ?? 'All projects'}
         <svg
           width="12"
           height="12"
@@ -63,20 +61,23 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
       </button>
       {open && (
         <Menu className="absolute inset-x-0 top-full z-10 mt-1">
+          <MenuItem onClick={() => pick(null)}>All projects</MenuItem>
           {projects.map((p) => (
             <MenuItem key={p.id} onClick={() => pick(p)}>
               {p.name}
             </MenuItem>
           ))}
           <MenuSeparator />
-          <MenuItem
-            onClick={() => {
-              void navigate(`/projects/${current.id}`);
-              setOpen(false);
-            }}
-          >
-            Open project
-          </MenuItem>
+          {current && (
+            <MenuItem
+              onClick={() => {
+                void navigate(`/projects/${current.id}`);
+                setOpen(false);
+              }}
+            >
+              Open project
+            </MenuItem>
+          )}
           <MenuItem
             onClick={() => {
               setAdding(true);

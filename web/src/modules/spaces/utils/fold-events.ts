@@ -13,6 +13,7 @@ export type StreamEvent =
   | {
       type: 'turn';
       role?: string;
+      botId?: number;
       status: 'idle' | 'running' | 'done' | 'failed';
       error?: string;
       note?: string;
@@ -34,6 +35,7 @@ export type Item = { type: 'text'; text: string } | { type: 'tool'; tool: Tool }
 
 export type LiveTurn = {
   role?: string;
+  botId?: number;
   status: 'idle' | 'running' | 'done' | 'failed';
   error?: string;
   note?: string;
@@ -114,7 +116,13 @@ export function foldEvent(turn: LiveTurn, ev: StreamEvent): LiveTurn {
   if (ev.type === 'agent') return foldAgent(turn, ev.event);
   if (ev.status === 'idle') return emptyTurn;
   if (ev.status === 'running')
-    return { status: 'running', role: ev.role, directMessageId: ev.directMessageId, items: [] };
+    return {
+      status: 'running',
+      role: ev.role,
+      botId: ev.botId,
+      directMessageId: ev.directMessageId,
+      items: [],
+    };
   return {
     ...turn,
     status: ev.status,

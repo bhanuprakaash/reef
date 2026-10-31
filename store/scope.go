@@ -47,11 +47,11 @@ func (s *Scopes) Scan(src any) error {
 // SentScopes lists the scopes of the turns of role in the session of spaceID that sent
 // their prompt, oldest first. It reads no prompt, so it stays cheap as the Space grows.
 func (s *Store) SentScopes(
-	ctx context.Context, spaceID int64, role, sessionID string,
+	ctx context.Context, spaceID, botID int64, sessionID string,
 ) (Scopes, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT scopes FROM turn WHERE space_id = ? AND role = ? AND session_id = ? "+
-			"AND sent = 1 AND scopes IS NOT NULL ORDER BY id", spaceID, role, sessionID)
+		"SELECT scopes FROM turn WHERE space_id = ? AND bot_id = ? AND session_id = ? "+
+			"AND sent = 1 AND scopes IS NOT NULL ORDER BY id", spaceID, botID, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("list sent scopes: %w", err)
 	}

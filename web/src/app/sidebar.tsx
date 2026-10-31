@@ -2,6 +2,9 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { NewMenu } from '@/app/new-menu';
 import { ProjectSwitcher } from '@/app/project-switcher';
+import { SidebarBots } from '@/app/sidebar-bots';
+import { SidebarPins } from '@/app/sidebar-pins';
+import { SidebarSearch } from '@/app/sidebar-search';
 import { SidebarSpaces } from '@/app/sidebar-spaces';
 import { UpdateCard } from '@/app/update-card';
 import { CountBadge } from '@/components/count-badge';
@@ -89,7 +92,8 @@ export function Sidebar() {
   const waiting = inbox.data ?? [];
   const openItems =
     workItems.data?.filter(
-      (f) => f.projectId === current?.id && f.status !== 'done' && f.status !== 'dropped',
+      (f) =>
+        (!current || f.projectId === current.id) && f.status !== 'done' && f.status !== 'dropped',
     ).length ?? 0;
 
   return (
@@ -126,42 +130,50 @@ export function Sidebar() {
         />
       </label>
 
-      {projects.data && current && <ProjectSwitcher projects={projects.data} />}
+      {projects.data && <ProjectSwitcher projects={projects.data} />}
 
       <div className="-mx-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">
-        <Row
-          to="/inbox"
-          active={pathname === '/inbox'}
-          avatar={
-            <IconCircle dot={waiting.length > 0}>
-              <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-              <path d="M5.5 5h13L22 12v7H2v-7z" />
-            </IconCircle>
-          }
-          title="Inbox"
-          aside={
-            waiting.length > 0 && (
-              <CountBadge count={waiting.length} label={`${waiting.length} waiting`} />
-            )
-          }
-          preview={waiting[0]?.text ?? 'Nothing waiting'}
-        />
-        <Row
-          to="/board"
-          active={pathname === '/board'}
-          avatar={
-            <IconCircle>
-              <rect x="3" y="4" width="5" height="16" rx="1.5" />
-              <rect x="10" y="4" width="5" height="10" rx="1.5" />
-              <rect x="17" y="4" width="4" height="13" rx="1.5" />
-            </IconCircle>
-          }
-          title="Board"
-          preview={`${openItems} open`}
-        />
+        {query.trim() !== '' ? (
+          <SidebarSearch query={query} />
+        ) : (
+          <>
+            <Row
+              to="/inbox"
+              active={pathname === '/inbox'}
+              avatar={
+                <IconCircle dot={waiting.length > 0}>
+                  <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+                  <path d="M5.5 5h13L22 12v7H2v-7z" />
+                </IconCircle>
+              }
+              title="Inbox"
+              aside={
+                waiting.length > 0 && (
+                  <CountBadge count={waiting.length} label={`${waiting.length} waiting`} />
+                )
+              }
+              preview={waiting[0]?.text ?? 'Nothing waiting'}
+            />
+            <Row
+              to="/board"
+              active={pathname === '/board'}
+              avatar={
+                <IconCircle>
+                  <rect x="3" y="4" width="5" height="16" rx="1.5" />
+                  <rect x="10" y="4" width="5" height="10" rx="1.5" />
+                  <rect x="17" y="4" width="4" height="13" rx="1.5" />
+                </IconCircle>
+              }
+              title="Board"
+              preview={`${openItems} open`}
+            />
 
-        {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-        {current && <SidebarSpaces project={current} query={query} />}
+            {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
+            <SidebarPins />
+            <SidebarBots project={current} />
+            <SidebarSpaces project={current} />
+          </>
+        )}
       </div>
 
       <UpdateCard />
@@ -172,11 +184,11 @@ export function Sidebar() {
         </span>
         <span className="min-w-0 truncate text-sm">{profileName}</span>
         <div className="ml-auto flex gap-0.5">
-          <BarLink to="/teammates" label="Teammates" active={pathname.startsWith('/teammates')}>
+          <BarLink to="/bots" label="Bots" active={pathname.startsWith('/bots')}>
             <circle cx="12" cy="8" r="4" />
             <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
           </BarLink>
-          <BarLink to="/teams" label="Teams" active={pathname.startsWith('/teams')}>
+          <BarLink to="/teams" label="Crews" active={pathname.startsWith('/teams')}>
             <circle cx="9" cy="9" r="4" />
             <circle cx="17" cy="11" r="3" />
             <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5M15.5 15.5c2.6 0 4.7 1.3 5.5 4.5" />

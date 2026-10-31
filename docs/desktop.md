@@ -173,8 +173,8 @@ browser (no `window.reef`) the button just navigates to `/capture`. The capture 
 project picker (the project chosen last time, kept in `localStorage`, is the default), a type
 (task, feature, bug, incident, investigation or improvement), a text box and a description. Enter creates a Work item
 in the project's Backlog with that type, title and description, through `POST /work-items`, and closes the window.
-The "Talk to a Teammate" toggle swaps the type for a Teammate picker: Enter then starts a direct
-conversation with that Teammate, with the text as its first message. Escape closes the window without creating anything. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
+The "Talk to a Bot" toggle swaps the type for a Bot picker: Enter then starts a direct
+conversation with that Bot, with the text as its first message. Escape closes the window without creating anything. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
 shortcut is unregistered when the app quits. The window is frameless and transparent: the
 rounded translucent panel on `/capture` is the window (the OS draws its shadow), and you drag it
 by the panel. It is 400px tall, about 150px of panel and transparent room below for the project

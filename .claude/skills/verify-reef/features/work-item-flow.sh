@@ -47,12 +47,12 @@ cat >"$E/crew.json" <<'EOF'
   "responsibility": "Checkout and search pages: forms, results and their tests.",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. For the messages below do exactly what is written, with no other tool call and no other words. When Work item 1, Checkout form, starts: call create_sub_item with title 'Build the form' and description 'form.txt with the two fields'; when it has returned, call create_sub_item with title 'Check the form' and description 'form.txt exists'; then answer with the one line '@developer build the form'. When the tester writes that the form passes: call set_sub_item_status with status done for each of the two sub-items, then call submit_for_review with acceptance line 1 checked, the note 'form.txt has both fields' and the one command 'grep -c password form.txt' with output '1'; then answer 'Submitted for review.' When the user sends the work item back: call submit_for_review with acceptance line 1 checked, the note 'phone field is out of scope for the form' and the one command 'grep -c email form.txt' with output '1'; then answer 'Submitted again.' When any other work item starts: answer in one short sentence and call no tool. When you are asked to wrap up the Space, do what that message asks."},
+     "description": "You are the lead. For the messages below do exactly what is written, with no other tool call and no other words. When Work item 1, Checkout form, starts: call create_sub_item with title 'Build the form' and description 'form.txt with the two fields'; when it has returned, call create_sub_item with title 'Check the form' and description 'form.txt exists'; then answer with the one line '@developer build the form'. When the tester writes that the form passes: call set_sub_item_status with status done for each of the two sub-items, then call submit_for_review with acceptance line 1 checked, the note 'form.txt has both fields' and the one command 'grep -c password form.txt' with output '1'; then answer 'Submitted for review.' When the user sends the work item back: call submit_for_review with acceptance line 1 checked, the note 'phone field is out of scope for the form' and the one command 'grep -c email form.txt' with output '1'; then answer 'Submitted again.' When any other work item starts: answer in one short sentence and call no tool. When you are asked to wrap up the Space, do what that message asks."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. When the lead writes '@developer build the form': call Write once to create form.txt in the current folder with the two lines email and password, then answer with the one line '@tester check the form'. Call no other tool and write no other words.",
+     "description": "You are the developer. When the lead writes '@developer build the form': call Write once to create form.txt in the current folder with the two lines email and password, then answer with the one line '@tester check the form'. Call no other tool and write no other words.",
      "tools": ["Read", "Edit", "Write", "Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. When the developer writes '@tester check the form': run the one Bash command grep -c password form.txt, then answer with the one line '@lead the form passes'. Call no other tool and write no other words.",
+     "description": "You are the tester. When the developer writes '@tester check the form': run the one Bash command grep -c password form.txt, then answer with the one line '@lead the form passes'. Call no other tool and write no other words.",
      "tools": ["Read", "Bash(grep:*)"]}
   ]
 }
@@ -63,12 +63,12 @@ cat >"$E/pong.json" <<'EOF'
   "name": "pong",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Follow these rules with no other tool call and no other words. When the user writes workpong: answer with the one line '@developer work'. When the user writes talkpong, or the developer writes '@lead pong': call post_to_space once with the body '@developer ping', then answer 'posted'."},
+     "description": "You are the lead. Follow these rules with no other tool call and no other words. When the user writes workpong: answer with the one line '@developer work'. When the user writes talkpong, or the developer writes '@lead pong': call post_to_space once with the body '@developer ping', then answer 'posted'."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. Follow these rules with no other tool call and no other words. When the lead writes '@developer work' or the tester writes '@developer again': run the one Bash command echo work >> work.txt, then answer with the one line '@tester check'. When the lead writes '@developer ping': call post_to_space once with the body '@lead pong', then answer 'posted'.",
+     "description": "You are the developer. Follow these rules with no other tool call and no other words. When the lead writes '@developer work' or the tester writes '@developer again': run the one Bash command echo work >> work.txt, then answer with the one line '@tester check'. When the lead writes '@developer ping': call post_to_space once with the body '@lead pong', then answer 'posted'.",
      "tools": ["Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. When the developer writes '@tester check': run the one Bash command grep -c work work.txt, then answer with the one line '@developer again'. Call no other tool and write no other words.",
+     "description": "You are the tester. When the developer writes '@tester check': run the one Bash command grep -c work work.txt, then answer with the one line '@developer again'. Call no other tool and write no other words.",
      "tools": ["Bash(grep:*)"]}
   ]
 }
@@ -77,8 +77,8 @@ EOF
 section_flow() {
 ### Two work items queued on a Team (data folder flow)
 
-"$H" reef --data-name flow -- team apply "$E/crew.json" >/dev/null
 start_server flow
+"$H" team-apply "$E/crew.json" >/dev/null
 api_call GET /teams/crew
 crew=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 api_call POST /projects '{"name":"shop","path":"'"$S"'/cwd"}'
@@ -188,10 +188,10 @@ section_conv() {
 
 start_server conv
 api_call POST /projects '{"name":"talk","path":"'"$S"'/cwd"}'
-api_call POST /teammates '{"name":"sam","backend":"claude","write":false}'
-api_call POST /teammates '{"name":"kit","backend":"claude","write":false,"persona":"You are kit. Unless a message asks you for a tool call, call no tool, answer in one short sentence and start no line with @."}'
-"$H" reef --data-name conv -- team apply "$E/crew.json" >/dev/null
-api_call POST /spaces '{"projectId":1,"name":"plan","teammateId":2,"kind":"conversation"}'
+api_call POST /bots '{"name":"sam","backend":"claude","write":false}'
+api_call POST /bots '{"name":"kit","backend":"claude","write":false,"description":"You are kit. Unless a message asks you for a tool call, call no tool, answer in one short sentence and start no line with @."}'
+"$H" team-apply "$E/crew.json" >/dev/null
+api_call POST /spaces '{"projectId":1,"name":"plan","botId":2,"kind":"conversation"}'
 api_call POST /spaces/1/send '{"text":"Ada wants a login page with an email field and a Google button. Use no tools. Acknowledge in one short sentence."}'
 wait_sql "select count(*) from turn where space_id = 1 and status = 'done'" 1
 conv_ok=1
@@ -201,7 +201,7 @@ conv_ok=1
 [ "$(replays sam-login-plan)" = 1 ] || conv_ok=0
 check flow-conversation "$conv_ok" "conversation Space 1: $(sql1 "select kind || ' work item ' || coalesce(work_item_id, 'none') from space where id = 1"); its turn: $(sql1 "select role || ' ' || status from turn where space_id = 1")"
 
-api_call POST /spaces/1/members '{"teammateId":3}'
+api_call POST /spaces/1/members '{"botId":3}'
 add_status=$STATUS
 wait_sql "select count(*) from turn where space_id = 2 and role = 'kit' and status = 'done'" 1
 add_ok=1
@@ -211,9 +211,9 @@ echo "$BODY" | grep -q '"movedTo":2' || add_ok=0
 api_call POST /spaces/1/send '{"text":"more"}'
 [ "$STATUS" = 409 ] || add_ok=0
 [ "$(sql1 "select kind || '|' || (team_id is null) from space where id = 2")" = "free|1" ] || add_ok=0
-[ "$("$H" sql "select name || '|' || lead || '|' || write from space_member where space_id = 2 order by id" | tail -n +2 | tr '\n' ' ')" = "sam|1|0 kit|0|0 " ] || add_ok=0
+[ "$("$H" sql "select bot.name || '|' || lead || '|' || write from space_member member join bot on bot.id = bot_id where space_id = 2 order by member.id" | tail -n +2 | tr '\n' ' ')" = "sam|1|0 kit|0|0 " ] || add_ok=0
 [ "$(replays kit-takeover)" = 1 ] || add_ok=0
-check flow-add-teammate "$add_ok" "POST members: $add_status; Space 1 moved to Space 2 ($(sql1 "select kind from space where id = 2"), members: $("$H" sql "select name from space_member where space_id = 2 order by id" | tail -n +2 | tr '\n' ' ')); send to Space 1: $STATUS; kit-takeover replays: $(replays kit-takeover)"
+check flow-add-bot "$add_ok" "POST members: $add_status; Space 1 moved to Space 2 ($(sql1 "select kind from space where id = 2"), members: $("$H" sql "select bot.name from space_member member join bot on bot.id = bot_id where space_id = 2 order by member.id" | tail -n +2 | tr '\n' ' ')); send to Space 1: $STATUS; kit-takeover replays: $(replays kit-takeover)"
 
 api_call POST /spaces/2/send '{"text":"@kit PROPOSE THE SLOW SEARCH: call propose_work_item once with type bug, title \"Search results load slowly\", description \"The search page takes ten seconds to show results.\" and the one acceptance line \"Results show within two seconds\", then answer Proposed."}'
 wait_sql "select count(*) from work_item" 1
@@ -235,8 +235,8 @@ check flow-propose "$propose_ok" "item 1: $(echo "$BODY" | cut -c1-300); crew te
 section_caps() {
 ### Hop cap with the team pong (data folder caps)
 
-"$H" reef --data-name caps -- team apply "$E/pong.json" >/dev/null
 start_server caps
+"$H" team-apply "$E/pong.json" >/dev/null
 api_call POST /projects '{"name":"hop","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"workpong"}'
 api_call POST /work-items '{"projectId":1,"title":"talkpong"}'
@@ -310,7 +310,7 @@ if [ "$sections" != "$all_sections" ]; then
 		echo "$lines" | grep -q '^FAIL' && failed=1
 	done
 else
-	for id in $(sed -n '/^## Sub-features/,/^## /s/^- `\(flow-[a-z-]*\|hop-[a-z-]*\)`.*/\1/p' "$here/queue-and-review.md" "$here/work-items.md" "$here/conversations.md" "$here/caps.md"); do
+	for id in $(sed -nE '/^## Sub-features/,/^## /s/^- `(flow-[a-z-]*|hop-[a-z-]*)`.*/\1/p' "$here/queue-and-review.md" "$here/work-items.md" "$here/conversations.md" "$here/caps.md"); do
 		line=$(grep -h "^\(PASS\|FAIL\) $id:" "$E"/*/work-item-flow.log 2>/dev/null | head -1)
 		if [ -n "$line" ]; then
 			echo "$line"

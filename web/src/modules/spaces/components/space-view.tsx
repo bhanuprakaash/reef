@@ -12,7 +12,7 @@ import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
-import { AddTeammateForm } from '@/modules/spaces/components/add-teammate-form';
+import { AddBotForm } from '@/modules/spaces/components/add-bot-form';
 import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
@@ -38,14 +38,16 @@ import { checkpointAnchor, unanchoredCheckpoints } from '@/modules/spaces/utils/
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
-import type { SpaceDetail, WorkItem } from '@/types/api';
+import type { Project, SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
+import { faceOf } from '@/components/creature';
 
 type Props = {
   space: SpaceDetail;
   scope: ReactNode;
   status?: string;
   workItems: WorkItem[];
+  projects: Project[];
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
@@ -67,6 +69,7 @@ export function SpaceView({
   scope,
   status,
   workItems,
+  projects,
   diff,
   diffPanel,
   brief,
@@ -97,18 +100,20 @@ export function SpaceView({
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
   const members = useSpaceMembers(space.id);
   const roles = members.data ?? [];
-  const faces = Object.fromEntries(roles.map((r) => [r.name, r]));
+  const faces = Object.fromEntries(roles.map((r) => [r.botId, r]));
+  const workingBotId = turn.botId ?? roles.find((r) => r.lead)?.botId;
   const working = turn.role || space.role || 'agent';
-  const look = faces[working];
+  const look = faceOf(faces, workingBotId);
   const action = browserAction(turn);
   const last = messages.data?.at(-1);
-  const { box, onScroll, atBottom, toBottom } = useStickToBottom(
+  const { box, onScroll, atBottom, toBottom, hold } = useStickToBottom(
     last?.author === 'user' ? last.id : undefined,
+    messages.data?.[0]?.id,
   );
   const chains = groupChains(direct.data ?? [], {
     retryable: failedTurns.data ?? [],
     paused: space.paused !== '',
-    running: (running || turn.status === 'done') && turn.directMessageId ? turn.role : undefined,
+    running: (running || turn.status === 'done') && turn.directMessageId ? turn.botId : undefined,
   });
   const turns = useSpaceTurns(space.id).data ?? [];
   const rollbackable = useTurns(space.id).data ?? [];
@@ -152,9 +157,9 @@ export function SpaceView({
         space={space}
         scope={scope}
         status={status}
-        roles={roles.length > 0 ? roles.map((r) => r.name) : [space.role]}
+        roles={roles.map((r) => r.botId)}
         faces={faces}
-        working={running ? working : null}
+        working={running ? (workingBotId ?? null) : null}
         pullRequest={latestPullRequest(messages.data ?? [])}
         onPullRequest={() => openSide(side?.kind === 'pr' ? null : { kind: 'pr' })}
         pullRequestOpen={side?.kind === 'pr'}
@@ -165,7 +170,7 @@ export function SpaceView({
         onWrap={() => wrap.mutate()}
         attachDisabled={running}
         onAttach={() => setAttaching(true)}
-        onAddTeammate={() => setAdding(true)}
+        onAddBot={() => setAdding(true)}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -180,8 +185,8 @@ export function SpaceView({
         </Dialog>
       )}
       {space.kind !== 'work_item' && (
-        <Dialog open={adding} onClose={() => setAdding(false)} title="Add a Teammate">
-          {adding && <AddTeammateForm space={space} onClose={() => setAdding(false)} />}
+        <Dialog open={adding} onClose={() => setAdding(false)} title="Add a Bot">
+          {adding && <AddBotForm space={space} onClose={() => setAdding(false)} />}
         </Dialog>
       )}
       <div className="relative flex min-h-0 flex-1">
@@ -195,6 +200,25 @@ export function SpaceView({
               {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
+              {messages.hasEarlier && (
+                <div className="flex justify-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    loading={messages.loadingEarlier}
+                    onClick={() => {
+                      hold();
+                      messages.loadEarlier();
+                    }}
+                  >
+                    Load earlier messages
+                  </Button>
+                </div>
+              )}
+              {messages.earlierError && (
+                <p className="text-sm text-danger">{messages.earlierError.message}</p>
+              )}
               {messages.data && (
                 <MessageList
                   spaceId={space.id}
@@ -285,9 +309,10 @@ export function SpaceView({
                   running={running}
                   paused={blocksUser(space.paused)}
                   reason={space.paused}
-                  roles={roles.map((r) => r.name)}
+                  roles={roles}
                   faces={faces}
                   working={working}
+                  workingBotId={workingBotId}
                 />
               )}
             </div>
@@ -326,12 +351,13 @@ export function SpaceView({
                   spaceId={space.id}
                   thread={thread}
                   lead={space.role}
-                  roles={roles.map((r) => r.name)}
+                  roles={roles}
                   faces={faces}
                   running={running}
                   paused={blocksUser(space.paused)}
                   reason={space.paused}
                   working={working}
+                  workingBotId={workingBotId}
                   closed={closed}
                   onClose={closeSide}
                 />
@@ -371,7 +397,7 @@ export function SpaceView({
               <div className="mb-5 flex items-center gap-2.5 md:hidden">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xl">#{space.name}</div>
-                  <div className="text-[13px] text-muted">Team · {space.team}</div>
+                  {space.team && <div className="text-[13px] text-muted">Crew · {space.team}</div>}
                 </div>
                 {space.workItemId !== null && !closed && (
                   <Button
@@ -388,7 +414,8 @@ export function SpaceView({
                 spaceId={space.id}
                 workItemId={space.workItemId}
                 roles={roles}
-                working={running ? working : null}
+                projects={projects}
+                working={running ? (workingBotId ?? null) : null}
                 brief={brief}
                 onClose={() => setTeamOpen(false)}
               />

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -22,13 +21,13 @@ type teamView struct {
 }
 
 type roleView struct {
-	TeammateID     int64     `json:"teammateId,omitempty"`
+	BotID          int64     `json:"botId,omitempty"`
 	Name           string    `json:"name"`
 	Lead           bool      `json:"lead"`
 	Write          bool      `json:"write"`
 	Backend        string    `json:"backend"`
 	PermissionMode string    `json:"permissionMode"`
-	Persona        string    `json:"persona"`
+	Description    string    `json:"description"`
 	Skills         []string  `json:"skills"`
 	Face           string    `json:"face,omitempty"`
 	Colour         string    `json:"colour,omitempty"`
@@ -43,19 +42,6 @@ type roleView struct {
 type mcpView struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
-}
-
-// teamRoleBody is a role in a Team request. Its mcpRemove lists the servers to drop, as GET
-// showed them.
-type teamRoleBody struct {
-	store.Role
-	MCPRemove []mcpView `json:"mcpRemove"`
-}
-
-type teamBody struct {
-	Name           string         `json:"name"`
-	Responsibility string         `json:"responsibility"`
-	Roles          []teamRoleBody `json:"roles"`
 }
 
 func (s *server) teamRoutes(mux *http.ServeMux) {
@@ -74,25 +60,13 @@ func (s *server) teamRoutes(mux *http.ServeMux) {
 }
 
 func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
-	var body teamBody
-	if err := readJSON(r, &body); err != nil {
+	var t store.TeamSpec
+	if err := readJSON(r, &t); err != nil {
 		writeError(w, err)
 		return
 	}
-	t := teamFromBody(body)
-	for _, role := range t.Roles {
-		if role.TeammateID == 0 {
-			writeError(w, fmt.Errorf("%w: role %s needs a teammateId", store.ErrInvalid, role.Name))
-			return
-		}
-	}
 	if from := r.URL.Query().Get("from"); from != "" {
-		source, err := s.st.Team(r.Context(), from)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if err := fillMCPServers(t, body, source); err != nil {
+		if _, err := s.st.Team(r.Context(), from); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -135,20 +109,14 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewTeam(t))
 }
 
-// putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
-// the server's stored ones, since the window never sees them, except those its `mcpRemove`
-// lists; a listed server that no longer matches by name and label is a conflict. With a `from` query param it instead copies the team
-// named by `from`: `name` must not exist yet, and a role's stored mcpServers come from
-// `from`'s role of the same name.
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	from := r.URL.Query().Get("from")
-	var body teamBody
-	if err := readJSON(r, &body); err != nil {
+	var t store.TeamSpec
+	if err := readJSON(r, &t); err != nil {
 		writeError(w, err)
 		return
 	}
-	t := teamFromBody(body)
 	if t.Name == "" {
 		t.Name = name
 	} else if t.Name != name {
@@ -156,15 +124,6 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if from == "" {
-		existing, err := s.st.Team(r.Context(), name)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			writeError(w, err)
-			return
-		}
-		if err := fillMCPServers(t, body, existing); err != nil {
-			writeError(w, err)
-			return
-		}
 		applied, err := s.st.ApplyTeam(r.Context(), t)
 		if err != nil {
 			writeError(w, err)
@@ -173,17 +132,12 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, viewTeam(applied))
 		return
 	}
-	source, err := s.st.Team(r.Context(), from)
-	if err != nil {
+	if _, err := s.st.Team(r.Context(), from); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, fmt.Errorf("%w: team %q not found", store.ErrNotFound, from))
 		} else {
 			writeError(w, err)
 		}
-		return
-	}
-	if err := fillMCPServers(t, body, source); err != nil {
-		writeError(w, err)
 		return
 	}
 	applied, err := s.st.CreateTeam(r.Context(), t)
@@ -192,51 +146,6 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, viewTeam(applied))
-}
-
-// fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
-// the same name, since the window never sees them, minus the ones the role's body lists in
-// mcpRemove.
-func fillMCPServers(t store.Team, body teamBody, existing store.Team) error {
-	for i, role := range t.Roles {
-		if role.MCPServers != nil {
-			continue
-		}
-		for _, er := range existing.Roles {
-			if er.Name != role.Name {
-				continue
-			}
-			kept, err := removeMCP(er.MCPServers, body.Roles[i].MCPRemove)
-			if err != nil {
-				return err
-			}
-			t.Roles[i].MCPServers = kept
-			break
-		}
-	}
-	return nil
-}
-
-// removeMCP drops the servers that remove names. Each must match a stored server by both name
-// and label, so a team changed by `reef team apply` since the window loaded it is a conflict,
-// never a removal of the wrong server.
-func removeMCP(servers []agent.MCPServer, remove []mcpView) ([]agent.MCPServer, error) {
-	if len(remove) == 0 {
-		return servers, nil
-	}
-	views := viewMCP(servers)
-	for _, r := range remove {
-		if !slices.Contains(views, r) {
-			return nil, fmt.Errorf("%w: MCP servers changed since you loaded the team; reload", store.ErrConflict)
-		}
-	}
-	var kept []agent.MCPServer
-	for i, srv := range servers {
-		if !slices.Contains(remove, views[i]) {
-			kept = append(kept, srv)
-		}
-	}
-	return kept, nil
 }
 
 func viewMCP(servers []agent.MCPServer) []mcpView {
@@ -261,20 +170,10 @@ func viewTeam(t store.Team) teamView {
 
 func viewRole(r store.Role) roleView {
 	return roleView{
-		TeammateID: r.TeammateID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
-		PermissionMode: r.PermissionMode, Persona: r.Persona, Skills: r.Skills, Face: r.Face,
+		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
+		PermissionMode: r.PermissionMode, Description: r.Description, Skills: r.Skills, Face: r.Face,
 		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
 	}
 }
 
 func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
-
-func teamFromBody(body teamBody) store.Team {
-	t := store.Team{
-		Name: body.Name, Responsibility: body.Responsibility, Roles: make([]store.Role, len(body.Roles)),
-	}
-	for i, role := range body.Roles {
-		t.Roles[i] = role.Role
-	}
-	return t
-}

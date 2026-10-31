@@ -1,7 +1,7 @@
 # Caps
 
-A Space's agents cannot run away. Teammates that only talk to each other pause the Space after 6 hops, a
-teammate that works (Edit, Bash, any tool other than Reef's own) resets the count, and every turn of a work item,
+A Space's agents cannot run away. Bots that only talk to each other pause the Space after 6 hops, a
+bot that works (Edit, Bash, any tool other than Reef's own) resets the count, and every turn of a work item,
 in any of its Spaces, counts against one token budget. A pause moves the work item to Needs you and the inbox says
 why; the user's Continue clears it. Contract: `docs/server.md` (Caps) and `docs/restructure/decisions.md` (R49, R54).
 
@@ -11,7 +11,7 @@ why; the user's Continue clears it. Contract: `docs/server.md` (Caps) and `docs/
 - `hop-talk-pauses` a lead and a developer whose turns only call `post_to_space` pause after 6 hops with `hop cap: 6 agent hops without a user message`; the work item goes to `needs_you` and `GET /inbox` has a `held` item for the Space (`$H feature work-item-flow caps`).
 - `budget-per-item` two Spaces of one work item count their turns against one budget, the work item's `tokenBudget`; `continue` raises that budget.
 
-The other lines that hold a cap are `hop-cap` and `restart-held` (`teammates.md`), `live-caps` (`spaces.md`) and
+The other lines that hold a cap are `hop-cap` and `restart-held` (`bots.md`), `live-caps` (`spaces.md`) and
 `queue-needs-you-holds` (`queue-and-review.md`).
 
 ## How to get to it (user POV)
@@ -25,7 +25,7 @@ The other lines that hold a cap are `hop-cap` and `restart-held` (`teammates.md`
 
 Preconditions: baseline from the README. `ANTHROPIC_MODEL=sonnet` on `serve-start`; `$S/cwd` a git repo with one commit.
 
-Hop count and tool calls, a folder of its own (`--data-name hop`) with the team `pong` that `work-item-flow.sh` writes (its personas name every answer and tool call, so a `record` run on real claude takes the same turns) and, for the budget, the team `full` (`$H reef --data-name hop -- team apply $PWD/teams/full.json`) and `$S/cwd` a repo with one commit. The fake scenarios are `work-lead`, `work-developer`, `work-tester`, `talk-lead` and `talk-developer`:
+Hop count and tool calls, a folder of its own (`--data-name hop`) with the team `pong` that `work-item-flow.sh` writes (its descriptions name every answer and tool call, so a `record` run on real claude takes the same turns) and, for the budget, the team `full` (`$H team-apply $PWD/teams/full.json` once the server runs) and `$S/cwd` a repo with one commit. The fake scenarios are `work-lead`, `work-developer`, `work-tester`, `talk-lead` and `talk-developer`:
 
 - **Setup.** `$H api POST /projects '{"name":"hop","path":"'$S'/cwd"}'`, then three work items `workpong`, `talkpong` and `budget` (ids 1 to 3). `$H sql --write "update work_item set status = 'in_progress' where id in (1, 2)"`. `$H api POST /spaces '{"projectId":1,"workItemId":N,"name":"sN","team":"pong"}'` for N 1 and 2 (Space ids 1 and 2).
 - **Work resets the count.** `$H api POST /spaces/1/send '{"text":"workpong"}'` (the lead answers `@developer work`, the developer calls `Bash` and answers `@tester check`, the tester calls `Bash` and answers `@developer again`, and so on). When `$H sql "select count(*) from turn where space_id = 1 and status = 'done'"` is 13, `$H api POST /spaces/1/stop`. `$H sql "select role, status from turn where space_id = 1 order by id"` is `lead`, then `developer` and `tester` alternating, 13 `done` rows (the lead's answer and 12 hops), and `$H sql "select paused from space where id = 1"` is empty. `$H sql "select turn.role, t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = 1 group by turn.role, t.name"` is `developer|Bash` and `tester|Bash` six times each.

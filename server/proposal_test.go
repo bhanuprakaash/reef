@@ -82,13 +82,13 @@ func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {
 	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"workItemId":1,"name":"c","backend":"claude"}`); status != 201 {
+		`{"projectId":1,"workItemId":1,"name":"c"}`); status != 201 {
 		t.Fatalf("create = %d %s, want 201", status, body)
 	}
 	const want = `{"error":"conflict: work item 1 already has an active Space"}`
 
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"workItemId":1,"name":"again","backend":"claude"}`); status != 409 || body != want {
+		`{"projectId":1,"workItemId":1,"name":"again"}`); status != 409 || body != want {
 		t.Errorf("second Space of work item 1 = %d %s, want 409 %s", status, body, want)
 	}
 	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":1}`); status != 409 || body != want {
@@ -130,8 +130,6 @@ func TestAttach_Errors(t *testing.T) {
 			`{"error":"invalid: workItemId is required"}`},
 		{"unknown field", "/spaces/1/attach", `{"feature":1}`, 400,
 			`{"error":"invalid: bad JSON: json: unknown field \"feature\""}`},
-		{"work item of another project", "/spaces/1/attach", `{"workItemId":1}`, 400,
-			`{"error":"invalid: work item 1 is not in project 1"}`},
 		{"unknown work item", "/spaces/1/attach", `{"workItemId":9}`, 400,
 			`{"error":"invalid: unknown work item 9"}`},
 		{"unknown space", "/spaces/9/attach", `{"workItemId":1}`, 404,
@@ -151,6 +149,30 @@ func TestAttach_Errors(t *testing.T) {
 	}
 }
 
+func TestAttach_SpaceWithNoProjectOrAnotherProject(t *testing.T) {
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"other","path":"`+t.TempDir()+`"}`)
+	gitProject(t, env, 2)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Billing"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Invoices"}`)
+	if status, body := do(t, http.MethodPost, env.url+"/spaces", `{"name":"loose"}`); status != 201 {
+		t.Fatalf("create Space with no project = %d %s, want 201", status, body)
+	}
+
+	for _, id := range []int{1, 2} {
+		status, body := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/attach", env.url, id),
+			fmt.Sprintf(`{"workItemId":%d}`, id))
+		if status != 200 || !strings.Contains(body, `"projectId":2,`) ||
+			!strings.Contains(body, fmt.Sprintf(`"workItemId":%d`, id)) {
+			t.Errorf("attach Space %d = %d %s, want 200 in project 2 with work item %d", id, status, body, id)
+		}
+	}
+	_, body := do(t, http.MethodGet, env.url+"/spaces?project=2", "")
+	if !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"id":2,`) {
+		t.Errorf("Spaces of project 2 = %s, want Spaces 1 and 2", body)
+	}
+}
+
 func TestAttach_AttachedSpaceAndConversation(t *testing.T) {
 	env := newLiveEnv(t)
 	gitProject(t, env, 1)
@@ -158,7 +180,7 @@ func TestAttach_AttachedSpaceAndConversation(t *testing.T) {
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Search"}`)
 	do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":1}`)
 	do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"name":"talk","teammateId":1,"kind":"conversation"}`)
+		`{"projectId":1,"name":"talk","botId":1,"kind":"conversation"}`)
 
 	status, body := do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":2}`)
 	if status != 400 || body != `{"error":"invalid: Space 1 already has work item 1"}` {
@@ -187,31 +209,31 @@ func TestAttach_WhileRunning(t *testing.T) {
 	env.fake.release <- struct{}{}
 }
 
-func TestCreateSpace_FromATeammateAddsMembersOneByOne(t *testing.T) {
+func TestCreateSpace_FromABotAddsMembersOneByOne(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	sam, err := env.st.CreateTeammate(ctx, store.Teammate{
+	sam, err := env.st.CreateBot(ctx, store.Bot{
 		Name: "sam", Backend: "claude", Write: true, Tools: []string{"Read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"name":"two","teammateId":1,"team":"solo"}`)
-	if status != 400 || body != `{"error":"invalid: give teammateId or team, not both"}` {
+		`{"projectId":1,"name":"two","botId":1,"team":"solo"}`)
+	if status != 400 || body != `{"error":"invalid: give botId or team, not both"}` {
 		t.Errorf("create with both = %d %s, want 400 not both", status, body)
 	}
-	status, body = do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two","teammateId":1}`)
+	status, body = do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two","botId":1}`)
 	if status != 201 || !strings.Contains(body, `"kind":"free"`) || !strings.Contains(body, `"team":""`) ||
 		!strings.Contains(body, `"role":"lead"`) {
-		t.Fatalf("create from teammate 1 = %d %s, want a free Space with no team led by lead", status, body)
+		t.Fatalf("create from bot 1 = %d %s, want a free Space with no team led by lead", status, body)
 	}
 
-	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"teammateId":%d}`, sam.ID))
+	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"botId":%d}`, sam.ID))
 	if status != 201 || !strings.Contains(body, `"name":"sam","lead":false,"write":true`) {
 		t.Fatalf("add sam = %d %s, want 201 with sam, not lead, write", status, body)
 	}
-	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"teammateId":%d}`, sam.ID))
+	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"botId":%d}`, sam.ID))
 	if status != 409 {
 		t.Errorf("add sam again = %d %s, want 409", status, body)
 	}
@@ -224,7 +246,7 @@ func TestCreateSpace_FromATeammateAddsMembersOneByOne(t *testing.T) {
 func TestProposalRoutes(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", ""); status != 404 ||
 		body != `{"error":"pending proposal of Space 2: not found"}` {
 		t.Errorf("proposal before = %d %s, want 404", status, body)
@@ -232,7 +254,7 @@ func TestProposalRoutes(t *testing.T) {
 	propose := func(brief string) {
 		t.Helper()
 		_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-			SpaceID: 2, Role: "lead", Brief: brief,
+			SpaceID: 2, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Brief: brief,
 			Items: []store.ProposedItem{{Kind: "decision", Body: "use SQLite", Why: "simple", Scope: "work_item"}},
 		})
 		if err != nil {
@@ -242,7 +264,7 @@ func TestProposalRoutes(t *testing.T) {
 
 	propose("first brief")
 	status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", "")
-	if status != 200 || !strings.Contains(body, `"id":1,"spaceId":2,"role":"lead","kind":"wrap","brief":"first brief"`) {
+	if status != 200 || !strings.Contains(body, `"id":1,"spaceId":2,"botId":1,"role":"lead","kind":"wrap","brief":"first brief"`) {
 		t.Fatalf("proposal = %d %s, want proposal 1", status, body)
 	}
 	status, body = do(t, http.MethodPost, env.url+"/proposals/1/approve", "")

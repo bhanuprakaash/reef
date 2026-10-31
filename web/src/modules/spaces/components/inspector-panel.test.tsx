@@ -10,7 +10,7 @@ vi.mock('@/modules/spaces/api/get-inspector', () => ({ useInspector }));
 const usage = { inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0 };
 
 const data: Inspector = {
-  roles: [{ role: 'lead', turns: 1, usage, costUsd: 0.0034 }],
+  roles: [{ role: 'lead', botId: null, turns: 1, usage, costUsd: 0.0034 }],
   turns: [],
 };
 
@@ -29,7 +29,7 @@ describe('InspectorPanel', () => {
     useInspector.mockReturnValue({
       isPending: false,
       isError: false,
-      data: { roles: [{ role: 'lead', turns: 2, usage, costUsd: null }], turns: [] },
+      data: { roles: [{ role: 'lead', botId: null, turns: 2, usage, costUsd: null }], turns: [] },
     });
 
     const markup = renderToStaticMarkup(
@@ -48,17 +48,19 @@ describe('InspectorPanel', () => {
         roles: [
           {
             role: 'lead',
+            botId: null,
             turns: 4,
             usage: { ...usage, inputTokens: 1500, outputTokens: 500 },
             costUsd: 0.25,
           },
           {
             role: 'developer',
+            botId: null,
             turns: 8,
             usage: { ...usage, inputTokens: 2000, outputTokens: 0 },
             costUsd: 0.5,
           },
-          { role: 'tester', turns: 2, usage, costUsd: null },
+          { role: 'tester', botId: null, turns: 2, usage, costUsd: null },
         ],
         turns: [],
       },
@@ -88,7 +90,7 @@ describe('InspectorPanel', () => {
     useInspector.mockReturnValue({
       isPending: false,
       isError: false,
-      data: { roles: [{ role: 'lead', turns: 2, usage, costUsd: 0.0034 }], turns: [] },
+      data: { roles: [{ role: 'lead', botId: null, turns: 2, usage, costUsd: 0.0034 }], turns: [] },
     });
 
     const markup = renderToStaticMarkup(
@@ -103,11 +105,12 @@ describe('InspectorPanel', () => {
       isPending: false,
       isError: false,
       data: {
-        roles: [{ role: 'developer', turns: 1, usage, costUsd: 0.1 }],
+        roles: [{ role: 'developer', botId: null, turns: 1, usage, costUsd: 0.1 }],
         turns: [
           {
             id: 7,
             role: 'developer',
+            botId: null,
             startedAt: '2026-10-20T10:00:00Z',
             status: 'done',
             model: 'claude-opus-5-5',

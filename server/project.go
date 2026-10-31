@@ -155,8 +155,9 @@ func (s *server) putProjectMemory(w http.ResponseWriter, r *http.Request) {
 
 // deleteProject deletes the project, the worktrees of its work items and the checkpoint refs of
 // the turns of all its Spaces, quick sessions included. A worktree with uncommitted changes
-// is 409 and nothing is removed; so is a Space with a turn running elsewhere, or open in
-// reef chat. Branches are kept. A running turn is stopped first, as for a work item delete. A
+// is 409 and nothing is removed; so is a Space whose only project this is with a turn running
+// elsewhere, or open in reef chat. A Space with no work item stays, readable, with its other
+// projects, if any. Branches are kept. A running turn is stopped first, as for a work item delete. A
 // project folder that is gone is not git cleaned up: worktree folders, if any, are just
 // removed.
 func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
@@ -170,13 +171,13 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{ProjectID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{OnlyProjectID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer lift()
-	if err := s.spacesInUse(r.Context(), store.SpaceFilter{ProjectID: &id}); err != nil {
+	if err := s.spacesInUse(r.Context(), store.SpaceFilter{OnlyProjectID: &id}); err != nil {
 		writeError(w, err)
 		return
 	}

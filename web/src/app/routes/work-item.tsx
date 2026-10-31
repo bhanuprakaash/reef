@@ -8,6 +8,7 @@ import { SpaceList } from '@/modules/spaces/components/space-list';
 import { useSpaces } from '@/lib/api/get-spaces';
 import { useMemory } from '@/lib/api/get-memory';
 import { useRetireMemory } from '@/lib/api/retire-memory';
+import { useBots } from '@/lib/api/get-bots';
 import { useTeams } from '@/lib/api/get-teams';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useBriefVersions } from '@/modules/work-items/api/get-brief-versions';
@@ -22,7 +23,7 @@ import { SubItems } from '@/modules/work-items/components/sub-items';
 import { diffCounts } from '@/modules/work-items/utils/diff-counts';
 import { statusLabel } from '@/modules/work-items/utils/status-label';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { roleFaces } from '@/utils/role-faces';
+import { memberFaces } from '@/utils/role-faces';
 import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -49,6 +50,7 @@ export function WorkItemPage() {
   const diff = useDiff(id);
   const spaces = useSpaces();
   const teams = useTeams();
+  const bots = useBots();
   const terminal = useTerminal(true);
   const move = useMoveWorkItem();
   const [dialog, setDialog] = useState<'edit' | 'space' | 'drop' | null>(null);
@@ -65,7 +67,7 @@ export function WorkItemPage() {
   const suggested = teams.data?.find((t) => t.id === f.suggestedTeamId);
   const proposal = [
     f.proposedBy && `proposed by ${f.proposedBy}`,
-    suggested && `suggested Team ${suggested.name}`,
+    suggested && `suggested Crew ${suggested.name}`,
   ].filter(Boolean);
   const reviewing = f.parentId === null && f.status === 'review';
 
@@ -142,7 +144,7 @@ export function WorkItemPage() {
           ) : (
             <MemoryList
               items={memory.data ?? []}
-              faces={roleFaces(teams.data, latestSpace?.team)}
+              faces={memberFaces(bots.data, latestSpace?.members)}
               onRetire={retire.mutate}
               retiring={retire.isPending}
             />
@@ -179,7 +181,7 @@ export function WorkItemPage() {
       </Dialog>
       <Dialog open={dialog === 'drop'} onClose={() => setDialog(null)} title="Drop Work item">
         <p className="mb-5 text-sm text-muted">
-          Drop {f.title}? Its Spaces close and their agents stop, and its Team starts the next
+          Drop {f.title}? Its Spaces close and their agents stop, and its Crew starts the next
           queued item. This cannot be undone.
         </p>
         <div className="flex justify-end gap-2">

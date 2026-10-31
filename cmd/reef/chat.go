@@ -22,8 +22,7 @@ import (
 
 const _continueCommand = "/continue"
 
-const _chatUsage = `usage: reef chat <work-item> --backend claude|codex [--role lead] [--name N]
-  [--permission-mode M] [--debug] [--data DIR]
+const _chatUsage = `usage: reef chat <work-item> [--role lead] [--name N] [--debug] [--data DIR]
        reef chat --space ID [--debug] [--data DIR]`
 
 func chatCmd(
@@ -34,9 +33,7 @@ func chatCmd(
 
 	c := newCommand("reef chat", _chatUsage, 0, 1)
 	role := c.fs.String("role", "", "")
-	backend := c.fs.String("backend", "", "")
 	name := c.fs.String("name", "", "")
-	permissionMode := c.fs.String("permission-mode", "", "")
 	debug := c.fs.Bool("debug", false, "")
 	spaceID := c.fs.Int64("space", 0, "")
 	st, pos, err := c.open(args)
@@ -46,9 +43,7 @@ func chatCmd(
 	defer func() { _ = st.Close() }()
 
 	resuming := *spaceID != 0
-	if resuming == (len(pos) == 1) ||
-		(resuming && (*role != "" || *backend != "" || *name != "" || *permissionMode != "")) ||
-		(!resuming && *backend == "") {
+	if resuming == (len(pos) == 1) || (resuming && (*role != "" || *name != "")) {
 		return errors.New(_chatUsage)
 	}
 	dir, err := dataDir(*c.data)
@@ -87,7 +82,6 @@ func chatCmd(
 		}
 		ch, err := st.CreateSpace(ctx, store.Space{
 			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *name, Role: *role,
-			Backend: *backend, PermissionMode: *permissionMode,
 		})
 		if err != nil {
 			return err

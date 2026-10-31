@@ -9,7 +9,7 @@ import type { InboxItem } from '@/types/api';
 
 const groups: { group: InboxItem['group']; title: string; hint: string }[] = [
   { group: 'needs_you', title: 'Needs you', hint: 'Work is stopped until you act.' },
-  { group: 'review', title: 'Review', hint: 'Done by the team, waiting for your check.' },
+  { group: 'review', title: 'Review', hint: 'Done by the Bots, waiting for your check.' },
   { group: 'fyi', title: 'FYI', hint: 'Nothing is blocked. Dismiss what you have seen.' },
 ];
 

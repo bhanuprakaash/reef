@@ -48,9 +48,9 @@ func TestContext_RoleSeesOnlyItsOwnItems(t *testing.T) {
 	st, f := openStore(t)
 	ms := testMemory(t, st)
 	for i := 1; i <= 6; i++ {
-		remember(t, ms, teammateScope("developer"), memory.KindLesson, "developer",
+		remember(t, ms, botScope("developer"), memory.KindLesson, "developer",
 			fmt.Sprintf("developer lesson %d", i))
-		remember(t, ms, teammateScope("tester"), memory.KindLesson, "tester",
+		remember(t, ms, botScope("tester"), memory.KindLesson, "tester",
 			fmt.Sprintf("tester lesson %d", i))
 	}
 
@@ -66,7 +66,7 @@ func TestContext_RoleSeesOnlyItsOwnItems(t *testing.T) {
 	}
 	for _, want := range []string{
 		"### Your items\nlesson 11: developer lesson 6 (",
-		"5 of 6; recall(..., scope=teammate)\n",
+		"5 of 6; recall(..., scope=bot)\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Context does not contain %q:\n%s", want, got)
@@ -145,7 +145,7 @@ func TestFirstPrompt_QuickSessionHasNoFeatureParts(t *testing.T) {
 	ms := testMemory(t, st)
 	remember(t, ms, workScope(f), memory.KindDecision, "user", "a feature decision")
 	remember(t, ms, projectScope(f), memory.KindFact, "user", "a project fact")
-	remember(t, ms, teammateScope("1"), memory.KindLesson, "lead", "a lead lesson")
+	remember(t, ms, botScope("1"), memory.KindLesson, "lead", "a lead lesson")
 
 	got, err := firstPrompt(ctx, st, ms, f.ProjectID, nil, 0, store.Team{}, store.Role{Name: "lead"})
 	if err != nil {
@@ -168,8 +168,8 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	st, f := openStore(t)
 	ms := testMemory(t, st)
 	newSpace := func(kind string) store.Space {
-		c, err := st.CreateTeammateSpace(ctx, store.Space{
-			Kind: kind, ProjectID: f.ProjectID, Name: "chat", Role: "lead", Backend: "claude",
+		c, err := st.CreateBotSpace(ctx, store.Space{
+			Kind: kind, ProjectID: f.ProjectID, Name: "chat", Role: "lead",
 		}, 1)
 		if err != nil {
 			t.Fatal(err)
@@ -186,7 +186,7 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	remember(t, ms, ref(memory.ScopeConversation, chat), memory.KindFact, "lead", "conversation fact")
 	remember(t, ms, projectScope(f), memory.KindFact, "user", "a project fact")
 	remember(t, ms, memory.Ref{Kind: memory.ScopeTeam, ID: "core"}, memory.KindLesson, "user", "a team lesson")
-	remember(t, ms, memory.Ref{Kind: memory.ScopeTeammate, ID: "1"}, memory.KindLesson, "lead", "a lead lesson")
+	remember(t, ms, memory.Ref{Kind: memory.ScopeBot, ID: "1"}, memory.KindLesson, "lead", "a lead lesson")
 
 	prompt := func(c store.Space) string {
 		got, err := firstPrompt(ctx, st, ms, f.ProjectID, nil, c.ID, store.Team{}, store.Role{Name: "lead"})
@@ -210,7 +210,7 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	for _, c := range []store.Space{chat, nextChat} {
 		got = prompt(c)
 		if !strings.Contains(got, "### Your items\nlesson 6: a lead lesson (") {
-			t.Errorf("conversation %d =\n%s\nwant the Teammate's items", c.ID, got)
+			t.Errorf("conversation %d =\n%s\nwant the Bot's items", c.ID, got)
 		}
 		for _, want := range []string{"This is a direct conversation with the user", "saves to this conversation by default"} {
 			if !strings.Contains(got, want) {
@@ -232,7 +232,7 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	remember(t, ms, workScope(f), memory.KindDecision, "user", "use sessions")
 	remember(t, ms, workScope(f), memory.KindFinding, "tester", "login is slow")
 	remember(t, ms, projectScope(f), memory.KindFact, "user", "Go 1.24")
-	remember(t, ms, teammateScope("architect"), memory.KindLesson, "architect", "keep it small")
+	remember(t, ms, botScope("architect"), memory.KindLesson, "architect", "keep it small")
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
 
@@ -257,10 +257,10 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	}
 }
 
-func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
+func TestContext_YourItemsAreTheRolesBot(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core",
 		Roles: []store.Role{{Name: "developer", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -270,8 +270,8 @@ func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
 		t.Fatal(err)
 	}
 	ms := testMemory(t, st)
-	remember(t, ms, memory.Ref{Kind: memory.ScopeTeammate, ID: "2"}, memory.KindLesson, "developer", "keep it small")
-	remember(t, ms, teammateScope("developer"), memory.KindLesson, "developer", "kept under the role name")
+	remember(t, ms, memory.Ref{Kind: memory.ScopeBot, ID: "2"}, memory.KindLesson, "developer", "keep it small")
+	remember(t, ms, botScope("developer"), memory.KindLesson, "developer", "kept under the role name")
 
 	for name, id := range map[string]int64{"a work item with a Team": g.ID, "one without": f.ID} {
 		got, err := Context(ctx, st, ms, id, "developer")
@@ -279,9 +279,7 @@ func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
 			t.Fatal(err)
 		}
 		want := "### Your items\nlesson 1: keep it small ("
-		if name == "one without" {
-			want = "### Your items\nlesson 2: kept under the role name ("
-		}
+
 		if !strings.Contains(got, want) {
 			t.Errorf("Context of %s =\n%s\nwant it to contain %q", name, got, want)
 		}
@@ -291,7 +289,7 @@ func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
 func TestScopes(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core",
 		Roles: []store.Role{{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +301,7 @@ func TestScopes(t *testing.T) {
 		return w.ID
 	}
 	save := func(t *testing.T, c store.Space) store.Space {
-		c.ProjectID, c.Name, c.Role, c.Backend = f.ProjectID, "chat", "lead", "claude"
+		c.ProjectID, c.Name, c.Role = f.ProjectID, "chat", "lead"
 		c, err := st.CreateSpace(ctx, c)
 		if err != nil {
 			t.Fatal(err)
@@ -323,7 +321,7 @@ func TestScopes(t *testing.T) {
 			},
 			want: []memory.Ref{
 				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"},
-				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
+				{Kind: "team", ID: "core"}, {Kind: "bot", ID: "1"},
 			},
 		},
 		{
@@ -333,7 +331,7 @@ func TestScopes(t *testing.T) {
 				return save(t, store.Space{WorkItemID: &w, Team: store.SoloTeam}), strconv.FormatInt(w, 10)
 			},
 			want: []memory.Ref{
-				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"}, {Kind: "teammate", ID: "1"},
+				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"}, {Kind: "bot", ID: "1"},
 			},
 		},
 		{
@@ -343,23 +341,22 @@ func TestScopes(t *testing.T) {
 			},
 			want: []memory.Ref{
 				{Kind: "space", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "team", ID: "core"},
-				{Kind: "teammate", ID: "2"},
+				{Kind: "bot", ID: "1"},
 			},
 		},
 		{
 			name: "direct conversation",
 			give: func(t *testing.T) (store.Space, string) {
-				c, err := st.CreateTeammateSpace(ctx, store.Space{
+				c, err := st.CreateBotSpace(ctx, store.Space{
 					Kind: store.KindConversation, ProjectID: f.ProjectID, Name: "chat", Role: "lead",
-					Backend: "claude",
-				}, 2)
+				}, 1)
 				if err != nil {
 					t.Fatal(err)
 				}
 				return c, ""
 			},
 			want: []memory.Ref{
-				{Kind: "conversation", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "teammate", ID: "lead"},
+				{Kind: "conversation", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "bot", ID: "1"},
 			},
 		},
 		{
@@ -368,7 +365,7 @@ func TestScopes(t *testing.T) {
 				return store.Space{ProjectID: 3}, ""
 			},
 			want: []memory.Ref{
-				{Kind: "space", ID: "S"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "1"},
+				{Kind: "space", ID: "S"}, {Kind: "project", ID: "3"}, {Kind: "bot", ID: "1"},
 			},
 		},
 	}

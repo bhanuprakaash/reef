@@ -29,7 +29,6 @@ echo one >"$S/cwd/a.txt"
 git -C "$S/cwd" add a.txt
 git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -qm init
 
-"$H" reef --data-name github -- team apply "$PWD/teams/full.json" >/dev/null
 
 GH="$E/gh"
 mkdir -p "$GH/bin"
@@ -49,8 +48,9 @@ chmod +x "$GH/bin/gh"
 : >"$GH/resp.json"
 export GH_FAKE_RESPONSE="$GH/resp.json" GH_FAKE_ERR="$GH/err.txt" GH_FAKE_LOG="$GH/log.txt"
 
-REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github
+REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github || exit 1
 A=$(cat "$S/serve.addr")
+"$H" team-apply "$PWD/teams/full.json" >/dev/null
 
 api_call POST /projects '{"name":"app","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"Demo"}'
@@ -84,7 +84,7 @@ n2=$(msg_count 1)
 check check-success "$([ "$succ_wait" = 0 ] && [ "$n2" = 2 ] && echo 1 || echo 0)" \
 	"messages after the success check = $n2 (want 2): $(curl -s "http://$A/messages?space=1")"
 
-### A finished failed check: note, and a developer wake with the check name and log tail
+### A finished failed check: note, and a wake of the Space coordinator (the lead) with the check name and log tail
 
 printf 'FAIL TestFoo\nwant 2 got 1\n' >"$GH/log.txt"
 echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
@@ -92,7 +92,7 @@ echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","status
 	'"detailsUrl":"https://github.com/x/y/actions/runs/9/job/9"}]}' | tr -d '\n' >"$GH/resp.json"
 wait_for '/messages?space=1' 'build failed' && fail_wait=0 || fail_wait=1
 sleep 2
-turn1=$("$H" sql "select id from turn where space_id = 1 and role = 'developer' order by id limit 1" | tail -1)
+turn1=$("$H" sql "select id from turn where space_id = 1 and role = 'lead' order by id limit 1" | tail -1)
 wake1=$(turn_col "$turn1" wake_text)
 fail_ok=1
 [ "$fail_wait" = 0 ] || fail_ok=0
@@ -107,7 +107,7 @@ check check-failed-wake "$fail_ok" "turn $turn1 wake_text: $(echo "$wake1" | tr 
 n3=$(msg_count 1)
 t3=$("$H" sql "select count(*) from turn where space_id = 1" | tail -1)
 "$H" serve-stop
-REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github
+REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github || exit 1
 A=$(cat "$S/serve.addr")
 sleep 3
 n4=$(msg_count 1)
@@ -125,22 +125,23 @@ rerun_wait=1
 for i in $(seq 30); do [ "$(msg_count 1)" -gt "$n4" ] 2>/dev/null && { rerun_wait=0; break; }; sleep 1; done
 sleep 2
 n5=$(msg_count 1)
-dev_turns=$("$H" sql "select count(*) from turn where space_id = 1 and role = 'developer'" | tail -1)
-turn2=$("$H" sql "select id from turn where space_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
+dev_turns=$("$H" sql "select count(*) from turn where space_id = 1 and role = 'lead'" | tail -1)
+turn2=$("$H" sql "select id from turn where space_id = 1 and role = 'lead' order by id desc limit 1" | tail -1)
 wake2=$(turn_col "$turn2" wake_text)
 rerun_ok=1
 [ "$rerun_wait" = 0 ] || rerun_ok=0
 [ "$dev_turns" = 2 ] || rerun_ok=0
 [ "$turn2" != "$turn1" ] || rerun_ok=0
 echo "$wake2" | grep -qF 'want 3 got 4' || rerun_ok=0
-check check-rerun-wakes-again "$rerun_ok" "messages $n4 -> $n5, developer turns=$dev_turns, turn $turn2 wake_text: $(echo "$wake2" | tr '\n' '|')"
+check check-rerun-wakes-again "$rerun_ok" "messages $n4 -> $n5, lead turns=$dev_turns, turn $turn2 wake_text: $(echo "$wake2" | tr '\n' '|')"
 
-### A solo-team work item space: the note, no turn
+### A solo-team work item space: the note, and its lead (the coordinator) is woken
 
 wait_for '/messages?space=2' 'build failed' && solo_wait=0 || solo_wait=1
-turns_solo=$("$H" sql "select count(*) from turn where space_id = 2" | tail -1)
-check solo-note-only "$([ "$solo_wait" = 0 ] && [ "$turns_solo" = 0 ] && echo 1 || echo 0)" \
-	"space 2 messages: $(curl -s "http://$A/messages?space=2" | tr -d '\n'); turns=$turns_solo"
+sleep 2
+turns_solo=$("$H" sql "select count(*) from turn where space_id = 2 and role = 'lead'" | tail -1)
+check solo-note-wakes-lead "$([ "$solo_wait" = 0 ] && [ "$turns_solo" -ge 1 ] && echo 1 || echo 0)" \
+	"space 2 messages: $(curl -s "http://$A/messages?space=2" | tr -d '\n'); lead turns=$turns_solo"
 
 ### Two check runs under the same name: both are noted, not merged into one row
 
@@ -174,7 +175,7 @@ echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","status
 wait_for '/messages?space=4' 'build failed' && busy_note_wait=0 || busy_note_wait=1
 sleep 3
 turns_while_paused=$("$H" sql "select count(*) from turn where space_id = 4" | tail -1)
-log_before=$(grep -c 'wake developer: space 4 is paused' "$E/serve.log")
+log_before=$(grep -c 'wake coordinator: space 4 is paused' "$E/serve.log")
 
 for i in $(seq 10); do
 	api_call POST /spaces/4/continue
@@ -183,12 +184,12 @@ for i in $(seq 10); do
 done
 turn3=""
 for i in $(seq 30); do
-	turn3=$("$H" sql "select id from turn where space_id = 4 and role = 'developer' order by id limit 1" | tail -1)
+	turn3=$("$H" sql "select id from turn where space_id = 4 and role = 'lead' order by id limit 1" | tail -1)
 	[ -n "$turn3" ] && break
 	sleep 1
 done
 wake3=$(turn_col "$turn3" wake_text)
-log_after=$(grep -c 'wake developer: space 4 is paused' "$E/serve.log")
+log_after=$(grep -c 'wake coordinator: space 4 is paused' "$E/serve.log")
 
 busy_ok=1
 [ "$busy_note_wait" = 0 ] || busy_ok=0
@@ -202,8 +203,8 @@ check wake-retries-after-busy "$busy_ok" \
 
 ### Hop cap: the wake is attributed to an author other than the user, so it counts as a hop
 ### like any agent-originated wake. A run of distinct failed checks, one new run per poll,
-### wakes the developer up to store.HopCap times; the next one is still noted, but pauses the
-### space at the cap instead of waking the developer again.
+### wakes the coordinator up to store.HopCap times; the next one is still noted, but pauses the
+### space at the cap instead of waking the coordinator again.
 
 api_call POST /work-items '{"projectId":1,"title":"Hopcap Demo"}'
 api_call POST /work-items/5/worktree ""
@@ -217,13 +218,13 @@ for n in $(seq 1 6); do
 		'"detailsUrl":"https://github.com/x/y/actions/runs/'"$((100 + n))"'/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
 	ok=0
 	for i in $(seq 30); do
-		t=$("$H" sql "select count(*) from turn where space_id = 5 and role = 'developer'" | tail -1)
+		t=$("$H" sql "select count(*) from turn where space_id = 5" | tail -1)
 		[ "$t" = "$n" ] && { ok=1; break; }
 		sleep 1
 	done
 	[ "$ok" = 1 ] || hop_ok=0
 done
-dev_turns_hop=$("$H" sql "select count(*) from turn where space_id = 5 and role = 'developer'" | tail -1)
+dev_turns_hop=$("$H" sql "select count(*) from turn where space_id = 5" | tail -1)
 [ "$dev_turns_hop" = 6 ] || hop_ok=0
 
 notes_before_cap=$(msg_count 5)
@@ -237,13 +238,13 @@ for i in $(seq 30); do
 	sleep 1
 done
 sleep 2
-dev_turns_after_cap=$("$H" sql "select count(*) from turn where space_id = 5 and role = 'developer'" | tail -1)
+dev_turns_after_cap=$("$H" sql "select count(*) from turn where space_id = 5" | tail -1)
 paused5=$("$H" sql "select paused from Space where id = 5" | tail -1)
 [ "$hop_note_wait" = 0 ] || hop_ok=0
 [ "$dev_turns_after_cap" = 6 ] || hop_ok=0
 case "$paused5" in "hop cap:"*) ;; *) hop_ok=0 ;; esac
 check hop-cap "$hop_ok" \
-	"developer turns=$dev_turns_hop after 6 failed checks, still $dev_turns_after_cap after a 7th, Space 5 paused=$paused5"
+	"turns=$dev_turns_hop after 6 failed checks (the scripted lead hands one to the architect), still $dev_turns_after_cap after a 7th, Space 5 paused=$paused5"
 
 ### A PR that opens before the work item has a space: the note must not be lost. It is not
 ### recorded as posted until a space exists to post it in, then posts once, not twice.
@@ -266,7 +267,7 @@ lost_ok=1
 check lost-note-no-space "$lost_ok" \
 	"work_item_github rows before a Space existed=$stored_before, PR note posted=$lost_wait, messages on Space 6=$lost_count"
 
-### Two failed checks in one rollup: one developer wake naming both, not one wake each.
+### Two failed checks in one rollup: one coordinator wake naming both, not one wake each.
 
 api_call POST /work-items '{"projectId":1,"title":"Two Fail Demo"}'
 api_call POST /work-items/7/worktree ""
@@ -280,8 +281,8 @@ echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","status
 	'"detailsUrl":"https://github.com/x/y/actions/runs/202/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
 wait_for '/messages?space=7' 'lint failed' && two_fail_wait=0 || two_fail_wait=1
 sleep 2
-dev_turns7=$("$H" sql "select count(*) from turn where space_id = 7 and role = 'developer'" | tail -1)
-turn7=$("$H" sql "select id from turn where space_id = 7 and role = 'developer' order by id limit 1" | tail -1)
+dev_turns7=$("$H" sql "select count(*) from turn where space_id = 7 and role = 'lead'" | tail -1)
+turn7=$("$H" sql "select id from turn where space_id = 7 and role = 'lead' order by id limit 1" | tail -1)
 wake7=$(turn_col "$turn7" wake_text)
 two_fail_ok=1
 [ "$two_fail_wait" = 0 ] || two_fail_ok=0
@@ -289,7 +290,7 @@ two_fail_ok=1
 echo "$wake7" | grep -q build || two_fail_ok=0
 echo "$wake7" | grep -q lint || two_fail_ok=0
 check many-failed-checks-one-wake "$two_fail_ok" \
-	"developer turns=$dev_turns7, turn $turn7 wake_text: $(echo "$wake7" | tr '\n' '|')"
+	"lead turns=$dev_turns7, turn $turn7 wake_text: $(echo "$wake7" | tr '\n' '|')"
 
 "$H" serve-stop
 
@@ -305,7 +306,7 @@ for d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
 		[ -e "$NOGH/$b" ] || ln -s "$f" "$NOGH/$b" 2>/dev/null
 	done
 done
-PATH="$NOGH" REEF_GH_INTERVAL=1s ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github-nogh
+PATH="$NOGH" REEF_GH_INTERVAL=1s ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github-nogh || exit 1
 sleep 3
 health=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$(cat "$S/serve.addr")/health")
 "$H" serve-stop

@@ -25,7 +25,7 @@ func submittedEnv(t *testing.T) *liveEnv {
 		switch {
 		case text == space.WrapCommand:
 			_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-				SpaceID: 2, Role: "lead", Brief: "login done",
+				SpaceID: 2, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Brief: "login done",
 				Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions", Scope: "work_item"}},
 			})
 			if err != nil {
@@ -184,7 +184,7 @@ func TestWrapUpRunsAfterRestart(t *testing.T) {
 		if text != space.WrapCommand {
 			return
 		}
-		_, err := env.st.CreateProposal(context.Background(), store.Proposal{SpaceID: 2, Role: "lead", Brief: "login done"})
+		_, err := env.st.CreateProposal(context.Background(), store.Proposal{SpaceID: 2, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Brief: "login done"})
 		if err != nil {
 			t.Error(err)
 		}

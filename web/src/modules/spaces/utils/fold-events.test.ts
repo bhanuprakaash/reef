@@ -163,6 +163,21 @@ describe('foldEvent', () => {
     });
   });
 
+  it('keeps the Bot id of a turn from its running frame to its end', () => {
+    const running = foldEvent(emptyTurn, {
+      type: 'turn',
+      status: 'running',
+      role: 'dev',
+      botId: 7,
+    });
+
+    expect(running.botId).toBe(7);
+    expect(foldEvent(running, { type: 'turn', status: 'done' }).botId).toBe(7);
+    expect(
+      foldEvent(running, { type: 'turn', status: 'running', role: 'dev', botId: 9 }).botId,
+    ).toBe(9);
+  });
+
   it('keeps the direct message id of a turn from its running frame to its end', () => {
     const running = foldEvent(emptyTurn, { type: 'turn', status: 'running', directMessageId: 7 });
 

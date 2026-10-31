@@ -68,4 +68,4 @@ Create a folder only when a ticket needs it.
 - React: follow `docs/react-style.md`.
 - Commits: conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`), one-line subject, no ticket ids in the subject. No AI attribution anywhere.
 - Comments only for a constraint the code cannot show.
-- Plain words in UI and code: Work item, sub-item, Space, Team, Teammate, role, brief, memory item, decision. "Channel" is kept for incoming event streams only. "Reef" and "jelly" are brand only.
+- Plain words in the target UI and code: Work item, sub-item, Space, Bot, Crew, coordinator, brief, memory item, decision. Existing runtime still uses Team; Bot has replaced Teammate; [product decisions 143–155](docs/product.md#decisions) define the target and execution boundaries. "Channel" is kept for incoming event streams only. "Reef" and "jelly" are brand only.

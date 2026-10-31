@@ -25,7 +25,7 @@ func TestWakesOfOneTurnRunInStoredOrder(t *testing.T) {
 			return
 		}
 		if _, err := env.st.CreateDirectMessage(context.Background(), store.DirectMessage{
-			SpaceID: int64(id), From: "lead", To: "developer", Body: "build it",
+			SpaceID: int64(id), From: "lead", To: "developer", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "developer"), Body: "build it",
 		}); err != nil {
 			t.Error(err)
 		}

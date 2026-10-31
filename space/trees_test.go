@@ -50,7 +50,7 @@ type treeRig struct {
 
 func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 	t.Helper()
-	if _, err := st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Write: true, Backend: "claude"},
 		{Name: "tester", Backend: "claude"},
@@ -71,7 +71,7 @@ func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 func (r *treeRig) session(t *testing.T, name string, f store.WorkItem) *Session {
 	t.Helper()
 	ch, err := r.st.CreateSpace(context.Background(), store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name, Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name, Role: "lead",
 		Team: "crew",
 	})
 	if err != nil {
@@ -315,7 +315,7 @@ func (a *lockProbeAgent) Send(ctx context.Context, prompt string) error {
 func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "committer", Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}},
 		{Name: "differ", Backend: "claude", Tools: []string{"Read", "Bash(git diff:*)"}},
@@ -335,7 +335,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.role, func(t *testing.T) {
 			ch, err := st.CreateSpace(ctx, store.Space{
-				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: tt.role, Role: "lead", Backend: "claude",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: tt.role, Role: "lead",
 				Team: "crew",
 			})
 			if err != nil {

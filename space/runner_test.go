@@ -64,7 +64,7 @@ func TestRunner_Send(t *testing.T) {
 		t.Fatal(err)
 	}
 	fa := &fakeAgent{events: make(chan agent.Event, 8)}
-	r := NewRunner(st, fa, ch.ID, "architect", "claude", "CONTEXT")
+	r := newTestRunner(t, st, fa, ch.ID, "architect", "claude", "CONTEXT")
 	r.Memory = testMemory(t, st)
 
 	var streamed []string
@@ -163,7 +163,7 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 		t.Fatal(err)
 	}
 	fa := &fakeAgent{events: make(chan agent.Event, 8)}
-	r := NewRunner(st, fa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, fa, ch.ID, "architect", "claude", "")
 	if err := r.Run(ctx, "one 1", &root.ID, func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
 		{Kind: agent.KindText, Text: "42"},
 		{Kind: agent.KindTurnEnd},
 	}}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	if err := sendAs(ctx, st, ch.ID, r.Run, "What is 7 times 6?", func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +261,7 @@ func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 				}
 			}
 			sa := &scriptAgent{events: make(chan agent.Event, 8), script: tc.script}
-			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+			r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 			if err := r.Run(ctx, "go", nil, func(agent.Event) {}); err != nil {
 				t.Fatal(err)
 			}
@@ -294,7 +294,7 @@ func TestRunner_PostedDirectTurnStillAnswersSender(t *testing.T) {
 		t.Fatal(err)
 	}
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "architect", Body: "plan 1",
+		SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: testBotID(t, st, "lead"), ToBotID: testBotID(t, st, "architect"), Body: "plan 1",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -305,7 +305,7 @@ func TestRunner_PostedDirectTurnStillAnswersSender(t *testing.T) {
 		{Kind: agent.KindText, Text: "private answer"},
 		{Kind: agent.KindTurnEnd},
 	}}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	if err := r.RunDirect(ctx, "request 1", req, func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -325,12 +325,12 @@ func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "architect", Body: "plan 1",
+		SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: testBotID(t, st, "lead"), ToBotID: testBotID(t, st, "architect"), Body: "plan 1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	architect := NewRunner(st, &fakeAgent{events: make(chan agent.Event, 8)},
+	architect := newTestRunner(t, st, &fakeAgent{events: make(chan agent.Event, 8)},
 		ch.ID, "architect", "claude", "")
 	if err := architect.RunDirect(ctx, "request 1", req, func(agent.Event) {}); err != nil {
 		t.Fatal(err)
@@ -339,7 +339,7 @@ func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
 	if err != nil || len(direct) != 2 || direct[1].Body != "reply 1" {
 		t.Fatalf("direct after request = %+v, %v, want one response", direct, err)
 	}
-	lead := NewRunner(st, &fakeAgent{events: make(chan agent.Event, 8)},
+	lead := newTestRunner(t, st, &fakeAgent{events: make(chan agent.Event, 8)},
 		ch.ID, "lead", "claude", "")
 	if err := lead.RunDirect(ctx, "response 2", direct[1], func(agent.Event) {}); err != nil {
 		t.Fatal(err)
@@ -368,7 +368,7 @@ func TestRunner_FailedDirectTurnKeepsPartialAttempt(t *testing.T) {
 		t.Fatal(err)
 	}
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "lead", To: "architect", Body: "plan",
+		SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: testBotID(t, st, "lead"), ToBotID: testBotID(t, st, "architect"), Body: "plan",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -378,7 +378,7 @@ func TestRunner_FailedDirectTurnKeepsPartialAttempt(t *testing.T) {
 		{Kind: agent.KindText, Text: "partial"},
 		{Kind: agent.KindError, Text: "boom"},
 	}}
-	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
 	if err := r.RunDirect(ctx, "direct wake", req, func(agent.Event) {}); err == nil {
 		t.Fatal("RunDirect succeeded, want agent error")
 	}
@@ -409,7 +409,7 @@ func TestRunner_StoppedTurnKeepsReplyInThread(t *testing.T) {
 	sa := &scriptAgent{
 		events: make(chan agent.Event, 8), script: []agent.Event{{Kind: agent.KindText, Text: "par"}},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	ctx, cancel := context.WithCancel(bg)
 	defer cancel()
 
@@ -491,7 +491,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			sa := &scriptAgent{
 				events: make(chan agent.Event, 8), script: tt.script, closeAfter: tt.closeAfter,
 			}
-			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+			r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 			ctx, cancel := context.WithCancel(bg)
 			defer cancel()
 
@@ -572,7 +572,7 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	sa := &scriptAgent{events: make(chan agent.Event, 8)}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	ctx := &cancelOnDone{Context: bg, done: make(chan struct{})}
 	defer time.AfterFunc(5*time.Second, ctx.cancel).Stop()
 
@@ -606,7 +606,7 @@ func TestRunner_RunCancelledBeforeSend(t *testing.T) {
 	sa := &scriptAgent{
 		events: make(chan agent.Event, 8), script: []agent.Event{{Kind: agent.KindTurnEnd}},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	ctx, cancel := context.WithCancel(bg)
 	cancel()
 
@@ -640,7 +640,7 @@ func TestRunner_SendCancelledKeepsStoppedUsage(t *testing.T) {
 		script:      []agent.Event{{Kind: agent.KindText, Text: "par"}},
 		onInterrupt: agent.Event{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 9, OutputTokens: 2}},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "codex", "")
 	ctx, cancel := context.WithCancel(bg)
 	defer cancel()
 
@@ -674,7 +674,7 @@ func TestRunner_RecordsModelCostPromptAndToolCalls(t *testing.T) {
 			{Kind: agent.KindTurnEnd, CostUSD: &cost},
 		},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +716,7 @@ func TestRunner_RecordsSubagentToolCallParent(t *testing.T) {
 			{Kind: agent.KindTurnEnd},
 		},
 	}
-	r := NewRunner(st, sa, ch.ID, "developer", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "developer", "claude", "")
 	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -751,7 +751,7 @@ func TestRunner_ResumedSessionStoresTurnOwnCost(t *testing.T) {
 				{Kind: agent.KindTurnEnd, CostUSD: &total},
 			},
 		}
-		r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+		r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 		if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
 			t.Fatal(err)
 		}
@@ -799,7 +799,7 @@ func TestRunner_ResumedSessionStoresTurnOwnUsage(t *testing.T) {
 			events: make(chan agent.Event, 8),
 			script: append([]agent.Event{{Kind: agent.KindSession, SessionID: "s1"}}, script...),
 		}
-		r := NewRunner(st, sa, ch.ID, "developer", "claude", "")
+		r := newTestRunner(t, st, sa, ch.ID, "developer", "claude", "")
 		if i == 2 {
 			sa.closeAfter = true
 		}
@@ -850,7 +850,7 @@ func TestRunner_LegacySessionStoresTurnOwnCost(t *testing.T) {
 			{Kind: agent.KindTurnEnd, CostUSD: &total},
 		},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -887,7 +887,7 @@ func TestRunner_FailedTurnStoresCost(t *testing.T) {
 			{Kind: agent.KindError, Text: "boom", CostUSD: &cost},
 		},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err == nil {
 		t.Fatal("want error")
 	}
@@ -918,7 +918,7 @@ func TestRunner_CodexTurnHasModelNoCost(t *testing.T) {
 			{Kind: agent.KindTurnEnd},
 		},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "codex", "")
 	if err := sendAs(bg, st, ch.ID, r.Run, "go", func(agent.Event) {}); err != nil {
 		t.Fatal(err)
 	}
@@ -950,7 +950,7 @@ func TestRunner_SendRunsAnyNumberOfToolCalls(t *testing.T) {
 		events: make(chan agent.Event, 32),
 		script: append(script, agent.Event{Kind: agent.KindText, Text: "done"}, agent.Event{Kind: agent.KindTurnEnd}),
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 
 	if err := sendAs(bg, st, ch.ID, r.Run, "hi", func(agent.Event) {}); err != nil {
 		t.Fatalf("Send error = %v, want nil", err)
@@ -982,7 +982,7 @@ func TestRunner_CompactionWhileAbortingMakesTheNextTurnSendTheFirstPrompt(t *tes
 		script:      []agent.Event{{Kind: agent.KindText, Text: "par"}},
 		onInterrupt: agent.Event{Kind: agent.KindCompacted},
 	}
-	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "claude", "")
 	r.FirstPrompt = func(context.Context) (string, error) { return "FIRST PROMPT", nil }
 	ctx, cancel := context.WithCancel(bg)
 	defer cancel()

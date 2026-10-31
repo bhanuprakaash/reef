@@ -20,7 +20,7 @@ func spaceMemberStore(t *testing.T) *Store {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core", Roles: []Role{
 		{Name: "boss", Lead: true, Backend: "claude"},
 		{Name: "dev", Backend: "claude", Write: true, Tools: []string{"Read"}},
 	}}); err != nil {
@@ -58,48 +58,7 @@ func TestCreateSpace_RefusesSecondActiveSpaceOfWorkItem(t *testing.T) {
 	}
 }
 
-func TestSpaceTeam_KeepsRulesCopiedWhenTheSpaceWasMade(t *testing.T) {
-	ctx := context.Background()
-	s := spaceMemberStore(t)
-	running, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "running", Team: "core"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	team, err := s.Team(ctx, "core")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dev := team.Roles[1]
-
-	if _, err := s.EditMember(ctx, "core", dev.TeammateID,
-		Membership{Tools: []string{"Read", "Grep"}, Write: false}); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := s.SpaceTeam(ctx, running.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Roles) != 2 || got.Roles[0].Name != "boss" || !got.Roles[0].Lead {
-		t.Fatalf("members = %+v, want boss (lead) then dev", got.Roles)
-	}
-	if d := got.Roles[1]; d.Name != "dev" || !d.Write || !reflect.DeepEqual(d.Tools, []string{"Read"}) {
-		t.Errorf("running Space's dev = %+v, want write and tools [Read] as copied", d)
-	}
-	later, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "later", Team: "core"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = s.SpaceTeam(ctx, later.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d := got.Roles[1]; d.Write || !reflect.DeepEqual(d.Tools, []string{"Read", "Grep"}) {
-		t.Errorf("new Space's dev = %+v, want no write and tools [Read Grep]", d)
-	}
-}
-
-func TestAddSpaceMemberTool_ChangesOnlyThatSpacesMember(t *testing.T) {
+func TestSpaceTeam_UsesProfileConfiguration(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
 	one, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "one", Team: "core"})
@@ -114,55 +73,47 @@ func TestAddSpaceMemberTool_ChangesOnlyThatSpacesMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dev := team.Roles[1]
-
-	for range 2 {
-		if _, err := s.AddSpaceMemberTool(ctx, one.ID, dev.TeammateID, "WebFetch"); err != nil {
+	bot, err := s.Bot(ctx, team.Roles[1].BotID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Tools = []string{"Read", "Grep"}
+	bot.Write = false
+	if _, err := s.UpdateBot(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{one.ID, two.ID} {
+		got, err := s.SpaceTeam(ctx, id)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-
-	for _, c := range []struct {
-		name  string
-		tools []string
-		got   func() []string
-	}{
-		{"Space one", []string{"Read", "WebFetch"}, func() []string {
-			got, _ := s.SpaceTeam(ctx, one.ID)
-			return got.Roles[1].Tools
-		}},
-		{"Space two", []string{"Read"}, func() []string {
-			got, _ := s.SpaceTeam(ctx, two.ID)
-			return got.Roles[1].Tools
-		}},
-		{"the Team", []string{"Read"}, func() []string {
-			got, _ := s.Team(ctx, "core")
-			return got.Roles[1].Tools
-		}},
-	} {
-		if got := c.got(); !reflect.DeepEqual(got, c.tools) {
-			t.Errorf("dev tools in %s = %v, want %v", c.name, got, c.tools)
+		if d := got.Roles[1]; d.Write || !reflect.DeepEqual(d.Tools, []string{"Read", "Grep"}) {
+			t.Errorf("Space %d member = %+v, want profile settings", id, d)
 		}
 	}
-	if _, err := s.AddSpaceMemberTool(ctx, one.ID, 999, "WebFetch"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("unknown teammate = %v, want ErrNotFound", err)
+	team, err = s.Team(ctx, "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := team.Roles[1]; d.Write || !reflect.DeepEqual(d.Tools, []string{"Read", "Grep"}) {
+		t.Errorf("team member = %+v, want profile settings", d)
 	}
 }
 
-func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.T) {
+func TestBotConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude"})
+	kim, err := s.CreateBot(ctx, Bot{Name: "kim", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := func(name string, with Teammate, kind string) Space {
-		c, err := s.CreateTeammateSpace(ctx,
-			Space{ProjectID: 1, Name: name, Kind: kind, Role: with.Name, Backend: "claude"}, with.ID)
+	start := func(name string, with Bot, kind string) Space {
+		c, err := s.CreateBotSpace(ctx,
+			Space{ProjectID: 1, Name: name, Kind: kind, Role: with.Name}, with.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -176,7 +127,7 @@ func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *tes
 		t.Fatal(err)
 	}
 
-	got, err := s.TeammateConversations(ctx, sam.ID)
+	got, err := s.BotConversations(ctx, sam.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,19 +140,19 @@ func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *tes
 	}
 }
 
-func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
+func TestBotSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude", Write: true})
+	kim, err := s.CreateBot(ctx, Bot{Name: "kim", Backend: "claude", Write: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := s.CreateTeammateSpace(ctx,
-		Space{ProjectID: 1, Name: "chat", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
+	chat, err := s.CreateBotSpace(ctx,
+		Space{ProjectID: 1, Name: "chat", Kind: KindConversation, Role: "sam"}, sam.ID)
 	if err != nil || chat.Kind != KindConversation || chat.Team != "" {
 		t.Fatalf("conversation = %+v, %v, want kind conversation and no team", chat, err)
 	}
@@ -209,8 +160,8 @@ func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 		t.Errorf("add to a conversation = %v, want ErrInvalid", err)
 	}
 
-	free, err := s.CreateTeammateSpace(ctx,
-		Space{ProjectID: 1, Name: "free", Role: "sam", Backend: "claude"}, sam.ID)
+	free, err := s.CreateBotSpace(ctx,
+		Space{ProjectID: 1, Name: "free", Role: "sam"}, sam.ID)
 	if err != nil || free.Kind != KindFree {
 		t.Fatalf("free Space = %+v, %v, want kind free", free, err)
 	}
@@ -226,8 +177,8 @@ func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 		!reflect.DeepEqual(team.Roles[0].Tools, []string{"Read"}) {
 		t.Errorf("SpaceTeam = %+v, %v, want no team, sam (lead, tools [Read]) then kim", team, err)
 	}
-	if err := s.DeleteTeammate(ctx, sam.ID); !errors.Is(err, ErrInvalid) {
-		t.Errorf("delete a teammate that is in Spaces = %v, want ErrInvalid", err)
+	if err := s.DeleteBot(ctx, sam.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("delete a bot that is in Spaces = %v, want ErrInvalid", err)
 	}
 }
 
@@ -270,28 +221,59 @@ func TestAttachSpace(t *testing.T) {
 	}
 }
 
-func TestMoveConversation_FreeSpaceWithBothTeammatesAndTheConversationMarked(t *testing.T) {
+func TestAttachSpace_NoProjectOrAnotherProject(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	other, err := s.CreateProject(ctx, Project{Name: "blog", Path: "/tmp/blog"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude", Write: true})
+	w, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: other.ID, Title: "Post"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := s.CreateTeammateSpace(ctx,
-		Space{ProjectID: 1, Name: "talk", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
+	free, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "free", Team: "core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.AttachSpace(ctx, free.ID, w.ID)
+	if err != nil || got.ProjectID != other.ID || got.WorkItemID == nil || *got.WorkItemID != w.ID {
+		t.Fatalf("AttachSpace = %+v, %v, want work item %d in project %d", got, err, w.ID, other.ID)
+	}
+	projects, err := s.SpaceProjects(ctx, free.ID)
+	if err != nil || len(projects) != 2 || projects[0].ID != 1 || projects[1].ID != other.ID {
+		t.Errorf("SpaceProjects = %+v, %v, want projects 1 and %d", projects, err, other.ID)
+	}
+	msgs, err := s.Messages(ctx, free.ID, 0)
+	if err != nil || len(msgs) != 1 || msgs[0].Author != ReefAuthor || msgs[0].BotID != nil ||
+		msgs[0].Body != "You associated Project blog with this conversation." {
+		t.Errorf("history after attach = %+v, %v, want one user-attributed note", msgs, err)
+	}
+}
+
+func TestMoveConversation_FreeSpaceWithBothBotsAndTheConversationMarked(t *testing.T) {
+	ctx := context.Background()
+	s := spaceMemberStore(t)
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kim, err := s.CreateBot(ctx, Bot{Name: "kim", Backend: "claude", Write: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateBotSpace(ctx,
+		Space{ProjectID: 1, Name: "talk", Kind: KindConversation, Role: "sam"}, sam.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := s.MoveConversation(ctx, conv.ID, sam.ID); !errors.Is(err, ErrInvalid) {
-		t.Errorf("move to its own Teammate = %v, want ErrInvalid", err)
+		t.Errorf("move to its own Bot = %v, want ErrInvalid", err)
 	}
 	if _, err := s.MoveConversation(ctx, conv.ID, 99); !errors.Is(err, ErrInvalid) {
-		t.Errorf("move to an unknown Teammate = %v, want ErrInvalid", err)
+		t.Errorf("move to an unknown Bot = %v, want ErrInvalid", err)
 	}
 	moved, err := s.MoveConversation(ctx, conv.ID, kim.ID)
 	if err != nil {

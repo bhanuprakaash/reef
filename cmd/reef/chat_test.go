@@ -18,6 +18,24 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+func testCLIBot(t *testing.T, st *store.Store, name string) *int64 {
+	t.Helper()
+	bots, err := st.Bots(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range bots {
+		if b.Name == name {
+			return &b.ID
+		}
+	}
+	b, err := st.CreateBot(context.Background(), store.Bot{Name: name, Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &b.ID
+}
+
 type fakeSession struct {
 	st       *store.Store
 	spaceID  int64
@@ -53,11 +71,15 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 	if !f.propose {
 		return store.Proposal{}, space.ErrNoProposal
 	}
+	id, err := f.st.SpaceMemberBotID(ctx, f.spaceID, "architect")
+	if err != nil {
+		return store.Proposal{}, err
+	}
 	return f.st.CreateProposal(ctx, store.Proposal{
-		SpaceID: f.spaceID, Role: "architect", Brief: "new brief",
+		SpaceID: f.spaceID, BotID: &id, Role: "architect", Brief: "new brief",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item", Replaces: f.replaces},
-			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+			{Kind: "lesson", Body: "reply short", Scope: "bot"},
 		},
 	})
 }
@@ -73,6 +95,10 @@ type chatRun struct {
 
 func startChat(t *testing.T, st *store.Store, ch store.Space, w *fakeSession) *chatRun {
 	t.Helper()
+	id := testCLIBot(t, st, "architect")
+	if _, err := st.AddSpaceMember(context.Background(), ch.ID, *id); err != nil {
+		t.Fatal(err)
+	}
 	w.st, w.spaceID = st, ch.ID
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
@@ -175,7 +201,7 @@ func TestConverse_Wrap(t *testing.T) {
 		{name: "end of input", propose: true,
 			wantOut: "proposal 1 left pending",
 			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
-				"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+				"- decision (work_item): use sessions (simple)\n- lesson (bot): reply short\n\n" +
 				"approve? [y/N] \nproposal 1 left pending\n\n",
 			wantPending: true},
 		{name: "no proposal", wantOut: "no proposal made"},
@@ -268,7 +294,7 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 	out := c.end(t)
 
 	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
-		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (bot): reply short\n\n" +
 		"approve? [y/N] \nproposal 1 left pending\n\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
@@ -295,7 +321,7 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	out := c.end(t)
 
 	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
-		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (bot): reply short\n\n" +
 		"approve? [y/N] \n" +
 		"ignored while wrapping: a\nignored while wrapping: y\napprove? [y/N] \n" +
 		"proposal 1 left pending\n\n"
@@ -420,9 +446,7 @@ func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
 		give []string
 	}{
 		{"role", []string{"--role", "tester"}},
-		{"backend", []string{"--backend", "codex"}},
 		{"name", []string{"--name", "x"}},
-		{"permission mode", []string{"--permission-mode", "acceptEdits"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -434,23 +458,12 @@ func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
 	}
 }
 
-func TestRun_ChatBackendTypoLeavesNoSpace(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(t.TempDir())
-	mustReef(t, dir, "project", "add")
-	mustReef(t, dir, "work-item", "add", "Login")
-
-	_, err := reef(t, dir, "chat", "1", "--backend", "nope")
-	if err == nil || err.Error() != `invalid: unknown backend "nope"` {
-		t.Errorf("chat error = %v, want unknown backend", err)
-	}
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-	if chs, err := st.Spaces(context.Background(), store.SpaceFilter{}); err != nil || len(chs) != 0 {
-		t.Errorf("spaces = %+v, %v, want none", chs, err)
+func TestRun_ChatTakesNoBackendOrPermissionMode(t *testing.T) {
+	for _, flag := range []string{"--backend", "--permission-mode"} {
+		_, err := reef(t, t.TempDir(), "chat", "1", flag, "codex")
+		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -"+strings.TrimPrefix(flag, "--")) {
+			t.Errorf("chat %s error = %v, want an undefined flag", flag, err)
+		}
 	}
 }
 
@@ -475,9 +488,9 @@ func TestRun_ChatRefusesWhatCannotLeadItsSpace(t *testing.T) {
 		give []string
 		want string
 	}{
-		{"another role", []string{"chat", "1", "--role", "developer", "--backend", "claude"},
+		{"another role", []string{"chat", "1", "--role", "developer"},
 			"invalid: reef chat runs the lead of team solo, lead: --role developer is not it"},
-		{"sub-item", []string{"chat", "2", "--backend", "claude"},
+		{"sub-item", []string{"chat", "2"},
 			"invalid: work item 2 is a sub-item of work item 1: open its parent"},
 	}
 	for _, tt := range tests {
@@ -505,7 +518,7 @@ func TestRun_ChatResumesPausedSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(context.Background(), store.Space{
-		ProjectID: p.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: p.ID, Name: "chat", Role: "lead",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -551,7 +564,7 @@ func TestRun_ChatRefusesMovedSpace(t *testing.T) {
 	}
 	for _, name := range []string{"talk", "moved"} {
 		if _, err := st.CreateSpace(ctx, store.Space{
-			ProjectID: p.ID, Name: name, Role: "lead", Backend: "claude",
+			ProjectID: p.ID, Name: name, Role: "lead",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -588,14 +601,14 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "duo", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "architect", Backend: "claude"},
+	if _, err := st.ApplyTeam(ctx, store.TeamSpec{Name: "duo", Roles: []store.Member{
+		{BotID: *testCLIBot(t, st, "lead"), Lead: true},
+		{BotID: *testCLIBot(t, st, "architect")},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: p.ID, Name: "chat", Team: "duo", Role: "lead", Backend: "claude",
+		ProjectID: p.ID, Name: "chat", Team: "duo", Role: "lead",
 	})
 	if err != nil {
 		t.Fatal(err)

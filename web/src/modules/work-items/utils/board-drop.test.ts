@@ -33,14 +33,14 @@ describe('dropAction', () => {
     });
   });
 
-  it('refuses Queued for an item with no Team', () => {
+  it('refuses Queued for an item with no Crew', () => {
     expect(dropAction(item({ teamId: null }), 'queued')).toEqual({
       kind: 'refuse',
-      reason: 'Set a Team on this item before queuing it.',
+      reason: 'Set a Crew on this item before queuing it.',
     });
   });
 
-  it('takes the position of the queued item it lands on, in the same Team', () => {
+  it('takes the position of the queued item it lands on, in the same Crew', () => {
     const dragged = item({ id: 1, status: 'queued', queuePosition: 1 });
     const onto = item({ id: 2, status: 'queued', queuePosition: 3 });
     expect(dropAction(dragged, 'queued', onto)).toEqual({ kind: 'reorder', position: 3 });

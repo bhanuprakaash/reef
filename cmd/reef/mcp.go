@@ -78,13 +78,17 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if errors.Is(err, store.ErrNotFound) {
 		ch, err = st.CreateSpace(ctx, store.Space{
 			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *role + " (claude code)",
-			Role: "lead", Backend: "claude",
+			Role: "lead",
 		})
 	}
 	if err != nil {
 		return err
 	}
-	tok, err := st.CreateToken(ctx, ch.ID, *role)
+	botID, err := st.SpaceMemberBotID(ctx, ch.ID, *role)
+	if err != nil {
+		return err
+	}
+	tok, err := st.CreateToken(ctx, ch.ID, botID)
 	if err != nil {
 		return err
 	}

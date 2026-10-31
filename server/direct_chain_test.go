@@ -30,12 +30,12 @@ func TestDirectQueueOrderAndSingleConcurrency(t *testing.T) {
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "first",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "first",
 			}); err != nil {
 				t.Error(err)
 			}
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "second",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "second",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -149,7 +149,7 @@ func TestDirectStopWhileQueuedRecipientStopped(t *testing.T) {
 		if role == "lead" {
 			post("lead", "@architect plan", nil)
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "queued direct",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "queued direct",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -210,7 +210,7 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -286,7 +286,7 @@ func TestDirectUserMessageFailsHeldWake(t *testing.T) {
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" && ping.Load() {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -342,12 +342,12 @@ func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 		if role == "lead" && !exhausted {
 			exhausted = true
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
 			turn, err := env.st.CreateTurn(ctx, store.Turn{
-				SpaceID: int64(id), Role: "lead", Backend: "claude",
+				SpaceID: int64(id), Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude",
 			})
 			if err != nil {
 				t.Error(err)
@@ -437,7 +437,7 @@ func TestDirectRecipientStartFailure(t *testing.T) {
 		if role == "lead" {
 			post("lead", "@architect plan", nil)
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "do it",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "do it",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -480,7 +480,7 @@ func TestDirectTurnFailureMarksQueuedWakesFailed(t *testing.T) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
 			for _, body := range []string{"first", "second"} {
 				if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-					SpaceID: int64(id), From: "lead", To: "architect", Body: body,
+					SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: body,
 				}); err != nil {
 					t.Error(err)
 				}
@@ -526,7 +526,7 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "design it",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "design it",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -564,13 +564,13 @@ func TestDirectRestartRecovery(t *testing.T) {
 	env := newLiveEnv(t)
 	id, _ := env.teamSpace(t)
 	req, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: int64(id), From: "lead", To: "architect", Body: "do",
+		SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "do",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.st.CreateTurn(ctx, store.Turn{
-		SpaceID: int64(id), Role: "architect", Backend: "claude",
+		SpaceID: int64(id), Role: "architect", BotID: testServerBot(t, env.st, "architect"), Backend: "claude",
 		WakeText: "do", DirectMessageID: req.IDRef(),
 	}); err != nil {
 		t.Fatal(err)
@@ -652,18 +652,18 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 	if _, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Auth"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	closeSpace(t, st, 1)
-	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok, err := st.CreateToken(ctx, ch.ID, "lead")
+	tok, err := testToken(t, st, ctx, ch.ID, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -685,6 +685,9 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 // TestDirectSelfLoopPrevented rejects sending a direct message to oneself, exactly once.
 func TestDirectSelfLoopPrevented(t *testing.T) {
 	st, tok := mcpFixture(t)
+	if _, err := st.CreateTurn(context.Background(), store.Turn{SpaceID: tok.SpaceID, Role: "architect", BotID: tok.BotID, Backend: "claude", WakeText: "go"}); err != nil {
+		t.Fatal(err)
+	}
 	got, isErr := callTool(t, st, tok)("send_to_role", map[string]any{"to": "architect", "body": "hi"})
 	if !isErr || !strings.Contains(got, "yourself") {
 		t.Fatalf("self send = %q (error %v), want self error", got, isErr)
@@ -721,7 +724,7 @@ func TestDirectResponseWakeDroppedFailsRequest(t *testing.T) {
 			post("lead", "@architect go", nil)
 		case role == "architect":
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "architect", To: "lead", Body: "ping",
+				SpaceID: int64(id), From: "architect", To: "lead", FromBotID: testServerBot(t, env.st, "architect"), ToBotID: testServerBot(t, env.st, "lead"), Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -770,7 +773,7 @@ func TestDirectResponseWakeFailureFailsRequest(t *testing.T) {
 		}
 		if runs.Add(1) == 1 {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}

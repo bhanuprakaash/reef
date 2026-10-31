@@ -84,17 +84,17 @@ func TestProviders(t *testing.T) {
 		})
 	}
 
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Provider: "work"}
-	team, err := st.ApplyTeam(context.Background(), store.Team{Name: "t", Roles: []store.Role{lead}})
+	lead := store.Role{Name: "t-lead", Lead: true, Backend: "claude", Provider: "work"}
+	team, err := testServerTeam(t, st, context.Background(), store.Team{Name: "t", Roles: []store.Role{lead}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if status, out := do(t, http.MethodDelete, ts.URL+"/providers/work", ""); status != 409 ||
-		!strings.Contains(out, `provider \"work\" is used by teammate t-lead`) {
-		t.Errorf("DELETE /providers/work while a role names it = %d %s, want 409 naming teammate t-lead", status, out)
+		!strings.Contains(out, `provider \"work\" is used by bot t-lead`) {
+		t.Errorf("DELETE /providers/work while a role names it = %d %s, want 409 naming bot t-lead", status, out)
 	}
-	if _, err := st.UpdateTeammate(context.Background(), store.Teammate{
-		ID: team.Roles[0].TeammateID, Name: "t-lead", Backend: "claude"}); err != nil {
+	if _, err := st.UpdateBot(context.Background(), store.Bot{
+		ID: team.Roles[0].BotID, Name: "t-lead", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 

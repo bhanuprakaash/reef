@@ -57,7 +57,7 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
 	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
 	env.waitIdle(t, 4)
-	tok, err := env.st.CreateToken(ctx, 4, "lead")
+	tok, err := testToken(t, env.st, ctx, 4, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}

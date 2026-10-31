@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { MemoryItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { Creature, type Faces } from '@/components/creature';
+import { Creature, faceOf, type Faces } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 
 type Props = {
@@ -48,7 +48,7 @@ function MemoryRow({
             {author[0]}
           </span>
         ) : (
-          <Creature look={faces[item.author]} size={22} />
+          <Creature look={faceOf(faces, item.botId)} size={22} />
         )}
       </button>
       <Button
@@ -77,7 +77,7 @@ export function MemoryList({ items, faces, onRetire, retiring }: Props) {
         <div className="px-6 pb-5">
           <EmptyState
             title="Nothing remembered yet"
-            body="What the team saves for this Work item lands here."
+            body="What the Bots save for this Work item lands here."
             face="whale"
             compact
           />

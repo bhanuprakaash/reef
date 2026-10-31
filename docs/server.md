@@ -1,9 +1,22 @@
 # Server
 
+> **Target contract:** [Product decisions 143–155](product.md#decisions) define Bots, roster-only Crews, global conversations and execution boundaries. This document describes the existing runtime until those changes are implemented; its Team and Bot terms do not define the target. Use a fresh development data directory for the new model. No legacy migration or compatibility path is required, but preserve histories created by the new runtime.
+
 `reef serve` keeps Reef's data in one SQLite file and serves it as a JSON REST API. The
 store is [`store/`](../store), the routes are [`server/`](../server), the entry point is
 [`cmd/reef/main.go`](../cmd/reef/main.go). The code is the source of truth. This doc says
 what it does and why.
+
+## Fresh development database for the target model
+
+Use a new, isolated data directory when developing the new model. For example:
+
+```sh
+reef_data_dir="$(mktemp -d /private/tmp/reef-dev.XXXXXX)"
+reef serve --data "$reef_data_dir" --addr 127.0.0.1:7701
+```
+
+This starts with a fresh database and leaves the existing data directory untouched. Use the same directory to test restart and history preservation after the new runtime creates records. The current runtime still applies its existing migrations; the target transition needs no legacy migration or compatibility program.
 
 ## Run
 
@@ -59,11 +72,23 @@ logged in and on `PATH`.
 
 - Sidebar: a top row with the brand (it opens Today) and one + menu (New Work item, New Space, New
   conversation), search, the project switcher, then Inbox with its count, Board, Spaces and
-  Conversations. Spaces lists the project's free Spaces and the Spaces of Work items that are not yet
+  Conversations. The switcher lists All projects first and then each project; the choice is a
+  filter only. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
+  associated with that project; under All projects it reads `GET /spaces`. Switching never changes a
+  Space's projects, context or sessions, and starts no chat. New Space and New conversation under
+  All projects send `POST /spaces` with no `projectId`; New Work item needs a project. Spaces lists the free
+  Spaces and the Spaces of Work items that are not yet
   in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
-  eight newest conversations with the Teammate's creature; its header opens `/conversations`. Each row
+  eight newest conversations with the Bot's creature; its header opens `/conversations`. A Pinned
+  section (`GET /pins`) above Spaces lists pinned Bots, chats and Spaces with a kind label, under every
+  filter; a Bots section below it lists the Bots of the five newest chats under the filter, each opening `/bots/ID/chat`; a pin button on a Space or chat row, the Bot page and its chat rows pins and unpins. Typing in
+  search replaces the list with `GET /find` results (Bots, chats, Spaces, Work items); a result opens
+  `/bots/ID/chat`, `/spaces/ID` or `/work-items/ID`. `/bots/ID/chat` opens the Bot's latest chat under
+  the selected project (`?resumable=1&project=N&limit=1`) or overall, and with none opens the Bot page, whose New
+  chat starts one; the Bot page lists the chats 20 at a time with Load more. A Space loads its newest
+  50 messages and a Load earlier messages button fetches the page before the oldest shown; a live refetch asks `after` the id 50 from the newest, so nothing loaded drops out, and a reply whose root is not loaded gets it with `?before=ROOT+1&limit=1`. Each row
   shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
-  fixed and shows your name beside the Teammates, Teams and Settings links. Below 768 px the sidebar is
+  fixed and shows your name beside the Bots, Teams and Settings links. Below 768 px the sidebar is
   a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,
   Escape or a tap outside closes it, and a Space opens full screen.
 - Today (`/`): what waits on you, the project's work items, and capture.
@@ -71,7 +96,7 @@ logged in and on `PATH`.
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
   Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The running turn names its
-  teammate. Teammates' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
+  bot. Bots' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, paused, failed, stopped or completed (the state of
   its newest chain) with its message count; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
@@ -82,8 +107,8 @@ logged in and on `PATH`.
   result says it "requested permissions to use X" or "requires approval", or that an edit tool "is
   disabled for this session"), read from `GET /spaces/{id}/inspector`, gets a card
   "<Role> was denied <tool>" under the messages. A `Bash` call shows as `Bash(<first word>:*)`, and a
-  compound command shows no card. Add to role reads `GET /teams/{name}`, appends the pattern to that role's
-  `tools` and saves with `PUT /teams/{name}`; the card then says Added. The next wake of a specialist
+  compound command shows no card. Add to role reads `GET /bots/{id}`, appends the pattern to that bot's
+  `tools` and saves with `PUT /bots/{id}`; the card then says Added. The next wake of a specialist
   starts with it in `--allowedTools`; the lead keeps its agent between turns, so Add for the lead also
   does `POST /spaces/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
   edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
@@ -98,23 +123,14 @@ logged in and on `PATH`.
   Review and FYI, with a count and the action of each item (Continue, Retry, Review, Open,
   Dismiss on FYI). The window asks once, on a click, to show desktop notifications and then
   shows one for each new item since the page loaded, except the FYI items of Work items.
-- Teams (`/teams`): lists teams, creates one (`POST /teams`, with its responsibility text), deletes
-  one (`DELETE /teams/{name}`, refused while it has a work item in progress, needing you or queued) and edits one's
-  roster, saving with `PUT /teams/{name}`. A Team's page (`/teams/{name}`) shows its responsibility, roster and queue: the item
-  in progress or needing you, then the queued items, which you reorder by dragging (`PUT
-  /work-items/{id}/queue-position`). An opened role shows its persona, skills, allowed tools, permission
-  mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
-  role's backend; a picked name that is not on disk shows as missing. Allowed tools are
-  checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
-  `mcp__<name>__*` for each MCP server) plus a field for patterns such as `Bash(git log:*)`,
-  and are hidden on a Codex role. A server can be removed there, not added (use `reef team apply`).
-  "New team" (Duplicate opens it too) asks for a name, a responsibility text and a team to start from,
-  and sends `POST /teams?from=<source>` with the source's roles; it is rejected if that name is
-  taken. The hop and token caps are not team fields, so the
-  page has no Caps section.
-- Teammates (`/teammates`): lists teammates and edits one's persona, skills, backend, model, face and default access
-  rules (`PUT /teammates/{id}`). A Teammate's page (`/teammates/{id}`) shows its Teams, its
-  direct conversations (`GET /teammates/{id}/conversations`) and its memory items.
+- Crews (`/teams`): lists Crews, creates one (`POST /teams`) with a name, an optional description (the `responsibility` field), Bots and an optional coordinator suggestion, deletes one (`DELETE /teams/{name}`) and edits one's Bots, saving with `PUT /teams/{name}`. A Crew has no queue, memory or capability editor: a Bot's profile is edited on the Bot. "New crew" (Duplicate opens it too) asks for a name, a description and a Crew to start from, and sends `POST /teams?from=<source>` with the source's Bot ids; it is rejected if that name is taken.
+- Starting a Space (the New Space form) picks one or more Crews and previews their Bots without duplicates, each with an include box, and one coordinator. Picking another Crew adds its Bots and keeps the coordinator. Start sends `POST /spaces` with `botIds` and `coordinatorBotId`.
+- Bots (`/bots`): lists bots and edits one's description, skills, backend, model, face and access
+  rules (`PUT /bots/{id}`), the one place they are set. A Bot's page (`/bots/{id}`) shows its Teams, its
+  direct conversations (`GET /bots/{id}/conversations`, cut to the ones `GET /spaces?project=ID` lists
+  under a project) and its memory items. Resume chat opens the newest open chat in that list;
+  New chat does `POST /spaces` with `botId`, `kind` `conversation` and the current project's id, if
+  any, and opens the new chat. Opening the page starts nothing.
 - Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
@@ -164,7 +180,7 @@ migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
 migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
-migration 33 [`033_space_name_auto.sql`](../store/migrations/033_space_name_auto.sql) (`space.name_auto`) and
+migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`space.name_auto`) and
 migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
 migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
 migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.sql) (`proposal.items`; drops `proposal.notes` and `proposal.decisions`, clears `proposal.retire` and rejects the wrap proposals still pending) and
@@ -176,13 +192,16 @@ migration 52 [`052_team_responsibility.sql`](../store/migrations/052_team_respon
 migration 59 [`059_team_fts.sql`](../store/migrations/059_team_fts.sql) (`team_fts`) and
 migration 65 [`065_send_back_note.sql`](../store/migrations/065_send_back_note.sql) (`proof.send_back_note`) and
 migration 66 [`066_inbox_fyi.sql`](../store/migrations/066_inbox_fyi.sql) (`inbox_fyi`) and
-migration 67 [`067_teammate_colour.sql`](../store/migrations/067_teammate_colour.sql) (`teammate.colour`) and
+migration 67 [`067_teammate_colour.sql`](../store/migrations/067_teammate_colour.sql) (`bot.colour`) and
 migration 68 [`068_direct_request_state.sql`](../store/migrations/068_direct_request_state.sql) (`direct_message.state`) and
 migration 69 [`069_space_moved.sql`](../store/migrations/069_space_moved.sql) (`space.moved_to`) and
-migration 71 [`071_turn_wake_message.sql`](../store/migrations/071_turn_wake_message.sql) (`turn.wake_message_id`).
+migration 71 [`071_turn_wake_message.sql`](../store/migrations/071_turn_wake_message.sql) (`turn.wake_message_id`) and
+migration 76 [`076_bot.sql`](../store/migrations/076_bot.sql) (renames `teammate` to `bot`, `teammate_id` to `bot_id` and `persona` to `description`) and
+migration 77 [`077_member_bot_only.sql`](../store/migrations/077_member_bot_only.sql) (`team_member` and `space_member` keep only the Bot id and `lead`) and
+migration 78 [`078_space_drop_agent_settings.sql`](../store/migrations/078_space_drop_agent_settings.sql) (drops `space.backend` and `space.permission_mode`).
 Migrations 4 and 5 add columns to `space` (see [Space](#space)); migration 40
 [`040_space.sql`](../store/migrations/040_space.sql) renames the `channel` table and its columns to `space`.
-Migrations 41 (teammate and team member), 42 (Work item) and 54 (proof) are described with their tables below.
+Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described with their tables below.
 
 ### project
 
@@ -191,6 +210,7 @@ Migrations 41 (teammate and team member), 42 (Work item) and 54 (proof) are desc
 | `id` | number | |
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
+| `purpose` | string | what the Project is for, in a line; default `""` |
 | `createdAt` | string | |
 
 ### profile
@@ -287,7 +307,7 @@ One row per version. A work item's brief is its latest version.
 ### role_notes
 
 One row per work item and role. Nothing reads them since decision 91: a role's own items are in
-scope `teammate`. Their routes still read and write them.
+scope `bot`. Their routes still read and write them.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -301,20 +321,45 @@ scope `teammate`. Their routes still read and write them.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item) or `conversation` (a direct conversation with one Teammate). Set by the server |
-| `projectId` | number | required on create; never changes |
-| `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the same project, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
+| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item) or `conversation` (a direct conversation with one Bot). Set by the server |
+| `projectId` | number | the work item's project for a Space of a work item, and then it never changes. For a free Space or a conversation it is the Space's lowest-id associated project, `0` when it has none: it is optional on create and the association is kept in `space_project` (see [Space projects](#space-projects)) |
+| `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the project given with it, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
 | `name` | string | required |
-| `role` | string | the name of the lead role of the Space's team. Empty when not set. For a Space from before this field existed, the role of its newest turn |
-| `backend` | string | `claude` or `codex`, the agent that runs the Space. Empty when not set. For an older Space, the backend of its newest turn |
-| `permissionMode` | string | passed to the backend as is when the Space's agent starts or resumes. Empty means the backend default |
+| `role` | string | the current name of the Space's lead Bot, read live so a rename shows at once. A message's or turn's own `author` or `role` stays as recorded |
+| `botId` | number? | the id of the Space's lead Bot, from its member rows. The window matches faces and working state by it, never by `role` |
 | `paused` | string | why the Space is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
 | `tokenBudget` | number | tokens the Space may use before it pauses: its top-level Work item's `tokenBudget`, shared with the item's other Spaces, or its own when it has no item. Starts at 1,000,000. Set by the server only |
 | `tokensUsed` | number | only in `GET /spaces/{id}`: the tokens counted against `tokenBudget` (see [Caps](#caps)) |
-| `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Teammate. Set on create, never changes. The Space keeps its own member list (`space_member`: the Teammate, its lead flag and its access rules), so editing the Team later does not change a running Space |
+| `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Bot. Set on create; deleting the Crew clears it to `""`. The Space keeps its own member list (`space_member`: Bot ids and the lead flag), so editing the Team later does not change a running Space. A Space has no `backend` or `permissionMode`: every turn runs on its Bot's profile |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is dropped, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 | `movedTo` | number? | `null` unless the Space is a conversation that [moved](#spaces-live) to the Space with the id. A moved conversation takes no turn (409) |
+
+### Space projects
+
+A Space with no work item belongs to no project until it is associated with one: zero, one or
+several, in the `space_project` table (`space_id`, `project_id`). The association is context. It is
+neither a working directory nor permission to change a repository, and filters never change it.
+
+- `POST /spaces` with `projectId` associates the new Space with it at once; with no `projectId` and no
+  work item the Space starts with none. A Space of a work item is associated with the item's project.
+- `GET /spaces?project=ID` lists the Spaces associated with the project, so a Space with two projects
+  is listed under both. `GET /spaces/{id}/projects` lists a Space's projects. `PUT` and `DELETE
+  /spaces/{id}/projects/{projectId}` add and remove one (a Space of a work item is 400: it stays in its
+  work item's project); each change that does something writes a note by `reef` in the Space's history, `You associated Project X with this conversation.` or `... removed Project X from this conversation.` (a Bot's change through the MCP tools carries its `botId`). The Space's messages, turns and sessions do not change when its projects do.
+- Moving a conversation to a new Space (`@name`) copies its projects to the new Space.
+- A Space's context prompt names the projects as `Associated projects, for context only; you do not
+  work in them: <name> (<id>), ...`, never their folders. A Space with no project has no `project`
+  memory scope and cannot `propose_work_item`.
+- Attach (`POST /spaces/{id}/attach`) takes any top-level work item, whatever the Space is
+  associated with: the Space moves to the work item's project and is associated with it too, and its
+  other associations stay.
+
+### pin
+
+Migration 82 [`082_pin.sql`](../store/migrations/082_pin.sql). `kind` (`bot`, `chat`, `space`),
+`target_id` (no foreign key, since it points at a Bot or a Space; triggers delete the pin with its
+target) and `createdAt`; the key is `(kind, target_id)`.
 
 ### message
 
@@ -390,65 +435,63 @@ memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its 
 
 ### team
 
-A named roster of Teammates, with a queue of Work items. A team has exactly one lead role. `reef
-team apply` (see [memory.md](memory.md#teams)) and `PUT /teams/{name}` both write a team,
-through the same validation. `POST /teams` creates one from existing Teammates. Migration 6 seeds the team `solo`, with one role,
-`lead` on `claude`; it cannot be deleted or have members changed.
+A reusable roster of existing Bots, shown as a Crew. A team has at most one lead, its suggested coordinator. `reef
+team apply` (see [memory.md](memory.md#teams)), `PUT /teams/{name}` and `POST /teams` all take Bot ids and a lead
+flag only, through the same validation: they never create a Bot and take no per-member configuration. The
+seed team `solo` has one member, the Bot `lead`; it cannot be deleted or have members changed.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | the `teamId` of the team's Work items |
-| `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's roles in one transaction |
+| `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's members in one transaction |
 | `responsibility` | string | default `""`; what the team is for. `propose_work_item` suggests the team whose text best matches the proposal (`team_fts`); nothing else reads it |
-| `roles` | array | [roles](#role), the lead first, then the others in the order of the file |
+| `roles` | array | the members, the lead first, then the others in the order given. A request sends `{"botId", "lead"}` for each, nothing else; a response shows each as a [role](#role) read from its Bot |
 
-Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo` and 409 while it has a top-level work item `queued`, `in_progress` or `needs_you`. Its Spaces keep running and lose the team link.
+Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo`. Its Bots, its Spaces and their members stay; its Work items and Spaces lose the team link, and its queued Work items return to backlog.
 
-### teammate
+### bot
 
-One persistent agent that can sit in several teams. Migration 41
-([`041_teammate.sql`](../store/migrations/041_teammate.sql)) drops the `role` table and
-adds `teammate` and `team_member`; nothing is migrated except the seed: one default teammate `lead`
-(`claude`, `write`), the lead of `solo`.
+One persistent agent with one global profile, which can sit in several teams and Spaces. Migration 41
+([`041_teammate.sql`](../store/migrations/041_teammate.sql)) added it as `teammate`; migration 76 renamed it
+`bot`. The seed is one default bot `lead` (`claude`, `write`), the lead of `solo`.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `id` | integer | the id of its memory `teammate` scope, so a rename keeps its items |
+| `id` | integer | the id of its memory `bot` scope, so a rename keeps its items |
 | `name` | string | required; unique; same rule as a role name |
-| `persona`, `skills`, `backend`, `model`, `provider`, `face`, `colour` | | as a [role](#role) |
-| `tools`, `mcpServers`, `write`, `permissionMode` | | default access rules. Joining a team copies them into a `team_member` row; editing them later does not change any membership. REST shows `mcp` (name and label) instead of `mcpServers` |
+| `description` | string | what the bot is for, in plain words. It goes at the start of the bot's first prompt |
+| `skills`, `backend`, `model`, `provider`, `face`, `colour` | | as a [role](#role) |
+| `tools`, `mcpServers`, `write`, `permissionMode` | | the bot's access rules, read at every start of its session from every team and Space it sits in. REST shows `mcp` (name and label) instead of `mcpServers` |
 
-A teammate that sits in a team cannot be deleted: the error is `invalid:` and names the team. A team has at
-most one lead; a second one is `invalid`. A team always has exactly one lead: removing the lead or
-saving it with `lead` false is `invalid` and changes nothing. `solo` keeps its one lead and takes no member changes.
-A team member row holds the name the team calls the teammate (`name`, unique in the team; the role name below),
-`lead`, and its own `tools`, `mcpServers`, `write` and `permissionMode`. The rest of a role is read from the teammate.
-`reef team apply` and `PUT /teams/{name}` use the teammate already behind each role name in the team,
-else make a new one called `<team>-<role>`. They never rewrite an existing teammate: its persona, skills,
-backend, model, provider, face and colour stay as they are (edit it with `PUT /teammates/{id}`).
+A bot that sits in a team cannot be deleted: the error is `invalid:` and names the team. A team has at
+most one lead; a second one is `invalid`. `solo` keeps its one lead and takes no member changes.
+A `team_member` or `space_member` row holds only the bot id and `lead`. A member's role name is the bot's
+name, so renaming the bot renames the role everywhere and leaves messages, memberships and turns pointing at
+the same id; messages and turns keep the name they were written under. Team requests never rewrite a bot:
+edit its profile with `PUT /bots/{id}`.
 
 ### role
 
+A bot as it sits in a team or Space: the fields of its profile, plus `lead` from its membership. A role has no
+setting of its own.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `name` | string | required; unique within the team; letters, digits, `_` and `-` only, and not `user`. It is the `author` of what the role posts, and the name an `@mention` uses |
+| `name` | string | the bot's name: unique; letters, digits, `_` and `-` only, and not `user` or `reef`. It is the `author` of what the role posts, and the name an `@mention` uses |
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
-| `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so applying the team is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given, so `Bash(git diff:*)` also lets `git diff --output=file` write a file: such a role counts as a writer (see the write lock below). With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
+| `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so saving the bot is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given, so `Bash(git diff:*)` also lets `git diff --output=file` write a file: such a role counts as a writer (see the write lock below). With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
-| `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a Space's `permissionMode` |
+| `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write` |
 | `model` | string | optional; the model the role runs on, passed to the backend when its agent starts or resumes: claude `--model NAME` (`opus`, `sonnet`, `haiku` or a full model id), codex the thread `model`. Left out or `""` is the backend default |
-| `provider` | string | optional; the `name` of an added [provider](#provider) whose binary the role runs instead of the `claude` or `codex` on `PATH`. It must exist and have `kind` equal to the role's `backend`, else the team is `invalid`. Left out or `""` runs the one on `PATH` |
-| `persona` | string | goes at the start of the role's first prompt, under `## You`, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
-| `skills` | array of strings | names of skills, one per entry, trimmed; each is letters, digits, `:`, `_` or `-`, and an empty, repeated or other name is `invalid`. They go after the persona, under `Your skills:`. claude: a role that picks skills may use only these. `--allowedTools` gets `Skill(name)` for each and `--disallowedTools` gets `Skill(name)` for every other claude skill on disk (the scan of `GET /skills`, taken when the role's session starts, with the role's working folder). A role that picks none keeps every skill and gets no skill rule. Skill rules only add entries to the `write` and `tools` rules. codex: prompt only. A team file or `PUT` body that gives `skills` as a string is `invalid` |
+| `provider` | string | optional; the `name` of an added [provider](#provider) whose binary the role runs instead of the `claude` or `codex` on `PATH`. It must exist and have `kind` equal to the role's `backend`, else the bot is `invalid`. Left out or `""` runs the one on `PATH` |
+| `description` | string | goes at the start of the role's first prompt, under `## You`, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
+| `skills` | array of strings | names of skills, one per entry, trimmed; each is letters, digits, `:`, `_` or `-`, and an empty, repeated or other name is `invalid`. They go after the description, under `Your skills:`. claude: a role that picks skills may use only these. `--allowedTools` gets `Skill(name)` for each and `--disallowedTools` gets `Skill(name)` for every other claude skill on disk (the scan of `GET /skills`, taken when the role's session starts, with the role's working folder). A role that picks none keeps every skill and gets no skill rule. Skill rules only add entries to the `write` and `tools` rules. codex: prompt only. A bot body that gives `skills` as a string is `invalid` |
 | `face` | string | optional; the creature the window draws for the role: `jellyfish`, `whale`, `penguin`, `shark`, `octopus`, `turtle`, `seahorse`, `otter`, `clownfish`, `manta-ray` or `pebble`. Left out, the window picks one by the role's name (`lead` jellyfish, `architect` whale, `developer` penguin, `tester` shark, else `pebble`). Any other value is `invalid` |
 | `colour` | string | optional; the creature's body colour: `orange`, `red`, `yellow`, `green`, `teal`, `blue`, `violet` or `pink`. Left out, the creature's own. Any other value is `invalid` |
 | `tools` | array of strings | claude: passed as `--allowedTools` with `mcp__reef__*`, so these tools and the reef tools run without asking; the role's own `mcpServers` do not (list `mcp__mcp1__*` here to allow one). codex: ignored |
 | `mcpServers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
 
-A Space's lead takes the Space's own `backend` and `permissionMode`, which `POST
-/spaces` filled from the lead role unless the request set them. The other roles use their
-own.
+Every member of a Space, its lead included, runs with the backend and permission mode of its bot.
 
 ### provider
 
@@ -463,11 +506,10 @@ adapters use when a role names no provider.
 | `folder` | string | required; an absolute path to an existing folder that holds an executable named like the kind: `FOLDER/KIND`, else `FOLDER/bin/KIND` |
 | `createdAt` | string | |
 
-A role runs a provider's binary by naming it in `provider`. The check runs when the team is
-applied (the provider exists, its `kind` is the role's `backend` and its folder still holds the
+A role runs a provider's binary by naming it in `provider`. The check runs when the bot is
+saved (the provider exists, its `kind` is the role's `backend` and its folder still holds the
 binary) and again when the role's agent starts, because the binary may be gone from the folder
-after that. A Space's lead takes the Space's `backend`; when that differs from the lead
-role's, the role's `provider` is ignored and the `PATH` binary runs. A start that fails the check
+after that. A start that fails the check
 is a `failed` turn whose `error` says why, for example `role developer: no claude binary in
 /opt/work`; nothing falls back to the `PATH` binary, as that would run a different one than the
 user picked. A role with no `provider` is unchanged. A provider a role names cannot be removed.
@@ -493,8 +535,8 @@ deletes its approvals.
 
 ### token
 
-Lets one teammate's `reef mcp` act as one role in one Space. No REST route: `reef
-token`, `reef chat` and the server (one per teammate session) make them, `reef mcp` reads
+Lets one bot's `reef mcp` act as one role in one Space. No REST route: `reef
+token`, `reef chat` and the server (one per bot session) make them, `reef mcp` reads
 them, and the one that made a token deletes it when its session ends. See
 [memory.md](memory.md#tokens).
 
@@ -502,7 +544,7 @@ them, and the one that made a token deletes it when its session ends. See
 | --- | --- | --- |
 | `token` | string | the key; 64 hex characters from 32 random bytes |
 | `spaceId` | number | required. Deleting the Space deletes the token |
-| `role` | string | required; the author of what the teammate writes |
+| `role` | string | required; the author of what the bot writes |
 | `createdAt` | string | never expires |
 
 ### proposal
@@ -521,11 +563,26 @@ attach](#wrap-up-and-attach)). See [memory.md](memory.md#wrap-up).
 | `role` | string | required; author of the brief and items it applies |
 | `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
-| `items` | array | `{"kind", "body", "why", "scope", "replaces"}` each; `body` required. `scope` is `work_item` (the default `propose_wrap` fills in), `project`, `teammate` or `team`, and `team` only when the proposing role leads the Space's team. `replaces` is optional, ids of live memory items it replaces. `[]` by default. The SQL column holds them as JSON text. Approving saves each with `remember`: see [memory.md](memory.md#wrap-up) |
+| `items` | array | `{"kind", "body", "why", "scope", "replaces"}` each; `body` required. `scope` is `work_item` (the default `propose_wrap` fills in), `project`, `bot` or `team`, and `team` only when the proposing role leads the Space's team. `replaces` is optional, ids of live memory items it replaces. `[]` by default. The SQL column holds them as JSON text. Approving saves each with `remember`: see [memory.md](memory.md#wrap-up) |
 | `retire` | array | ids of live memory items that are stale or duplicate; approving retires them. `[]` by default. The SQL column holds them as JSON text. `propose_wrap` checks that each `retire` and `replaces` id is an accepted item in a scope the role can read (`invalid: memory 9 is not a live item in this space's scopes`) and stores nothing otherwise; `CreateProposal` itself does not read memory. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
+
+### space_proposal
+
+A Bot's suggestion for a new Space, made with the `propose_space` tool (migration 81
+[`081_space_proposal.sql`](../store/migrations/081_space_proposal.sql)). It creates no Space: it
+shows in the inbox, the user accepts or changes it in the new Space form, and dismissing the
+inbox item deletes it.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `proposedBy` | string | required; name of the proposing Bot |
+| `name` | string | required, not blank |
+| `botIds` | array | ids of the Bots, de-duplicated; at least one, each must exist (`invalid: unknown bot 9`). The SQL column holds them as JSON text |
+| `coordinatorBotId` | number | one of `botIds`; the first when sent as 0 |
 
 ## REST
 
@@ -541,10 +598,10 @@ tool calls.
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /status` | | 200 `{"running":N}`, N the Spaces whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
-| `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
+| `POST /projects` | `name`, `path`, `purpose` (optional, plain words) | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
-| `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
+| `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
+| `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept; a Space with no work item stays without this project | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
@@ -572,29 +629,29 @@ tool calls.
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
 | `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
-| `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a teammate still names it (the error names the teammate; change that teammate first) |
-| `GET /teams` | | 200 all teams by name, each with its `id` (the `teamId` of its Work items) and its roles; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
-| `POST /teams` | `name`, `responsibility`, `roles`: each role names its Teammate with `teammateId` and gives the `name` the team calls it and `lead`. The role gets the Teammate's default access rules. `?from=<source>` takes a role's `mcpServers` from `source`'s role of the same name | 201 the team as `GET /teams/{name}` shows it | 400 a role with no `teammateId`, an unknown Teammate, or the usual `invalid: ...` team rules; 404 `?from=` names no team; 409 the name exists |
+| `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a bot still names it (the error names the bot; change that bot first) |
+| `GET /teams` | | 200 all teams by name, each with its `id` (the `teamId` of its Work items) and its roles, read from their Bots; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
+| `POST /teams` | `name`, `responsibility`, `roles`: each member is `{"botId", "lead"}` and nothing else; a Bot is never created here. `?from=<source>` only requires that `source` exists | 201 the team as `GET /teams/{name}` shows it | 400 a member with no `botId`, an unknown Bot, a field other than `botId` and `lead`, or the usual `invalid: ...` team rules; 404 `?from=` names no team; 409 the name exists |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
-| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
-| `DELETE /teams/{name}` | | 204; the team's Spaces stay, with no team | 400 `solo`, 404, 409 the team has a top-level work item queued, in progress or needing you |
-| `GET /teammates` | | 200 every teammate by name, each `{id, name, persona, skills, backend, model, provider, face, colour, tools, mcp, write, permissionMode}` | |
-| `POST /teammates` | the teammate fields above, `mcpServers` instead of `mcp` | 201 the teammate | 400 the same `invalid: ...` text a role gets, 409 name taken |
-| `GET /teammates/{id}` | | 200 | 404 |
-| `PUT /teammates/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
-| `DELETE /teammates/{id}` | | 204 | 400 the teammate is in a team (names it), 404 |
-| `GET /teammates/{id}/conversations` | | 200 the Teammate's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Start one with `POST /spaces` and `teammateId`; continue any by sending to it: its Teammate resumes its session. A conversation runs with the Teammate's default access rules, never a Team's | 404 |
-| `POST /teams/{name}/members` | `teammateId`, `lead` | 201 the role as `GET /teams/{name}` shows it, with the teammate's default access copied | 400 unknown teammate, a second lead, or `solo`; 404 team; 409 already a member |
-| `PUT /teams/{name}/members/{id}` | `lead`, `tools`, `mcpServers` (left out keeps the stored ones), `write`, `permissionMode` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
+| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; `roles` are `{"botId", "lead"}`); replaces the team's members with the same validation. `?from=<source>` instead requires `source` to exist and `name` not to, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
+| `DELETE /teams/{name}` | | 204; the Crew's Spaces stay, with no team, its queued Work items go back to backlog and its in-progress ones keep running | 400 `solo`, 404 |
+| `GET /bots` | | 200 every bot by name, each `{id, name, description, skills, backend, model, provider, face, colour, tools, mcp, write, permissionMode}` | |
+| `POST /bots` | the bot fields above, `mcpServers` instead of `mcp` | 201 the bot | 400 the same `invalid: ...` text a role gets, 409 name taken |
+| `GET /bots/{id}` | | 200 | 404 |
+| `PUT /bots/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
+| `DELETE /bots/{id}` | | 204 | 400 the bot is in a team or a Space (names it), 404 |
+| `GET /bots/{id}/conversations` | `?project=ID` (only those associated with the Project), `?limit=N` (at most 200; without it all), `?before=ID` (only those after that conversation in the list, so the last id of a page is the next `before`), `?resumable=1` (leave out the conversations that moved to a Space) | 200 the Bot's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Pages follow the list order by (newest activity, id), so they never repeat or skip one unless a listed conversation gets a message while the pages are read. `?resumable=1&project=N&limit=1` is the Bot's latest chat to resume under Project N and `?resumable=1&limit=1` its latest overall; `[]` means none, and the server never creates one: the client offers New chat (`POST /spaces`). Start one with `POST /spaces` and `botId`; continue any by sending to it: its Bot resumes its session. A conversation runs with the Bot's profile, never a Team's | 400 bad id, 404 |
+| `POST /teams/{name}/members` | `botId`, `lead` | 201 the role as `GET /teams/{name}` shows it | 400 unknown bot, a second lead, or `solo`; 404 team; 409 already a member |
+| `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
-| `GET /spaces` | `?project=ID`, `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `teammateId` (instead of `team`: a Space with no Team and one member, that Teammate as lead, with its default access rules; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item or team, work item of another project, bad backend or permission mode, a role other than `lead` |
+| `GET /spaces` | `?project=ID` (the Spaces associated with the project, see [Space projects](#space-projects)), `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
+| `POST /spaces` | `projectId` (optional for a Space with no work item, which then starts with no project; required with `workItemId`), `workItemId`, `name`, `team` (a team name; default `solo`), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `botIds` and `coordinatorBotId` (the Space's members are exactly these Bots, de-duplicated, led by the coordinator or the first Bot; `team`, when given, only names the Crew it started from), `botId` (instead of `team`: a Space with no Team and one member, that Bot as lead; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A Space takes no `backend` or `permissionMode`: its Bots decide. A `name` is required; one that is the new-space form's default, `<team or bot name> <hh:mm>` (`solo 14:32`, `solo 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item, team or Bot, work item of another project, a field the table does not list, a role other than `lead` |
 | `GET /spaces/{id}` | | 200 | 404 |
-| `PUT /spaces/{id}` | `name` (required), `permissionMode`; project, work item, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the Space's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
+| `PUT /spaces/{id}` | `name` (required); work item and role stay unchanged, and so do the projects (see the project routes below). A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or any other field, 404 |
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404, 409 the Space is the proof's Space of a work item in review |
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /spaces/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
+| `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed` or `stopped`), `createdAt` | 400 bad id, 404 |
 | `GET /search` | `?workItem=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the work item's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `work item`, missing `q` |
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
@@ -602,13 +659,20 @@ tool calls.
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
+| `GET /spaces/{id}/projects` | | 200 the projects the Space is associated with, by id, `[]` when none | 404 |
+| `PUT /spaces/{id}/projects/{projectId}` | no body needed | 200 the Space's projects after it; doing it twice changes nothing | 400 a Space of a work item, which stays in its work item's project; 404 Space or project |
+| `DELETE /spaces/{id}/projects/{projectId}` | | 200 the Space's projects after it; the Space, its history and its sessions stay, and so does a project it was not associated with | 400 a Space of a work item; 404 Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
-| `POST /spaces/{id}/members/{teammate}/tools` | `tool` (required) | 204 the tool is allowed for that Teammate in this Space only, so the next wake gets it. The Team and the Teammate keep their rules | 400 empty tool, or `Bash` without write; 404 |
-| `POST /spaces/{id}/members` | `teammateId` (required) | 201 the member, a copy of the Teammate's default access rules. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Teammate, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
+| `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
+| `PUT /spaces/{id}/coordinator` | `botId` | 200 the Space's members, that Bot the only coordinator. Changes where messages that mention nobody go, and nothing else: no Work item, owner or other member changes. Closes the Space's idle agent so the next turn starts with the new coordinator | 400 not a member; 404; 409 a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
-| `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no Space, 404 unknown Space |
+| `GET /pins` | | 200 every pin, newest first, `[{kind, id, title, createdAt}]`; `kind` is `bot`, `chat` (a personal conversation) or `space` (any other Space), `title` the target's current name. Pins are global: no Project filters them | |
+| `PUT /pins/{kind}/{id}` | | 204; pinning again keeps the first pin time | 400 `kind` not `bot`, `chat` or `space`, 404 no such target of that kind (a chat is not pinnable as a space) |
+| `DELETE /pins/{kind}/{id}` | | 204, also when it was not pinned. Deleting a Bot or Space removes its pins | |
+| `GET /find` | `?q=TEXT` (required), `limit=N` (per kind, default 20, at most 200) | 200 `[{kind, id, title, projectId?}]` of the Bots, chats, Spaces and Work items (`workItem`, with its `projectId`) whose name or title contains `q`, case ignored for ASCII, in that order and each by name, `[]` when none. `kind` and `id` open the original resource | 400 no `q` |
+| `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids). `?limit=N` (at most 200, default 50) and `?before=ID` give a page instead: the newest `limit` messages with an id below `before` (all ids when it is left out), oldest first; the first id of a page is the next `before`, and an empty page is the start of the history | 200, each with `parentId` | 400 no Space, 404 unknown Space |
 | `POST /messages` | `spaceId`, `parentId`, `author`, `body` | 201 | 400 unknown Space, missing field, or a `parentId` that is not a top-level message of that Space |
 | `GET /turns` | `?space=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `space`; only the turns with a `checkpoint` taken in the tree the Space runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a Space, 404 `rollbackable` on an unknown Space |
 | `POST /turns` | `spaceId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown Space, public message or direct message |
@@ -622,7 +686,7 @@ tool calls.
 | `GET /decisions` | `?workItem=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no work item, 404 unknown work item |
 | `POST /decisions` | `workItemId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown work item, a message of another work item, or a `replaces` id that is not a live decision of the work item |
 | `GET /decisions/{id}` | | 200. Unused since decision 91 | 404 |
-| `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, the most recently accepted first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `status`, `retiredAt`, `replacedBy`, `createdAt`; no `links`); `[]` when none | 400 no scope or one that is not `kind:id` |
+| `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, the most recently accepted first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `botId`, `status`, `retiredAt`, `replacedBy`, `createdAt`; no `links`). `botId` is the id of the Bot that wrote the item, `null` for the user; `author` stays the name recorded then; `[]` when none | 400 no scope or one that is not `kind:id` |
 | `POST /memory` | `kind`, `body`, `why`, `scope` (`KIND:ID`) | 201 the item as for `GET /memory`, written with author and role `user`, so always accepted, plus `similar` (`[{id, body}]`, stored items that look like it) and `embedError` (why no vector was stored), each left out when empty | 400 unknown kind or scope kind, empty body, bad scope |
 | `POST /memory/{id}/retire` | no body needed | 204, no body; sets `retiredAt` | 400 not an accepted item (already retired, a candidate), 404 |
 
@@ -633,8 +697,7 @@ is 400.
 
 Create requests take the whole object from the table above. A field you leave out takes
 its default. Other `PUT` requests replace the whole object. Update behavior is
-route-specific: `PUT /spaces/{id}` keeps an omitted `permissionMode`, while
-`PATCH /turns/{id}` is the only partial update for other resources.
+route-specific: `PATCH /turns/{id}` is the only partial update.
 
 ## Spaces live
 
@@ -647,22 +710,21 @@ a message wakes them.
   in the request. The text `/wrap` runs the wrap-up turn (400 on a Space with no work item, before any
   agent turn). Every other text is a plain message. A send with `parent` stores the message as a reply in that
   thread.
-- In a direct conversation, `@name` of another Teammate at the start of a line (the first one that names a
-  Teammate) moves it: the lead writes a summary for that Teammate in a turn of the conversation, then the
-  conversation gets `movedTo` and a new free Space starts with the lead and that Teammate, no Team and each
-  one's default access rules. The summary is the new Space's first message, from the lead, starting `@name`, and
-  wakes the Teammate; the conversation's own messages never reach it. An `@name` inside a line moves nothing.
+- In a direct conversation, `@name` of another Bot at the start of a line (the first one that names a
+  Bot) moves it: the lead writes a summary for that Bot in a turn of the conversation, then the
+  conversation gets `movedTo` and a new free Space starts with the lead and that Bot, no Team. The summary is the new Space's first message, from the lead, starting `@name`, and
+  wakes the Bot; the conversation's own messages never reach it. An `@name` inside a line moves nothing.
 - Each role of the team has its own agent session, its own `reef mcp` token, its own turns and
   its own session id. The role's backend, permission mode, tools and MCP servers are set up
-  for it (the lead uses the Space's backend and permission mode). Its first prompt starts with `## You`,
-  then its persona and skills (see [memory.md](memory.md#the-context-prompt)).
+  for it from its Bot. Its first prompt starts with `## You`,
+  then its description and skills (see [memory.md](memory.md#the-context-prompt)).
 - An agent starts when its first turn runs, not when the Space opens. A first message that
   wakes a specialist starts no lead. A role that already has a session resumes it by its own
   newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start, for any
   reason (the agent, its session lookup, its token, its folder or its first prompt), shows
   as one `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
   start short. So does a wake whose text cannot be built. A wake for a role the team no longer has is a `failed`
-  turn too, with the wake text, on the Space's backend. The wake text of a wake that never started is the
+  turn too, with the wake text, on the lead's backend (`claude` when the Space has no member). The wake text of a wake that never started is the
   text the wake was routed with, not the messages it would have sent. The server logs every failed turn. When the backend says the session is
   missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
   fails and the role's next wake starts a new session, with its intro, not the dead one.
@@ -676,15 +738,18 @@ a message wakes them.
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
   of another project on the same repo) cannot be added: the start fails with `branch
   work-item/<id> is checked out at <path>; switch that checkout to another branch`. A
-  quick session runs in the project path. The work item is read at each agent
+  Space with no work item runs in `<data folder>/chats/<Space id>`, a folder of its own that
+  is made when missing and is no git repo; `DELETE /spaces/{id}` removes it. A project the Space is associated
+  with is context only, never its folder: repository work needs a work item (attach the Space to one).
+  The work item is read at each agent
   start, so an attached Space moves to the worktree at its next wake. A project that is not
   a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
   whose error is `work items need the project folder to be a git repo with a commit: <path>:`
   and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
   made again at the next wake: an agent running in the missing folder is closed, and the
   next one resumes the session in the new worktree.
-- Before each turn of a role with `write` in a git checkout (a work item's worktree, or the
-  project path of a quick session that is a git repo), the server stores a checkpoint: a commit
+- Before each turn of a role with `write` in a git checkout (a work item's worktree; a Space's
+  own folder has none while it is no git repo), the server stores a checkpoint: a commit
   of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
   `refs/reef/checkpoints/<data folder>/<turn id>`, where `<data folder>` is the first 12 hex
   digits of the sha256 of the absolute data folder path, so two Reef copies on one repo never
@@ -698,7 +763,7 @@ a message wakes them.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
 - One write turn at a time runs on a tree, across all Spaces and processes on the data
-  folder: the work item's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
+  folder: the work item's worktree, or the Space's own folder. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
   stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
@@ -716,8 +781,7 @@ a message wakes them.
   (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
   A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
   waiting and checks the reader file, so a read-only turn of any process refuses it.
-- `POST /turns/{id}/rollback` puts the Space's tree (the work item's worktree, or the project
-  path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
+- `POST /turns/{id}/rollback` puts the Space's tree (the work item's worktree) back as the turn's checkpoint saw it: the branch the checkpoint was
   taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
   switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
   and untracked files get the content they had, the same changes are staged, and files made
@@ -747,8 +811,8 @@ a message wakes them.
   closed: pending candidates are rejected and accepted items retired, so nothing of it is left
   in `reef memory pending`. Retired and rejected items are kept and still read.
 - `DELETE /projects/{id}` does the same for every work item of the project, and deletes the
-  checkpoint refs of the turns of every Space of the project, quick sessions included (their
-  refs are taken in the project folder). It checks every worktree first: one with uncommitted
+  checkpoint refs of the turns of every Space of the project. A Space with no work item is not
+  deleted: it only loses the association, and keeps its other projects. It checks every worktree first: one with uncommitted
   changes is 409 for that work item, and nothing is removed. Then it removes all worktrees,
   deletes the project rows, and last deletes the refs, in the same order and with the same
   failure rule as a work item delete. Branches are kept. Its memory items are closed the same
@@ -907,7 +971,7 @@ Retrying that wake puts `answered` back.
 
 A Space created with the new-space form's default name has `space.name_auto` set to 1.
 The first user message sent to it (`POST /spaces/{id}/send`, not a wrap command)
-takes the one naming attempt (`name_auto` 2) and asks the Space's backend, in the background, for a name: one
+takes the one naming attempt (`name_auto` 2) and asks the lead's backend, in the background, for a name: one
 throwaway turn in one shared empty folder (`reef-name` in the temp folder), with no tools (claude on `haiku`, codex
 `read-only`), so it makes no turn or message. The reply is cut to the convention: its first
 line, lowercase words of letters and digits (a hyphen splits words), at most four words and 40 characters
@@ -976,9 +1040,10 @@ restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each it
 | `needs_you` | `held` | the same, and the pause holds a wake: the hop cap, or a token budget that ran out in the middle of a chain | the reason and `(N wakes held)` | | `continue` runs the held wakes; a user message after a hop cap pause drops them |
 | `needs_you` | `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
 | `review` | `review` | a top-level Work item is in review | the item's title | `workItemId` | the user sets Done or sends it back |
-| `fyi` | `sub_item` | a Teammate made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
-| `fyi` | `proposed` | a Teammate proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it, and the suggested Team | `id` | `POST /inbox/dismiss` |
+| `fyi` | `sub_item` | a Bot made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
+| `fyi` | `proposed` | a Bot proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it, and the suggested Team | `id` | `POST /inbox/dismiss` |
 | `fyi` | `started` | the queue moved an item to in progress, including one sent back from review | `Started from the queue: ` and its title | `id` | `POST /inbox/dismiss` |
+| `fyi` | `space_proposed` | a Bot proposed a Space with `propose_space`; `workItemId` is null, `proposal` has `id`, `proposedBy`, `name`, `botIds` and `coordinatorBotId` | who proposed it, and its name | `id` | `POST /inbox/dismiss`; the window opens the new Space form with the proposal filled in, and dismisses it when the Space is created |
 | `fyi` | `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
 
 `at` is the time of the failed turn's end, of the message, of the proof for `review`, of the row
@@ -1017,7 +1082,7 @@ pending wrap blocks another wrap (409 `space 2 has a wrap-up waiting for approva
 ### Attach a Space to a work item
 
 `POST /spaces/{id}/attach` gives a free Space a work item: `{"workItemId": 3}`, a work item
-of the Space's project. A Space that has a work item, and a direct conversation, are 400.
+of the Space's project (its lowest-id project, see [Space projects](#space-projects)). A Space that has a work item, and a direct conversation, are 400.
 The Space must be idle (409 while a turn runs), the project a git repo with a commit, and
 the work item without another active Space (409 `work item 3 already has an active Space`);
 a refused attach changes nothing. The attach sets the Space's `workItemId` and `kind`, moves
@@ -1194,13 +1259,13 @@ $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/work-items/1
 {"id":1,"workItemId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/spaces -d '{"projectId":1,"workItemId":1,"name":"build","backend":"claude"}'
-{"id":1,"projectId":1,"workItemId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z","closedAt":null}
+{"id":1,"projectId":1,"workItemId":1,"name":"build","role":"lead","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z","closedAt":null}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"spaceId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"spaceId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/memory -d '{"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1"}'
-{"id":1,"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"2026-10-13T09:00:05.123456Z"}
+{"id":1,"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1","author":"user","role":"user","botId":null,"status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"2026-10-13T09:00:05.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"spaceId":1,"role":"developer","backend":"claude"}'
 {"id":1,"spaceId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}

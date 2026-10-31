@@ -24,8 +24,8 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 	repo = gitIn(t, login, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	main := filepath.Dir(repo)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Signup"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":2,"name":"s","backend":"claude"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":2,"name":"s"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick"}`)
 	signup = worktree.Path(env.dir, 2, "2")
 	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("2"), ""); err != nil {
 		t.Fatal(err)

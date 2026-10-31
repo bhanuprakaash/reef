@@ -3,19 +3,21 @@ import { Bubble } from '@/modules/spaces/components/bubble';
 import { Composer } from '@/modules/spaces/components/composer';
 import type { Thread } from '@/modules/spaces/utils/group-threads';
 import { Button } from '@/components/button';
-import type { Faces } from '@/components/creature';
+import { faceOf, type Faces } from '@/components/creature';
+import type { Role } from '@/types/api';
 
 type Props = {
   spaceId: number;
   thread: Thread;
   lead: string;
-  roles: string[];
+  roles: Role[];
   faces: Faces;
   running: boolean;
   paused: boolean;
   reason: string;
   closed: boolean;
   working: string;
+  workingBotId?: number;
   onClose: () => void;
 };
 
@@ -30,10 +32,11 @@ export function ThreadPane({
   reason,
   closed,
   working,
+  workingBotId,
   onClose,
 }: Props) {
   const { root, replies } = thread;
-  const owner = roles.includes(root.author) ? root.author : lead;
+  const owner = roles.find((r) => r.botId === root.botId)?.name ?? lead;
   const time = new Date(root.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -72,7 +75,7 @@ export function ThreadPane({
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-4">
         <ul>
           <li className="flex flex-col items-start gap-2.5">
-            <Author name={root.author} look={faces[root.author]} time={time} />
+            <Author name={root.author} look={faceOf(faces, root.botId)} time={time} />
             <Bubble own={root.author === 'user'}>{root.body}</Bubble>
           </li>
         </ul>
@@ -89,8 +92,8 @@ export function ThreadPane({
               key={m.id}
               className={`flex flex-col gap-2.5 ${m.author === 'user' ? 'items-end' : 'items-start'}`}
             >
-              {m.author !== 'user' && replies[i - 1]?.author !== m.author && (
-                <Author name={m.author} look={faces[m.author]} />
+              {m.author !== 'user' && (m.botId == null || replies[i - 1]?.botId !== m.botId) && (
+                <Author name={m.author} look={faceOf(faces, m.botId)} />
               )}
               <Bubble own={m.author === 'user'}>{m.body}</Bubble>
             </li>
@@ -111,6 +114,7 @@ export function ThreadPane({
             roles={roles}
             faces={faces}
             working={working}
+            workingBotId={workingBotId}
           />
         </div>
       )}

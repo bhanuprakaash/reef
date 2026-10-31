@@ -5,7 +5,7 @@ import { Creature } from '@/components/creature';
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
 
 type Props = {
-  role: Omit<Role, 'lead' | 'teammateId'> & { lead?: boolean };
+  role: Omit<Role, 'lead' | 'botId'> & { lead?: boolean };
   badges?: string[];
   selected: boolean;
   onSelect: () => void;
@@ -37,7 +37,7 @@ export function RoleRow({ role, badges, selected, onSelect }: Props) {
             </span>
           )}
         </span>
-        <span className="block truncate text-[12.5px] text-muted">{role.persona}</span>
+        <span className="block truncate text-[12.5px] text-muted">{role.description}</span>
       </span>
       <span className={`${badge} border-line text-soft`}>{backendLabel(role.backend)}</span>
       <span

@@ -7,14 +7,15 @@ import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { EmptyState } from '@/components/empty-state';
 import { useSpaces } from '@/lib/api/get-spaces';
-import { useTeams } from '@/lib/api/get-teams';
+import { useBots } from '@/lib/api/get-bots';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
+import { ProjectPurposeForm } from '@/modules/projects/components/project-purpose-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
-import { roleFaces } from '@/utils/role-faces';
+import { memberFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
 const rowClass = 'flex min-h-10 items-center gap-2.5 hover:text-fg';
@@ -23,8 +24,8 @@ export function ProjectPage() {
   const id = Number(useParams().id);
   const projects = useProjects();
   const workItems = useWorkItems();
-  const spaces = useSpaces();
-  const teams = useTeams();
+  const spaces = useSpaces(id);
+  const bots = useBots();
   const [dialog, setDialog] = useState<'work-item' | 'space' | null>(null);
 
   if (projects.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -32,7 +33,7 @@ export function ProjectPage() {
   const project = projects.data.find((p) => p.id === id);
   if (!project) return <p className="text-sm text-danger">Project not found.</p>;
 
-  const projectSpaces = spaces.data?.filter((c) => c.projectId === id) ?? [];
+  const projectSpaces = spaces.data ?? [];
   const projectWorkItems = workItems.data?.filter((f) => f.projectId === id) ?? [];
   const freeSpaces = projectSpaces.filter((c) => c.workItemId === null);
 
@@ -59,6 +60,7 @@ export function ProjectPage() {
           <ProjectMemoryForm projectId={id} />
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
+          <ProjectPurposeForm project={project} />
           <ProjectBaseBranchForm project={project} />
           <Card title="Work items">
             {workItems.isError && <p className="text-sm text-danger">{workItems.error.message}</p>}
@@ -99,7 +101,11 @@ export function ProjectPage() {
               {freeSpaces.map((c) => (
                 <li key={c.id}>
                   <Link to={`/spaces/${c.id}`} className={rowClass}>
-                    <GroupAvatar roles={[c.role]} faces={roleFaces(teams.data, c.team)} size={22} />
+                    <GroupAvatar
+                      roles={[c.botId]}
+                      faces={memberFaces(bots.data, c.members)}
+                      size={22}
+                    />
                     {c.name}
                     <span className="ml-auto text-[12.5px] text-muted">
                       {rowTime(c.lastMessage?.createdAt ?? c.createdAt)}

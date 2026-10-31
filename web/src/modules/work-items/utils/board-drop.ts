@@ -20,14 +20,14 @@ export function dropAction(dragged: WorkItem, column: WorkItemStatus, onto?: Wor
   if (column === dragged.status) {
     if (column !== 'queued' || !onto || onto.id === dragged.id) return null;
     if (onto.teamId === null || onto.teamId !== dragged.teamId || onto.queuePosition === null) {
-      return { kind: 'refuse', reason: 'An item moves only within the queue of its own Team.' };
+      return { kind: 'refuse', reason: 'An item moves only within the queue of its own Crew.' };
     }
     return { kind: 'reorder', position: onto.queuePosition };
   }
   const between = ['backlog', 'queued'];
   if (between.includes(column) && between.includes(dragged.status)) {
     if (column === 'queued' && dragged.parentId === null && dragged.teamId === null) {
-      return { kind: 'refuse', reason: 'Set a Team on this item before queuing it.' };
+      return { kind: 'refuse', reason: 'Set a Crew on this item before queuing it.' };
     }
     return { kind: 'move', status: column };
   }

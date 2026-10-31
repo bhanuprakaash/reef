@@ -34,7 +34,7 @@ api_call() {
 # session_file SESSION_ID: path of claude's session jsonl, wherever its project folder is.
 session_file() { ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1; }
 
-turn_col() { "$H" sql "select $2 from turn where id = $1" | tail -1; } # turn_col ID COLUMN(S)
+turn_col() { "$H" sql "select $2 from turn where id = $1" | sed 1d | tail -1; } # turn_col ID COLUMN(S)
 
 run_ui() { # run_ui ID SCENARIO
 	local id=$1 scenario=$2 out rc
@@ -54,12 +54,12 @@ cat >"$E/crew.json" <<'EOF'
   "name": "crew",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Answer in one short sentence. Never @mention anyone."},
+     "description": "You are the lead. Answer in one short sentence. Never @mention anyone."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash(ls:*)"]}
   ]
 }
@@ -78,21 +78,22 @@ cat >"$E/relay.json" <<'EOF'
 {
   "name": "relay",
   "roles": [
-    {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Whatever you are told, reply with exactly one line: @tester check this"},
-    {"name": "tester", "backend": "claude",
-     "persona": "You are the tester. Answer in one short sentence. Never @mention anyone."}
+    {"name": "lead", "lead": true},
+    {"name": "tester"}
   ]
 }
 EOF
 
 section_full() {
-### Teams, no server needed (data folder full)
+### Teams (data folder full). Bots are global, so each file's roles update the Bot of that name:
+### crew's lead, developer and tester replace full's, and relay names two of them.
 
-apply_full=$("$H" reef --data-name full -- team apply "$PWD/teams/full.json")
-"$H" reef -- team apply "$E/crew.json" >/dev/null
-"$H" reef -- team apply "$E/cx.json" >/dev/null
-"$H" reef -- team apply "$E/relay.json" >/dev/null
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
+A=$(cat "$S/serve.addr")
+seed_write=$("$H" sql "select write from bot where name = 'lead'" | tail -1)
+apply_full=$("$H" team-apply "$PWD/teams/full.json")
+"$H" team-apply "$E/crew.json" >/dev/null
+"$H" team-apply "$E/relay.json" >/dev/null
 team_list=$("$H" reef -- team list)
 
 apply_ok=1
@@ -100,17 +101,13 @@ case $apply_full in *"applied team full: lead*(claude) architect(claude) develop
 case $team_list in *"full  lead*(claude) architect(claude) developer(claude) tester(claude)"*) ;; *) apply_ok=0 ;; esac
 check full-apply "$apply_ok" "team apply full printed the roster; team list has the full line"
 
-wc_out=$("$H" sql "select team.name, member.name, lead, write from team_member member join team on team.id = team_id order by team.name, member.id")
+wc_out=$("$H" sql "select team.name, bot.name, lead, write from team_member member join team on team.id = team_id join bot on bot.id = bot_id order by team.name, member.id")
 wc_ok=1
-for row in "crew|lead|1|0" "crew|developer|0|1" "crew|tester|0|0" "full|lead|1|0" "full|architect|0|0" "full|developer|0|1" "full|tester|0|0" "relay|lead|1|0" "relay|tester|0|0" "solo|lead|1|1"; do
+[ "$seed_write" = 1 ] || wc_ok=0
+for row in "crew|lead|1|0" "crew|developer|0|1" "crew|tester|0|0" "full|lead|1|0" "full|architect|0|0" "full|developer|0|1" "full|tester|0|0" "relay|lead|1|0" "relay|tester|0|0"; do
 	echo "$wc_out" | grep -qF "$row" || wc_ok=0
 done
-check write-default "$wc_ok" "role/team write column: $(echo "$wc_out" | tr '\n' ' ')"
-
-### Server (data folder full)
-
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
-A=$(cat "$S/serve.addr")
+check write-default "$wc_ok" "seeded lead Bot write=$seed_write; team/Bot write column: $(echo "$wc_out" | tr '\n' ' ')"
 
 api_call GET /teams/full
 rest_ok=1
@@ -328,8 +325,8 @@ wait_done 4 1
 q_sess=$("$H" sql "select session_id from turn where space_id = 4 order by id desc limit 1" | tail -1)
 q_file=$(session_file "$q_sess")
 quick_ok=1
-[ "$(grep -ho '"cwd":"[^"]*"' "$q_file" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/cwd\"" ] || quick_ok=0
-check tree-quick "$quick_ok" "quick session's tester session ran with cwd $S/cwd only"
+[ "$(grep -ho '"cwd":"[^"]*"' "$q_file" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/chats/4\"" ] || quick_ok=0
+check tree-quick "$quick_ok" "quick session's tester session ran with cwd $S/full/chats/4 only, never the project folder"
 
 iso_ok=1
 [ -e "$S/full/worktrees/1/1/d.txt" ] || iso_ok=0
@@ -377,7 +374,7 @@ attach_ok=1
 [ "$(echo "$sess6" | wc -l | tr -d ' ')" = 1 ] || attach_ok=0
 sess6_id=$(echo "$sess6" | head -1)
 sess6_file=$(session_file "$sess6_id")
-grep -q "\"cwd\":\"$S/cwd\"" "$sess6_file" 2>/dev/null || attach_ok=0
+grep -q "\"cwd\":\"$S/full/chats/6\"" "$sess6_file" 2>/dev/null || attach_ok=0
 grep -q "\"cwd\":\"$S/full/worktrees/1/4\"" "$sess6_file" 2>/dev/null || attach_ok=0
 wt_list3=$(git -C "$S/cwd" worktree list)
 echo "$wt_list3" | grep -q "^$S/full/worktrees/1/4 .*\[work-item/4\]" || attach_ok=0
@@ -389,7 +386,7 @@ check tree-attach-dirty "$attach_ok" "attach 200 with the move note, 2 lead turn
 api_call POST /spaces/3/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 3
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 F=$("$H" sql "select max(id) from turn where space_id = 3" | tail -1)
 api_call GET "/turns/$F"
@@ -435,7 +432,7 @@ echo "$BODY" | grep -q '"spaceId":9' && echo "note: Space 9 unexpectedly in the 
 api_call POST /spaces/9/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'
 sleep 3
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 C=$("$H" sql "select max(id) from turn where space_id = 9" | tail -1)
 
@@ -509,7 +506,7 @@ restart_budget_status=$STATUS
 api_call GET /inbox
 echo "$BODY" >"$E/inbox-before.txt"
 "$H" serve-stop
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 api_call GET /inbox
 echo "$BODY" >"$E/inbox-after.txt"
@@ -529,9 +526,9 @@ section_cx() {
 mkdir -p "$S/spy"
 printf '#!/bin/sh\ntee -a %s/codex-in.log | %s/agent/codex/testdata/codex "$@"\n' "$E" "$PWD" >"$S/spy/codex"
 chmod +x "$S/spy/codex"
-"$H" reef --data-name cx -- team apply "$E/cx.json" >/dev/null
-BASH_ENV= FAKE_CODEX=replay PATH="$S/spy:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name cx
+BASH_ENV= FAKE_CODEX=replay PATH="$S/spy:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name cx || exit 1
 A=$(cat "$S/serve.addr")
+"$H" team-apply "$E/cx.json" >/dev/null
 api_call POST /projects '{"name":"cx","path":"'"$S"'/cwd"}'
 api_call POST /spaces '{"projectId":1,"name":"cx room","team":"cx"}'
 api_call POST /spaces/1/send '{"text":"@tester hi"}'
@@ -552,7 +549,7 @@ check write-codex-readonly "$codex_ok" "turns: $(echo "$rows_cx" | tr '\n' ' ');
 }
 
 section_ui2() {
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name ui2
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name ui2 || exit 1
 run_ui window-rollback rollback
 run_ui window-retry retry
 }
@@ -626,9 +623,9 @@ git -C "$S/google-app" init -q -b main
 git -C "$S/google-app" add -A
 git -C "$S/google-app" -c user.name=v -c user.email=v@example.com commit -qm "shop with email login" >/dev/null
 
-"$H" reef --data-name google -- team apply "$PWD/teams/full.json" >/dev/null
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name google
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name google || exit 1
 A=$(cat "$S/serve.addr")
+"$H" team-apply "$PWD/teams/full.json" >/dev/null
 api_call POST /projects '{"name":"shop","path":"'"$S"'/google-app"}'
 api_call POST /work-items '{"projectId":1,"title":"Google login"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"google","team":"full"}'
@@ -703,21 +700,21 @@ cat >"$E/pair.json" <<'EOF'
 {
   "name": "pair",
   "roles": [
-    {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Do exactly what the user asks. Never @mention anyone unless the user tells you to."},
+    {"name": "lead", "lead": true, "backend": "claude", "write": true,
+     "description": "You are the lead. Do exactly what the user asks. Never @mention anyone unless the user tells you to."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash(ls:*)"]}
   ]
 }
 EOF
-"$H" reef --data-name fu -- team apply "$PWD/teams/full.json" >/dev/null
-"$H" reef -- team apply "$E/pair.json" >/dev/null
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
+"$H" team-apply "$PWD/teams/full.json" >/dev/null
+"$H" team-apply "$E/pair.json" >/dev/null
 
 api_call POST /projects '{"name":"main","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"FA"}'
@@ -744,7 +741,7 @@ check handoff-no-approval "$handoff_ok" "lead woke developer automatically with 
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 4
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 F2=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 api_call GET /inbox
@@ -771,7 +768,7 @@ check note-retry "$note_retry_ok" "failed/rollback/retry notes land in the retri
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 4
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 G=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 api_call POST /spaces/1/send '{"text":"@developer Reply with one word. Use no tools."}'
@@ -790,7 +787,7 @@ api_call POST /spaces/1/wrap
 wrap_send_status=$STATUS
 sleep 4
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 newest1=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 row_wrap=$("$H" sql "select role, status, error, wake_text is null from turn where id = $newest1" | tail -1)
@@ -811,7 +808,7 @@ q_chan=$("$H" sql "select id from Space where name = 'q'" | tail -1)
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
 wait_done "$q_chan" 1
 Q=$("$H" sql "select id from turn where space_id = $q_chan order by id desc limit 1" | tail -1)
-[[ "$(turn_col "$Q" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$Q$ ]] || echo "note: quick session turn $Q has no expected checkpoint" >&2
+[ -z "$(turn_col "$Q" checkpoint)" ] || echo "note: quick session turn $Q has a checkpoint" >&2
 api_call POST /work-items '{"projectId":1,"title":"FQ"}'
 api_call POST "/spaces/$q_chan/attach" '{"workItemId":4}'
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
@@ -823,15 +820,16 @@ wait_done "$q_chan" 2
 } >"$E/fq-before.txt"
 api_call POST "/turns/$Q/rollback"
 moved_ok=1
-[ "$STATUS" = 409 ] || moved_ok=0
-echo "$BODY" | grep -qF "turn $Q was checkpointed in $S/cwd, not $S/fu/worktrees/1/4: conflict" || moved_ok=0
+[ "$STATUS" = 400 ] || moved_ok=0
+echo "$BODY" | grep -qF "turn $Q has no checkpoint" || moved_ok=0
+[ -z "$(turn_col "$Q" checkpoint)" ] || moved_ok=0
 {
 	git -C "$S/fu/worktrees/1/4" rev-parse HEAD
 	git -C "$S/fu/worktrees/1/4" status --porcelain
 	ls -a "$S/fu/worktrees/1/4"
 } >"$E/fq-after.txt"
 diff "$E/fq-before.txt" "$E/fq-after.txt" >/dev/null || moved_ok=0
-check rollback-moved "$moved_ok" "rollback of the moved checkpoint $Q is 409; the fq tree is unchanged"
+check rollback-moved "$moved_ok" "rollback of a free Space's turn $Q, which has no checkpoint, is 400 after the attach too; the fq tree is unchanged"
 
 
 H0=$(git -C "$WA" rev-parse HEAD)
@@ -875,7 +873,7 @@ api_call GET "/turns?space=$freshq_chan"
 unborn_ok=1
 echo "$BODY" | grep -q '"status":"done"' || unborn_ok=0
 echo "$BODY" | grep -q '"checkpoint":null' || unborn_ok=0
-check checkpoint-unborn "$unborn_ok" "a quick session's lead turn on an unborn git repo is done with no checkpoint"
+check checkpoint-unborn "$unborn_ok" "a quick session associated with a project whose git repo has no commit: its lead turn is done with no checkpoint"
 
 rm -rf "$S/fu/worktrees/1/2"
 api_call POST /spaces/3/send '{"text":"@developer Reply with one word. Use no tools."}'
@@ -972,21 +970,21 @@ api_call GET "/spaces?workItem=$k2_item"
 echo "$BODY" | grep -q "\"id\":$free_k,\"kind\":\"work_item\"" || attach_list_ok=0
 check space-attach-list "$attach_list_ok" "free Space $free_k attached to work item $k2_item shows in GET /spaces?workItem=: $BODY"
 
-api_call PUT /teams/frozen '{"name":"frozen","roles":[{"name":"lead","lead":true,"backend":"claude"},{"name":"dev","backend":"claude","write":true,"tools":["Read","Edit"]}]}'
+api_call POST /bots '{"name":"dev","backend":"claude","write":true,"tools":["Read","Edit"]}'
+dev_bot=$("$H" sql "select id from bot where name = 'dev'" | tail -1)
+api_call PUT /teams/frozen '{"name":"frozen","roles":[{"botId":1,"lead":true},{"botId":'"$dev_bot"'}]}'
 api_call POST /spaces '{"projectId":1,"name":"frozen room","team":"frozen"}'
 frozen_chan=$("$H" sql "select id from space where name = 'frozen room'" | tail -1)
-api_call PUT /teams/frozen '{"name":"frozen","roles":[{"name":"lead","lead":true,"backend":"claude"},{"name":"dev","backend":"claude","tools":["Read"]}]}'
-api_call POST /spaces '{"projectId":1,"name":"later room","team":"frozen"}'
-later_chan=$("$H" sql "select id from space where name = 'later room'" | tail -1)
-frozen_ok=1
+live_ok=1
 api_call GET "/spaces/$frozen_chan/members"
-echo "$BODY" | grep -qF '"name":"dev","lead":false,"write":true' || frozen_ok=0
-echo "$BODY" | grep -qF '"tools":["Read","Edit"]' || frozen_ok=0
-kept=$BODY
-api_call GET "/spaces/$later_chan/members"
-echo "$BODY" | grep -qF '"name":"dev","lead":false,"write":false' || frozen_ok=0
-echo "$BODY" | grep -qF '"tools":["Read"]' || frozen_ok=0
-check space-members-frozen "$frozen_ok" "after the team's dev lost write and Edit, the running Space keeps them: $kept; a new Space has the edit: $BODY"
+echo "$BODY" | grep -qF '"name":"dev","lead":false,"write":true' || live_ok=0
+echo "$BODY" | grep -qF '"tools":["Read","Edit"]' || live_ok=0
+[ "$("$H" sql "select bot_id || '|' || lead from space_member where space_id = $frozen_chan order by id" | tail -n +2 | tr '\n' ' ')" = "1|1 $dev_bot|0 " ] || live_ok=0
+api_call PUT "/bots/$dev_bot" '{"name":"dev","backend":"claude","tools":["Read"]}'
+api_call GET "/spaces/$frozen_chan/members"
+echo "$BODY" | grep -qF '"name":"dev","lead":false,"write":false' || live_ok=0
+echo "$BODY" | grep -qF '"tools":["Read"]' || live_ok=0
+check space-members-live "$live_ok" "a Space member holds only its Bot id; after the Bot dev lost write and Edit, the running Space shows it: $BODY"
 }
 
 # section NAME: run section_NAME under the run id $REEF_VERIFY_RUN/NAME, so it has its own

@@ -2,6 +2,7 @@ export type Project = {
   id: number;
   name: string;
   path: string;
+  purpose: string;
   baseBranch: string;
   createdAt: string;
 };
@@ -20,6 +21,7 @@ export type MemoryItem = {
   why: string;
   scope: string;
   author: string;
+  botId: number | null;
   createdAt: string;
 };
 
@@ -85,8 +87,7 @@ export type Space = {
   name: string;
   team: string;
   role: string;
-  backend: string;
-  permissionMode: string;
+  botId: number | null;
   paused: string;
   createdAt: string;
   closedAt: string | null;
@@ -96,7 +97,19 @@ export type Space = {
 export type SpaceDetail = Space & { tokenBudget: number; tokensUsed: number };
 
 export type SpacePreview = Space & {
+  members: number[];
   lastMessage: { author: string; body: string; createdAt: string } | null;
+};
+
+export type PinKind = 'bot' | 'chat' | 'space';
+
+export type Pin = { kind: PinKind; id: number; title: string; createdAt: string };
+
+export type FindResult = {
+  kind: PinKind | 'workItem';
+  id: number;
+  title: string;
+  projectId?: number;
 };
 
 export type ProposedItem = {
@@ -111,6 +124,7 @@ export type Proposal = {
   id: number;
   spaceId: number;
   role: string;
+  botId?: number | null;
   kind: 'wrap' | 'brief';
   brief: string;
   items: ProposedItem[];
@@ -124,6 +138,7 @@ export type Message = {
   spaceId: number;
   parentId: number | null;
   author: string;
+  botId?: number | null;
   body: string;
   createdAt: string;
 };
@@ -132,6 +147,7 @@ export type Turn = {
   id: number;
   spaceId: number;
   role: string;
+  botId?: number | null;
   status: string;
   error: string;
   wakeText: string;
@@ -142,21 +158,20 @@ export type Turn = {
 };
 
 export type Role = {
-  teammateId: number;
+  botId: number;
   name: string;
   lead: boolean;
   write: boolean;
   backend: string;
   provider?: string;
   permissionMode: string;
-  persona: string;
+  description: string;
   skills: string[];
   face?: string;
   colour?: string;
   model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
-  mcpRemove?: { name: string; label: string }[];
 };
 
 export type Provider = {
@@ -173,7 +188,7 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
-export type Teammate = Omit<Role, 'lead' | 'teammateId' | 'mcpRemove'> & { id: number };
+export type Bot = Omit<Role, 'lead' | 'botId'> & { id: number };
 
 export type Team = {
   id: number;
@@ -189,7 +204,9 @@ export type DirectMessage = {
   replyToId: number | null;
   sourceMessageId: number | null;
   from: string;
+  fromBotId?: number | null;
   to: string;
+  toBotId?: number | null;
   body: string;
   status: 'sent' | 'done' | 'failed';
   state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped';
@@ -197,7 +214,16 @@ export type DirectMessage = {
 };
 
 export type InboxItem = {
-  kind: 'paused' | 'held' | 'failed' | 'review' | 'waiting' | 'sub_item' | 'proposed' | 'started';
+  kind:
+    | 'paused'
+    | 'held'
+    | 'failed'
+    | 'review'
+    | 'waiting'
+    | 'sub_item'
+    | 'proposed'
+    | 'started'
+    | 'space_proposed';
   group: 'needs_you' | 'review' | 'fyi';
   spaceId: number;
   workItemId: number | null;
@@ -206,6 +232,15 @@ export type InboxItem = {
   turnId?: number;
   messageId?: number;
   id?: number;
+  proposal?: SpaceProposal;
+};
+
+export type SpaceProposal = {
+  id: number;
+  proposedBy: string;
+  name: string;
+  botIds: number[];
+  coordinatorBotId: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';
@@ -245,6 +280,7 @@ export type InspectorToolCall = {
 export type InspectorTurn = {
   id: number;
   role: string;
+  botId: number | null;
   startedAt: string;
   status: string;
   model: string;
@@ -256,6 +292,7 @@ export type InspectorTurn = {
 
 export type InspectorRole = {
   role: string;
+  botId: number | null;
   turns: number;
   usage: Usage;
   costUsd: number | null;

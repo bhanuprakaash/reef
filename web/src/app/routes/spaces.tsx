@@ -10,17 +10,14 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 
 function SpaceList({ title, conversations }: { title: string; conversations: boolean }) {
   const projects = useProjects();
-  const spaces = useQuery({ ...spacesQuery, refetchInterval: 5000 });
   const [project] = useCurrentProject(projects.data);
+  const spaces = useQuery({ ...spacesQuery(project?.id), refetchInterval: 5000 });
   const [query, setQuery] = useState('');
 
   const q = query.trim().toLowerCase();
   const rows = (spaces.data ?? [])
     .filter(
-      (c) =>
-        c.projectId === project?.id &&
-        (c.kind === 'conversation') === conversations &&
-        c.name.toLowerCase().includes(q),
+      (c) => (c.kind === 'conversation') === conversations && c.name.toLowerCase().includes(q),
     )
     .sort(byRecent);
   const error = projects.error ?? spaces.error;

@@ -22,7 +22,7 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
   const [from, setFrom] = useState(
     () => (teams.find((t) => t.name === (initial ?? 'solo')) ?? teams[0]).name,
   );
-  const [responsibility, setResponsibility] = useState('');
+  const [responsibility, setDescription] = useState('');
   const create = useCreateTeam();
   const source = teams.find((t) => t.name === from);
 
@@ -51,12 +51,12 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
         />
       </label>
       <label className="block">
-        <span className="mb-1.5 block text-[12.5px] text-muted">Responsibility</span>
+        <span className="mb-1.5 block text-[12.5px] text-muted">Description</span>
         <TextArea
           className="min-h-24 w-full resize-y"
           value={responsibility}
-          placeholder="What work should this team own?"
-          onChange={(e) => setResponsibility(e.target.value)}
+          placeholder="What is this Crew for? (optional)"
+          onChange={(e) => setDescription(e.target.value)}
         />
       </label>
       <label className="block">
@@ -69,7 +69,7 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
           options={teams.map((t) => ({ value: t.name, label: t.name }))}
         />
       </label>
-      <p className="text-[12.5px] text-muted">Copies the roles of {from}. Edit them after.</p>
+      <p className="text-[12.5px] text-muted">Copies the Bots of {from}. Edit them after.</p>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" onClick={onClose}>
@@ -81,7 +81,7 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
           disabled={!teamNamePattern.test(name.trim())}
           loading={create.isPending}
         >
-          Create team
+          Create crew
         </Button>
       </div>
     </form>
@@ -90,7 +90,7 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
 
 export function NewTeamDialog({ open, ...rest }: Props) {
   return (
-    <Dialog open={open} onClose={rest.onClose} title="New team">
+    <Dialog open={open} onClose={rest.onClose} title="New crew">
       {open && <NewTeamForm {...rest} />}
     </Dialog>
   );

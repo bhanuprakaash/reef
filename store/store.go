@@ -233,8 +233,29 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func apply(ctx context.Context, db *sql.DB, version int, body string) error {
-	tx, err := db.BeginTx(ctx, nil)
+// _foreignKeysOff starts a migration that rebuilds a table other tables point at: dropping it
+// would otherwise cascade into them. SQLite ignores the pragma inside a transaction, so apply
+// sets it on its connection first and checks the foreign keys before it commits.
+const _foreignKeysOff = "PRAGMA foreign_keys = OFF"
+
+func apply(ctx context.Context, db *sql.DB, version int, body string) (err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	rebuild := strings.HasPrefix(body, _foreignKeysOff)
+	if rebuild {
+		if _, err := conn.ExecContext(ctx, _foreignKeysOff); err != nil {
+			return err
+		}
+		defer func() {
+			if _, rerr := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err == nil {
+				err = rerr
+			}
+		}()
+	}
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -248,6 +269,16 @@ func apply(ctx context.Context, db *sql.DB, version int, body string) error {
 	}
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return err
+	}
+	if rebuild {
+		var table string
+		err := tx.QueryRowContext(ctx, "SELECT \"table\" FROM pragma_foreign_key_check LIMIT 1").Scan(&table)
+		if err == nil {
+			return fmt.Errorf("foreign key check failed on table %s", table)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		"PRAGMA user_version = "+strconv.Itoa(version)); err != nil {

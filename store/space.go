@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -35,38 +36,44 @@ func validActiveTurn(kind string) bool {
 }
 
 // Space kinds: a Work item's Space, a free Space with no Work item, and a direct conversation
-// with one Teammate.
+// with one Bot.
 const (
 	KindWorkItem     = "work_item"
 	KindFree         = "free"
 	KindConversation = "conversation"
 )
 
-const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, " +
-	"space.role, space.backend, space.permission_mode, space.paused, " +
+// A Space's project is its work item's project, or its first associated project, or 0.
+const _spaceCols = "space.id, COALESCE(space.project_id, " +
+	"(SELECT MIN(project_id) FROM space_project WHERE space_id = space.id), 0), " +
+	"space.work_item_id, space.name, " +
+	"COALESCE((SELECT bot.name FROM space_member JOIN bot ON bot.id = space_member.bot_id " +
+	"WHERE space_member.space_id = space.id AND space_member.lead = 1), space.role), space.paused, " +
 	"COALESCE((SELECT root.token_budget FROM work_item item JOIN work_item root " +
 	"ON root.id = COALESCE(item.parent_id, item.id) WHERE item.id = space.work_item_id), " +
 	"space.token_budget), space.created_at, space.closed_at, space.active_turn, " +
-	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to"
+	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to, " +
+	"(SELECT bot_id FROM space_member WHERE space_id = space.id AND lead = 1)"
 
-// Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
-// Space made from one Teammate. Who is in the Space is its space_member list, copied when the
-// Space was made.
+// Space with a nil WorkItemID is a free Space or a direct conversation. ProjectID is the
+// Space's first associated project, 0 when it has none; only the Space of a work item must
+// have one. Team is empty for a
+// Space made from one Bot. Who is in the Space is its space_member list of Bot ids, set when the
+// Space was made. BotID is the lead Bot and Role is that Bot's current name.
 type Space struct {
-	ID             int64      `json:"id"`
-	Kind           string     `json:"kind"`
-	ProjectID      int64      `json:"projectId"`
-	WorkItemID     *int64     `json:"workItemId"`
-	Name           string     `json:"name"`
-	Role           string     `json:"role"`
-	Backend        string     `json:"backend"`
-	PermissionMode string     `json:"permissionMode"`
-	Paused         string     `json:"paused"`
-	TokenBudget    int64      `json:"tokenBudget"`
-	Team           string     `json:"team"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	ClosedAt       *time.Time `json:"closedAt"`
-	// MovedTo is the Space a direct conversation became when a Teammate was added: the
+	ID          int64      `json:"id"`
+	Kind        string     `json:"kind"`
+	ProjectID   int64      `json:"projectId"`
+	WorkItemID  *int64     `json:"workItemId"`
+	Name        string     `json:"name"`
+	Role        string     `json:"role"`
+	BotID       *int64     `json:"botId"`
+	Paused      string     `json:"paused"`
+	TokenBudget int64      `json:"tokenBudget"`
+	Team        string     `json:"team"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ClosedAt    *time.Time `json:"closedAt"`
+	// MovedTo is the Space a direct conversation became when a Bot was added: the
 	// conversation is read-only from then on.
 	MovedTo *int64 `json:"movedTo"`
 	// ActiveTurn is the kind of turn currently running on the Space ("message" or
@@ -88,9 +95,11 @@ func (c Space) Writable() error {
 	return nil
 }
 
-// SpacePreview is a Space with its newest message, nil when it has none.
+// SpacePreview is a Space with its newest message, nil when it has none, and the ids of its
+// member Bots, lead first.
 type SpacePreview struct {
 	Space
+	Members     []int64      `json:"members"`
 	LastMessage *LastMessage `json:"lastMessage"`
 }
 
@@ -105,17 +114,24 @@ type LastMessage struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// SpaceFilter narrows Spaces to one project and/or one work item when set.
+// SpaceFilter narrows Spaces when set: to those associated with a project, to those whose
+// only project is OnlyProjectID, and to one work item.
 type SpaceFilter struct {
-	ProjectID  *int64
-	WorkItemID *int64
+	ProjectID     *int64
+	OnlyProjectID *int64
+	WorkItemID    *int64
 }
 
 func (f SpaceFilter) where() (string, []any) {
 	var q string
 	args := []any{}
 	if f.ProjectID != nil {
-		q, args = q+" AND space.project_id = ?", append(args, *f.ProjectID)
+		q, args = q+" AND EXISTS (SELECT 1 FROM space_project WHERE space_id = space.id "+
+			"AND project_id = ?)", append(args, *f.ProjectID)
+	}
+	if f.OnlyProjectID != nil {
+		q, args = q+" AND space.id IN (SELECT space_id FROM space_project GROUP BY space_id "+
+			"HAVING COUNT(*) = 1 AND MIN(project_id) = ?)", append(args, *f.OnlyProjectID)
 	}
 	if f.WorkItemID != nil {
 		q, args = q+" AND space.work_item_id = ?", append(args, *f.WorkItemID)
@@ -147,17 +163,26 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	}
 	return s.insertSpace(ctx, c, &teamID, func(tx *sql.Tx, id int64) error {
 		_, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, teammate_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode FROM team_member WHERE team_id = ?", id, teamID)
-		return err
+			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, bot_id, lead "+
+				"FROM team_member WHERE team_id = ? ORDER BY lead DESC, id", id, teamID)
+		if err != nil {
+			return err
+		}
+		return ensureCoordinator(ctx, tx, id)
 	})
 }
 
-// CreateTeammateSpace adds c with no Team and one member, the lead: a copy of the Teammate's
-// default access rules. c.Kind is KindConversation for a direct conversation, which cannot have
-// a work item; any other value makes a free Space, or a work item's Space when WorkItemID is set.
-func (s *Store) CreateTeammateSpace(ctx context.Context, c Space, teammateID int64) (Space, error) {
+// ensureCoordinator makes the first member of Space id its coordinator when none leads.
+func ensureCoordinator(ctx context.Context, x execer, id int64) error {
+	_, err := x.ExecContext(ctx,
+		"UPDATE space_member SET lead = 1 WHERE id = (SELECT MIN(id) FROM space_member WHERE space_id = ?) "+
+			"AND NOT EXISTS (SELECT 1 FROM space_member WHERE space_id = ? AND lead = 1)", id, id)
+	return err
+}
+
+// CreateBotSpace adds c with no Team and one member, the Bot, which leads it. c.Kind is
+// KindConversation for a direct conversation, which cannot have a work item; any other value makes a free Space, or a work item's Space when WorkItemID is set.
+func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
 	}
@@ -171,14 +196,13 @@ func (s *Store) CreateTeammateSpace(ctx context.Context, c Space, teammateID int
 	}
 	return s.insertSpace(ctx, c, nil, func(tx *sql.Tx, id int64) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, id, name, 1, tools, mcp_servers, write, permission_mode "+
-				"FROM teammate WHERE id = ?", id, teammateID)
+			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, 1 FROM bot WHERE id = ?",
+			id, botID)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err == nil && n == 0 {
-			return fmt.Errorf("%w: unknown teammate %d", ErrInvalid, teammateID)
+			return fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 		}
 		return nil
 	})
@@ -197,11 +221,14 @@ func (s *Store) insertSpace(
 	}
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UTC()
+	var projectID *int64
+	if c.WorkItemID != nil {
+		projectID = &c.ProjectID
+	}
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO space (project_id, work_item_id, name, role, backend, permission_mode, "+
-			"token_budget, created_at, team_id, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		c.ProjectID, c.WorkItemID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
-		now.Format(time.RFC3339Nano), teamID, c.Kind)
+		"INSERT INTO space (project_id, work_item_id, name, role, token_budget, created_at, "+
+			"team_id, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		projectID, c.WorkItemID, c.Name, c.Role, TokenBudget, now.Format(time.RFC3339Nano), teamID, c.Kind)
 	if err != nil {
 		_ = tx.Rollback()
 		return Space{}, s.spaceWriteErr(ctx, "insert space", err, c.WorkItemID,
@@ -211,14 +238,21 @@ func (s *Store) insertSpace(
 	if err != nil {
 		return Space{}, fmt.Errorf("insert Space: %w", err)
 	}
+	if c.ProjectID != 0 {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO space_project (space_id, project_id) VALUES (?, ?)", id, c.ProjectID); err != nil {
+			_ = tx.Rollback()
+			return Space{}, s.writeErr(ctx, "insert Space project", err, ErrInvalid,
+				parent{table: "project", id: &c.ProjectID})
+		}
+	}
 	if err := members(tx, id); err != nil {
 		return Space{}, fmt.Errorf("insert Space members: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return Space{}, fmt.Errorf("commit create Space: %w", err)
 	}
-	c.ID, c.Paused, c.TokenBudget, c.CreatedAt = id, "", TokenBudget, now
-	return c, nil
+	return s.Space(ctx, id)
 }
 
 // spaceWriteErr turns a failed write of a Space row into ErrConflict when the work item
@@ -270,13 +304,13 @@ func (s *Store) SpacePreviews(ctx context.Context, f SpaceFilter) ([]SpacePrevie
 	return s.spacePreviews(ctx, where, args, "space.id")
 }
 
-// TeammateConversations is the direct conversations with the Teammate, the one with the newest
+// BotConversations is the direct conversations with the Bot, the one with the newest
 // message (or, with none, the newest created) first.
-func (s *Store) TeammateConversations(ctx context.Context, teammateID int64) ([]SpacePreview, error) {
+func (s *Store) BotConversations(ctx context.Context, botID int64) ([]SpacePreview, error) {
 	return s.spacePreviews(ctx,
 		" AND space.kind = ? AND EXISTS "+
-			"(SELECT 1 FROM space_member WHERE space_id = space.id AND teammate_id = ?)",
-		[]any{KindConversation, teammateID},
+			"(SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = ?)",
+		[]any{KindConversation, botID},
 		"COALESCE(m.created_at, space.created_at) DESC, space.id DESC")
 }
 
@@ -284,7 +318,9 @@ func (s *Store) spacePreviews(
 	ctx context.Context, where string, args []any, order string,
 ) ([]SpacePreview, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_spaceCols+", m.author, substr(m.body, 1, "+_previewChars+"), m.created_at FROM space "+
+		"SELECT "+_spaceCols+", m.author, substr(m.body, 1, "+_previewChars+"), m.created_at, "+
+			"(SELECT json_group_array(bot_id) FROM (SELECT bot_id FROM space_member "+
+			"WHERE space_id = space.id ORDER BY lead DESC, id)) FROM space "+
 			"LEFT JOIN message m ON m.id = "+
 			"(SELECT MAX(id) FROM message WHERE space_id = space.id) "+
 			"WHERE 1 = 1"+where+" ORDER BY "+order, args...)
@@ -294,16 +330,16 @@ func (s *Store) spacePreviews(
 	return scanAll(rows, scanSpacePreview)
 }
 
-// UpdateSpace sets the name and permission mode of c.ID. A Space never changes
-// project, and its work item changes only from nil, through AttachSpace.
+// UpdateSpace sets the name of c.ID. Its projects change through AddSpaceProject and
+// RemoveSpaceProject, and its work item changes only from nil, through AttachSpace.
 func (s *Store) UpdateSpace(ctx context.Context, c Space) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE space SET name_auto = CASE WHEN name = ? THEN name_auto ELSE 0 END, "+
-			"name = ?, permission_mode = ? WHERE id = ?",
-		c.Name, c.Name, c.PermissionMode, c.ID)
+			"name = ? WHERE id = ?",
+		c.Name, c.Name, c.ID)
 	if err != nil {
 		return Space{}, fmt.Errorf("update Space: %w", err)
 	}
@@ -360,8 +396,9 @@ func (s *Store) nameStep(ctx context.Context, query string, args ...any) (bool, 
 	return n > 0, nil
 }
 
-// AttachSpace gives free Space id the work item, which must be in its project and have no
-// other active Space. Its kind becomes KindWorkItem.
+// AttachSpace gives free Space id the work item, which must have no other active Space. The
+// Space moves to the work item's project, whatever it was associated with. Its kind becomes
+// KindWorkItem.
 func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, error) {
 	c, err := s.Space(ctx, id)
 	if err != nil {
@@ -374,16 +411,147 @@ func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, e
 		return Space{}, fmt.Errorf("%w: only a free Space attaches to a work item, Space %d is a %s",
 			ErrInvalid, id, c.Kind)
 	}
-	if err := s.checkWorkItemInProject(ctx, &workItemID, c.ProjectID); err != nil {
+	f, err := s.WorkItem(ctx, workItemID)
+	if errors.Is(err, ErrNotFound) {
+		return Space{}, fmt.Errorf("%w: unknown work item %d", ErrInvalid, workItemID)
+	}
+	if err != nil {
+		return Space{}, fmt.Errorf("check work item: %w", err)
+	}
+	if err := s.checkWorkItemInProject(ctx, &workItemID, f.ProjectID); err != nil {
 		return Space{}, err
 	}
-	_, err = s.db.ExecContext(ctx,
-		"UPDATE space SET work_item_id = ?, kind = ? WHERE id = ? AND work_item_id IS NULL",
-		workItemID, KindWorkItem, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Space{}, fmt.Errorf("begin attach Space: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx,
+		"UPDATE space SET work_item_id = ?, kind = ?, project_id = ? WHERE id = ? AND work_item_id IS NULL",
+		workItemID, KindWorkItem, f.ProjectID, id)
 	if err != nil {
 		return Space{}, s.spaceWriteErr(ctx, "attach Space", err, &workItemID)
 	}
+	res, err := tx.ExecContext(ctx,
+		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, f.ProjectID)
+	if err != nil {
+		return Space{}, fmt.Errorf("associate Space with project: %w", err)
+	}
+	if err := noteSpaceProject(ctx, tx, res, id, f.ProjectID, nil, _noteAssociated); err != nil {
+		return Space{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Space{}, fmt.Errorf("commit attach Space: %w", err)
+	}
 	return s.Space(ctx, id)
+}
+
+// SpaceProjects lists the projects Space id is associated with, by id.
+func (s *Store) SpaceProjects(ctx context.Context, id int64) ([]Project, error) {
+	if err := s.requireSpace(ctx, id); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.created_at "+
+			"FROM space_project JOIN project ON project.id = space_project.project_id "+
+			"WHERE space_project.space_id = ? ORDER BY project.id", id)
+	if err != nil {
+		return nil, fmt.Errorf("list Space projects: %w", err)
+	}
+	return scanAll(rows, scanProject)
+}
+
+// AddSpaceProject associates Space id with the project; doing it twice changes nothing. A
+// change leaves a note in the Space's history, by the Bot with id by, or by the user when
+// by is nil.
+func (s *Store) AddSpaceProject(ctx context.Context, id, projectID int64, by *int64) error {
+	if err := s.requireProjectEdit(ctx, id); err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin add Space project: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
+		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, projectID)
+	if err != nil {
+		return s.writeErr(ctx, "add Space project", err, ErrNotFound,
+			parent{table: "project", id: &projectID})
+	}
+	if err := noteSpaceProject(ctx, tx, res, id, projectID, by, _noteAssociated); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RemoveSpaceProject drops the association of Space id with the project, which the Space
+// need not have, and notes it as AddSpaceProject does. The Space, its history and its other
+// projects stay.
+func (s *Store) RemoveSpaceProject(ctx context.Context, id, projectID int64, by *int64) error {
+	if err := s.requireProjectEdit(ctx, id); err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin remove Space project: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
+		"DELETE FROM space_project WHERE space_id = ? AND project_id = ?", id, projectID)
+	if err != nil {
+		return fmt.Errorf("remove Space project: %w", err)
+	}
+	if err := noteSpaceProject(ctx, tx, res, id, projectID, by,
+		"%s removed Project %s from this conversation."); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+const _noteAssociated = "%s associated Project %s with this conversation."
+
+// noteSpaceProject writes the note format, filled with who and the project's name, as a Reef
+// message in tx when res changed a row.
+func noteSpaceProject(
+	ctx context.Context, tx *sql.Tx, res sql.Result, id, projectID int64, by *int64, format string,
+) error {
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return err
+	}
+	var project string
+	if err := tx.QueryRowContext(ctx, "SELECT name FROM project WHERE id = ?", projectID).
+		Scan(&project); err != nil {
+		return fmt.Errorf("read project %d: %w", projectID, err)
+	}
+	who := "You"
+	if by != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT name FROM bot WHERE id = ?", *by).
+			Scan(&who); err != nil {
+			return fmt.Errorf("read bot %d: %w", *by, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT INTO message (space_id, author, bot_id, body, created_at) VALUES (?, ?, ?, ?, ?)",
+		id, ReefAuthor, by, fmt.Sprintf(format, who, project),
+		time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("note Space project: %w", err)
+	}
+	return nil
+}
+
+// requireProjectEdit is ErrInvalid when Space id belongs to a work item, whose Space stays in
+// its work item's project.
+func (s *Store) requireProjectEdit(ctx context.Context, id int64) error {
+	c, err := s.Space(ctx, id)
+	if err != nil {
+		return err
+	}
+	if c.WorkItemID != nil {
+		return fmt.Errorf("%w: Space %d belongs to work item %d and stays in its project",
+			ErrInvalid, id, *c.WorkItemID)
+	}
+	return nil
 }
 
 // PauseSpace pauses the Space; the reason must not be empty. Its Work item, if in progress,
@@ -555,13 +723,17 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	var p SpacePreview
 	var created string
 	var author, body, lastCreated, closed sql.NullString
+	var members string
 	// active_turn is a server-side hint (not client data), so the preview reads it without
 	// exposing it: the Space JSON omits it.
-	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role, &p.Backend,
-		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
-		&p.Kind, &p.MovedTo,
-		&author, &body, &lastCreated); err != nil {
+	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role,
+		&p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
+		&p.Kind, &p.MovedTo, &p.BotID,
+		&author, &body, &lastCreated, &members); err != nil {
 		return SpacePreview{}, err
+	}
+	if err := json.Unmarshal([]byte(members), &p.Members); err != nil {
+		return SpacePreview{}, fmt.Errorf("space %d: bad members: %w", p.ID, err)
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {
@@ -586,9 +758,9 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	var c Space
 	var created string
 	var closed sql.NullString
-	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
-		&c.Kind, &c.MovedTo); err != nil {
+	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role,
+		&c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
+		&c.Kind, &c.MovedTo, &c.BotID); err != nil {
 		return Space{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

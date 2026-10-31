@@ -32,7 +32,7 @@ export function CheckpointButton({
         aria-label={`Roll back · ${label}`}
         title={label}
         disabled={running || rollback.isPending}
-        className="flex size-7 items-center justify-center rounded-field text-soft hover:bg-card disabled:cursor-not-allowed disabled:text-faint"
+        className="flex size-7 items-center justify-center rounded-field text-soft hover:bg-card max-md:size-11 disabled:cursor-not-allowed disabled:text-faint"
         onClick={() => confirmRollback(turn.id) && rollback.mutate(turn.id)}
       >
         <svg {...icon}>

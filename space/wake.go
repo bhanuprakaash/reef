@@ -25,17 +25,17 @@ const _firstWake = 20
 // says the rest are in read_thread. A scope with no unread message is left out, so the text
 // is empty when nothing is unread.
 func wakeText(
-	ctx context.Context, st *store.Store, spaceID int64, role, sessionID string,
+	ctx context.Context, st *store.Store, spaceID, botID int64, sessionID string,
 	scopes store.Scopes,
 ) (string, store.Scopes, error) {
-	read, err := readThrough(ctx, st, spaceID, role, sessionID)
+	read, err := readThrough(ctx, st, spaceID, botID, sessionID)
 	if err != nil {
 		return "", nil, err
 	}
 	var blocks []string
 	var sent store.Scopes
 	for _, sc := range scopes {
-		b, newest, err := block(ctx, st, spaceID, role, sc, read)
+		b, newest, err := block(ctx, st, spaceID, botID, sc, read)
 		if err != nil {
 			return "", nil, err
 		}
@@ -49,7 +49,7 @@ func wakeText(
 }
 
 func block(
-	ctx context.Context, st *store.Store, spaceID int64, role string, sc store.Scope,
+	ctx context.Context, st *store.Store, spaceID, botID int64, sc store.Scope,
 	read map[int64]int64,
 ) (text string, newest int64, err error) {
 	var msgs []store.Message
@@ -63,7 +63,7 @@ func block(
 	}
 	unread := slices.DeleteFunc(msgs, func(m store.Message) bool {
 		switch {
-		case m.Author == role || m.Author == store.ReefAuthor:
+		case (m.BotID != nil && *m.BotID == botID) || m.Author == store.ReefAuthor:
 			return true
 		case m.ParentID != nil:
 			return sc.Thread == 0 || m.ID <= read[*m.ParentID]
@@ -113,13 +113,13 @@ func block(
 // readThrough maps a thread root, or 0 for the top level, to the newest message that role's
 // turns in sessionID sent for it. A turn that failed before it sent did not tell the agent.
 func readThrough(
-	ctx context.Context, st *store.Store, spaceID int64, role, sessionID string,
+	ctx context.Context, st *store.Store, spaceID, botID int64, sessionID string,
 ) (map[int64]int64, error) {
 	read := map[int64]int64{}
 	if sessionID == "" {
 		return read, nil
 	}
-	sent, err := st.SentScopes(ctx, spaceID, role, sessionID)
+	sent, err := st.SentScopes(ctx, spaceID, botID, sessionID)
 	if err != nil {
 		return nil, err
 	}

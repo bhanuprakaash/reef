@@ -15,6 +15,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 type recordingAgent struct {
@@ -103,34 +104,42 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 
 func (a *recordingAgent) factory(string) (agent.Agent, error) { return a, nil }
 
-func editTeammate(t *testing.T, st *store.Store, name string, edit func(*store.Teammate)) {
+func editBot(t *testing.T, st *store.Store, name string, edit func(*store.Bot)) {
 	t.Helper()
-	all, err := st.Teammates(context.Background())
+	all, err := st.Bots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range all {
 		if m.Name == name {
 			edit(&m)
-			if _, err := st.UpdateTeammate(context.Background(), m); err != nil {
+			if _, err := st.UpdateBot(context.Background(), m); err != nil {
 				t.Fatal(err)
 			}
 			return
 		}
 	}
-	t.Fatalf("no teammate %s", name)
+	t.Fatalf("no bot %s", name)
 }
 
 func sessionSpace(t *testing.T, st *store.Store, f store.WorkItem, quick bool) store.Space {
 	t.Helper()
 	c := store.Space{
-		ProjectID: f.ProjectID, Name: "chat", Role: "architect", Backend: "claude",
-		PermissionMode: "acceptEdits",
+		ProjectID: f.ProjectID, Name: "chat", Role: "architect",
 	}
 	if !quick {
 		c.WorkItemID = &f.ID
 	}
-	ch, err := st.CreateSpace(context.Background(), c)
+	id := testBotID(t, st, "architect")
+	bot, err := st.Bot(context.Background(), *id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Write, bot.PermissionMode = true, "acceptEdits"
+	if _, err = st.UpdateBot(context.Background(), bot); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateBotSpace(context.Background(), c, *id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +190,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 ||
-		!strings.HasPrefix(ag.prompts[0], "## You\nYou are the architect on work item \"Login\" (1) in project \"shop\".") ||
+		!strings.HasPrefix(ag.prompts[0], "## You\nYou are architect on work item \"Login\" (1) in project \"shop\".") ||
 		!strings.HasSuffix(ag.prompts[0], "\n\nhi") {
 		t.Errorf("prompts = %q, want the context before hi", ag.prompts)
 	}
@@ -202,8 +211,9 @@ func TestOpen_QuickSession(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
+	dir := t.TempDir()
 
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,22 +222,80 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, err := st.Project(ctx, f.ProjectID)
-	if err != nil {
-		t.Fatal(err)
+	if want := filepath.Join(dir, "chats", "1"); ag.cfg.Cwd != want {
+		t.Errorf("Cwd = %q, want %q: an associated project is not the folder", ag.cfg.Cwd, want)
 	}
-	if ag.cfg.Cwd != p.Path {
-		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
-	}
-	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
+	want := "## You\nYou are architect.\n" +
 		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
+		"Associated projects, for context only; you do not work in them: shop (1).\n" +
 		"\n## How to work\n" +
 		"Details are on demand through the reef MCP tools recall and read_memory. " +
-		"remember saves to this Space by default; use scope project or teammate for what holds " +
+		"remember saves to this Space by default; use scope project or bot for what holds " +
 		"across the project or for you.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
+	}
+}
+
+func TestWorkDir_NoWorkItem(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	dir := t.TempDir()
+	for _, quick := range []bool{true, false} {
+		ch := sessionSpace(t, st, f, quick)
+		got, key, err := WorkDir(ctx, st, dir, ch.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if quick {
+			if want := filepath.Join(dir, "chats", "1"); got != want || key != "" {
+				t.Errorf("WorkDir of a Space with no work item = %q, %q, want %q and no key", got, key, want)
+			}
+		} else if want := filepath.Join(dir, "worktrees", "1", "1"); got != want || key != "1" {
+			t.Errorf("WorkDir of a work item Space = %q, %q, want %q and key 1", got, key, want)
+		}
+	}
+}
+
+func TestOpen_ChatWithoutProject(t *testing.T) {
+	ctx := context.Background()
+	st, _ := openStore(t)
+	id := testBotID(t, st, "architect")
+	ch, err := st.CreateBotSpace(ctx, store.Space{Name: "chat", Role: "architect"}, *id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	dir := t.TempDir()
+
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := sendAs(ctx, st, ch.ID, s.Run, "hi", discard); err != nil {
+		t.Fatal(err)
+	}
+
+	want := filepath.Join(dir, "chats", "1")
+	if ag.cfg.Cwd != want {
+		t.Errorf("Cwd = %q, want %q", ag.cfg.Cwd, want)
+	}
+	if _, err := os.Stat(filepath.Join(want, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat .git in %s = %v, want not exist", want, err)
+	}
+	if worktree.IsRepo(ctx, want) {
+		t.Errorf("%s is a git repo, want none", want)
+	}
+	wantPrompt := "## You\nYou are architect.\n" +
+		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
+		"\n## How to work\n" +
+		"Details are on demand through the reef MCP tools recall and read_memory. " +
+		"remember saves to this Space by default; use scope bot for what holds for you.\n" +
+		"\n\nhi"
+	if len(ag.prompts) != 1 || ag.prompts[0] != wantPrompt {
+		t.Errorf("prompts = %q, want [%q]", ag.prompts, wantPrompt)
 	}
 }
 
@@ -289,7 +357,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	ch := sessionSpace(t, st, f, false)
 	for _, session := range []string{"sess-old", "sess-new", ""} {
 		turn, err := st.CreateTurn(ctx, store.Turn{
-			SpaceID: ch.ID, Role: "architect", Backend: "claude", SessionID: session,
+			SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", SessionID: session,
 			WakeText: "go",
 		})
 		if err != nil {
@@ -339,17 +407,17 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("HOME", t.TempDir())
 	st, f := openStore(t)
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
-			Name: "architect", Backend: "claude", Persona: "You design.", Skills: []string{"sketch"},
+			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"sketch"},
 			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
 		},
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -386,7 +454,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, nil, whoAmI); err != nil {
 		t.Fatal(err)
 	}
-	want := "## You\nYou design.\n\nYour skills:\nsketch\n\nYou are the architect on work item"
+	want := "## You\nYou design.\n\nYour skills:\nsketch\n\nYou are architect on work item"
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
@@ -433,11 +501,11 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -458,7 +526,7 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tester, err := st.CreateTeammate(ctx, store.Teammate{Name: "tester", Backend: "claude", Persona: "You test."})
+	tester, err := st.CreateBot(ctx, store.Bot{Name: "tester", Backend: "claude", Description: "You test."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +537,7 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 		t.Fatalf("RunAs tester error = %v, want nil", err)
 	}
 	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "## You\nYou test.") {
-		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its persona", len(ags), ags[1].prompts)
+		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its description", len(ags), ags[1].prompts)
 	}
 }
 
@@ -485,12 +553,12 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -511,12 +579,12 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	editTeammate(t, st, "core-developer", func(m *store.Teammate) { m.Persona = "You code in Go only." })
+	editBot(t, st, "developer", func(m *store.Bot) { m.Description = "You code in Go only." })
 	if err := s.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 2 || ags[1].resumed != "s1" || !strings.Contains(ags[1].prompts[0], "You code in Go only.") {
-		t.Errorf("second developer: resumed = %q, prompts = %q, want resumed with the new persona",
+		t.Errorf("second developer: resumed = %q, prompts = %q, want resumed with the new description",
 			ags[1].resumed, ags[1].prompts)
 	}
 
@@ -531,7 +599,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		}
 	}
 	if !strings.Contains(last.Prompt, "You code in Go only.") {
-		t.Errorf("stored turn.prompt = %q, want it to contain the new persona", last.Prompt)
+		t.Errorf("stored turn.prompt = %q, want it to contain the new description", last.Prompt)
 	}
 }
 
@@ -555,13 +623,13 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			st, f := openStore(t)
-			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
-			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
+			if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 				t.Fatal(err)
 			}
 			ch, err := st.CreateSpace(ctx, store.Space{
 				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-				Backend: "claude", Team: "core",
+				Team: "core",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -671,12 +739,12 @@ func TestSession_LeadSessionFromStartIsStored(t *testing.T) {
 func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -700,12 +768,12 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	editTeammate(t, st, "core-lead", func(m *store.Teammate) { m.Persona = "You lead with care." })
+	editBot(t, st, "lead", func(m *store.Bot) { m.Description = "You lead with care." })
 	if err := s.Run(ctx, "again", nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 1 || len(ags[0].prompts) != 2 || !strings.Contains(ags[0].prompts[1], "You lead with care.") {
-		t.Errorf("second lead prompt = %q, want the lead kept live with the new persona",
+		t.Errorf("second lead prompt = %q, want the lead kept live with the new description",
 			ags[0].prompts)
 	}
 }
@@ -721,11 +789,11 @@ func TestSession_TeamWriteEditLeavesRunningSpaceAlone(t *testing.T) {
 			ctx := context.Background()
 			st, f := openStore(t)
 			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Write: tc.before}
-			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+			if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 				t.Fatal(err)
 			}
 			ch, err := st.CreateSpace(ctx, store.Space{
-				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 				Team: "core",
 			})
 			if err != nil {
@@ -747,7 +815,7 @@ func TestSession_TeamWriteEditLeavesRunningSpaceAlone(t *testing.T) {
 			}
 
 			lead.Write = tc.after
-			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+			if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 				t.Fatal(err)
 			}
 			if err := s.Run(ctx, "again", nil, discard); err != nil {
@@ -760,7 +828,7 @@ func TestSession_TeamWriteEditLeavesRunningSpaceAlone(t *testing.T) {
 			if got := !slices.Contains(cfg.DisallowedTools, "Edit"); got != tc.before {
 				t.Errorf("next turn can edit = %v, want %v (disallowed %v)", got, tc.before, cfg.DisallowedTools)
 			}
-			if got := s.members["lead"].run.CheckpointDir != ""; got != tc.before {
+			if got := s.members[s.leadID].run.CheckpointDir != ""; got != tc.before {
 				t.Errorf("next turn has a checkpoint = %v, want %v", got, tc.before)
 			}
 		})
@@ -771,12 +839,12 @@ func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -809,12 +877,12 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -841,7 +909,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	}
 	if len(ags[0].prompts) != 1 || !strings.Contains(ags[0].prompts[0], "You code.") ||
 		!strings.HasSuffix(ags[0].prompts[0], "wake 1") {
-		t.Errorf("wake 1: prompts = %q, want the persona and wake 1", ags[0].prompts)
+		t.Errorf("wake 1: prompts = %q, want the description and wake 1", ags[0].prompts)
 	}
 	want := []string{"wake 2", "wake 3", "wake 4"}
 	for i, ag := range ags[1:] {
@@ -855,12 +923,12 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -883,7 +951,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	if err := s.RunAs(ctx, "developer", "wake 2", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	editTeammate(t, st, "core-developer", func(m *store.Teammate) { m.Persona = "You code in Go only." })
+	editBot(t, st, "developer", func(m *store.Bot) { m.Description = "You code in Go only." })
 	if err := s.RunAs(ctx, "developer", "wake 3", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -893,7 +961,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	if len(ags) != 4 {
 		t.Fatalf("agents = %d, want 4", len(ags))
 	}
-	want3 := "Your persona or skills changed:\n\nYou code in Go only.\n\n\n\nwake 3"
+	want3 := "Your description or skills changed:\n\nYou code in Go only.\n\n\n\nwake 3"
 	if len(ags[2].prompts) != 1 || ags[2].prompts[0] != want3 {
 		t.Errorf("wake 3: prompts = %q, want [%q]", ags[2].prompts, want3)
 	}
@@ -905,12 +973,12 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -942,7 +1010,7 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 		t.Fatalf("prompts = %q, want 4", ags[0].prompts)
 	}
 	if !strings.Contains(ags[0].prompts[0], "You lead.") || !strings.HasSuffix(ags[0].prompts[0], "wake 1") {
-		t.Errorf("wake 1: prompt = %q, want the persona and wake 1", ags[0].prompts[0])
+		t.Errorf("wake 1: prompt = %q, want the description and wake 1", ags[0].prompts[0])
 	}
 	want := []string{"wake 2", "wake 3", "wake 4"}
 	for i, p := range ags[0].prompts[1:] {
@@ -955,12 +1023,12 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -986,7 +1054,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	if err := s.Run(ctx, "wake 2", nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	editTeammate(t, st, "core-lead", func(m *store.Teammate) { m.Persona = "You lead with care." })
+	editBot(t, st, "lead", func(m *store.Bot) { m.Description = "You lead with care." })
 	if err := s.Run(ctx, "wake 3", nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -996,7 +1064,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	if len(ags) != 1 || len(ags[0].prompts) != 4 {
 		t.Fatalf("agents = %d, prompts = %q, want 1 agent with 4 prompts", len(ags), ags[0].prompts)
 	}
-	want3 := "Your persona or skills changed:\n\nYou lead with care.\n\n\n\nwake 3"
+	want3 := "Your description or skills changed:\n\nYou lead with care.\n\n\n\nwake 3"
 	if ags[0].prompts[2] != want3 {
 		t.Errorf("wake 3: prompt = %q, want %q", ags[0].prompts[2], want3)
 	}
@@ -1009,12 +1077,12 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	architect := store.Role{Name: "architect", Backend: "claude", Persona: "You design."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+	architect := store.Role{Name: "architect", Backend: "claude", Description: "You design."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1037,7 +1105,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	editTeammate(t, st, "core-architect", func(m *store.Teammate) { m.Backend = "codex" })
+	editBot(t, st, "architect", func(m *store.Bot) { m.Backend = "codex" })
 	if err := s.RunAs(ctx, "architect", "again", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -1054,7 +1122,7 @@ func TestOpen_Errors(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	bad, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, Name: "typo", Role: "architect", Backend: "nope",
+		ProjectID: f.ProjectID, Name: "typo", Role: "architect",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1065,7 +1133,6 @@ func TestOpen_Errors(t *testing.T) {
 		want string
 	}{
 		{"unknown space", 99, "space 99: not found"},
-		{"unknown backend", bad.ID, `unknown backend "nope"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1079,6 +1146,18 @@ func TestOpen_Errors(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("profile backend overrides Space backend", func(t *testing.T) {
+		ag := newRecordingAgent()
+		s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", bad.ID, NewTrees(t.TempDir()), ag.factory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		if err = s.Start(ctx); err != nil || !ag.started {
+			t.Fatalf("start = %v, started = %v", err, ag.started)
+		}
+	})
 
 	t.Run("open elsewhere", func(t *testing.T) {
 		dir := t.TempDir()
@@ -1170,14 +1249,14 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		SpaceID: ch.ID, From: "developer", To: "tester", Body: "use the sqlite fixture"})
+		SpaceID: ch.ID, From: "developer", To: "tester", FromBotID: testBotID(t, st, "developer"), ToBotID: testBotID(t, st, "tester"), Body: "use the sqlite fixture"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateFailedDirectResponse(ctx, req.ID, "tester", "half an answer"); err != nil {
+	if _, err := st.CreateFailedDirectResponse(ctx, req.ID, testBotID(t, st, "tester"), "tester", "half an answer"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateDirectResponse(ctx, req.ID, "tester", "fixture works"); err != nil {
+	if _, err := st.CreateDirectResponse(ctx, req.ID, testBotID(t, st, "tester"), "tester", "fixture works"); err != nil {
 		t.Fatal(err)
 	}
 	ag := newRecordingAgent()
@@ -1191,7 +1270,7 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	if _, err := s.Wrap(ctx, discard); err != nil {
 		t.Fatal(err)
 	}
-	want := "Direct exchanges in this Space, private between two teammates:\n" +
+	want := "Direct exchanges in this Space, private between two bots:\n" +
 		"[direct 1] developer -> tester: use the sqlite fixture\n" +
 		"[direct 1] tester -> developer (failed): half an answer\n" +
 		"[direct 1] tester -> developer: fixture works\n" +
@@ -1208,7 +1287,7 @@ func TestSession_WrapSaysHowManyExchangesItLeftOut(t *testing.T) {
 	ch := sessionSpace(t, st, f, false)
 	for i := 1; i <= 120; i++ {
 		if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-			SpaceID: ch.ID, From: "developer", To: "tester", Body: fmt.Sprintf("message %d", i)}); err != nil {
+			SpaceID: ch.ID, From: "developer", To: "tester", FromBotID: testBotID(t, st, "developer"), ToBotID: testBotID(t, st, "tester"), Body: fmt.Sprintf("message %d", i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1223,7 +1302,7 @@ func TestSession_WrapSaysHowManyExchangesItLeftOut(t *testing.T) {
 	if _, err := s.Wrap(ctx, discard); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(ag.prompts[0], "teammates:\n20 older exchanges left out (read_direct_messages)\n"+
+	if !strings.Contains(ag.prompts[0], "bots:\n20 older exchanges left out (read_direct_messages)\n"+
 		"[direct 21] developer -> tester: message 21\n") || strings.Contains(ag.prompts[0], "message 20\n") {
 		t.Errorf("prompt = %q, want 20 older exchanges left out and message 21 first", ag.prompts[0])
 	}
@@ -1234,7 +1313,7 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	turn, err := st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "architect", Backend: "claude", SessionID: "sess-lead", WakeText: "go",
+		SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", SessionID: "sess-lead", WakeText: "go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1258,7 +1337,7 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 		t.Errorf("resumed = %q, fork = %v, closed = %v, members = %d, want a closed copy of sess-lead",
 			ag.resumed, ag.cfg.Fork, ag.closed, len(s.members))
 	}
-	last, err := newestSessionTurn(ctx, st, ch.ID, "architect", "claude")
+	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, "claude")
 	if err != nil || last.SessionID != "sess-lead" {
 		t.Errorf("session to resume = %q, %v, want sess-lead, not the wrap-up's sess-copy", last.SessionID, err)
 	}
@@ -1267,14 +1346,14 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "architect", Backend: "codex",
-	})
+	ch, err := st.CreateBotSpace(ctx, store.Space{
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "architect",
+	}, *testBotID(t, st, "architect"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	turn, err := st.CreateTurn(ctx, store.Turn{
-		SpaceID: ch.ID, Role: "architect", Backend: "codex", SessionID: "thread-lead", WakeText: "go",
+		SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "codex", SessionID: "thread-lead", WakeText: "go",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1298,7 +1377,7 @@ func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
 		t.Errorf("started = %v, resumed = %q, closed = %v, members = %d, want a closed fresh thread",
 			ag.started, ag.resumed, ag.closed, len(s.members))
 	}
-	last, err := newestSessionTurn(ctx, st, ch.ID, "architect", "codex")
+	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, "codex")
 	if err != nil || last.SessionID != "thread-lead" {
 		t.Errorf("thread to resume = %q, %v, want thread-lead, not the wrap-up's thread-wrap", last.SessionID, err)
 	}
@@ -1309,8 +1388,8 @@ func TestNewestSessionTurn_MissingSessionOnAWrapTurnResets(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	for _, turn := range []store.Turn{
-		{SpaceID: ch.ID, Role: "architect", Backend: "claude", SessionID: "sess-lead", WakeText: "go"},
-		{SpaceID: ch.ID, Role: "architect", Backend: "claude", Status: "failed", Error: "No conversation found with session ID: sess-lead"},
+		{SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", SessionID: "sess-lead", WakeText: "go"},
+		{SpaceID: ch.ID, Role: "architect", BotID: testBotID(t, st, "architect"), Backend: "claude", Status: "failed", Error: "No conversation found with session ID: sess-lead"},
 	} {
 		created, err := st.CreateTurn(ctx, turn)
 		if err != nil {
@@ -1325,7 +1404,7 @@ func TestNewestSessionTurn_MissingSessionOnAWrapTurnResets(t *testing.T) {
 		}
 	}
 
-	last, err := newestSessionTurn(ctx, st, ch.ID, "architect", "claude")
+	last, err := newestSessionTurn(ctx, st, ch.ID, *testBotID(t, st, "architect"), "claude")
 	if err != nil || last.SessionID != "" {
 		t.Errorf("session to resume = %q, %v, want none", last.SessionID, err)
 	}
@@ -1493,7 +1572,7 @@ func TestSession_LockErrorStoresItsOwnReason(t *testing.T) {
 	}
 }
 
-func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
+func TestSession_CoordinatorUsesProfileProvider(t *testing.T) {
 	for _, tc := range []struct {
 		backend  string
 		provider bool
@@ -1509,12 +1588,12 @@ func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
 				t.Fatal(err)
 			}
 			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Provider: "work"}
-			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+			if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 				t.Fatal(err)
 			}
 			ch, err := st.CreateSpace(ctx, store.Space{
 				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-				Backend: tc.backend, Team: "core",
+				Team: "core",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -1530,9 +1609,7 @@ func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := ""
-			if tc.provider {
-				want = filepath.Join(dir, "claude")
-			}
+			want = filepath.Join(dir, "claude")
 			if ag.cfg.Bin != want {
 				t.Errorf("Bin on a %s Space = %q, want %q", tc.backend, ag.cfg.Bin, want)
 			}
@@ -1552,11 +1629,11 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 	}
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
 	architect := store.Role{Name: "architect", Backend: "claude", Provider: "work"}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1608,11 +1685,11 @@ func TestSession_RoleTheSpaceLacksStoresFailedTurn(t *testing.T) {
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
 	architect := store.Role{Name: "architect", Backend: "claude"}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1623,7 +1700,7 @@ func TestSession_RoleTheSpaceLacksStoresFailedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1658,12 +1735,12 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1720,7 +1797,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 		t.Errorf("turn = %q %q %+v, want failed, chat exited, %+v", got.Status, got.Error, got.Usage, want)
 	}
 	if !strings.Contains(got.Prompt, "You code.") || !strings.HasSuffix(got.Prompt, "build it") {
-		t.Errorf("prompt = %q, want the persona and the wake", got.Prompt)
+		t.Errorf("prompt = %q, want the description and the wake", got.Prompt)
 	}
 
 	if used, err := st.SpaceTokens(ctx, ch.ID); err != nil || used != 22 {
@@ -1808,5 +1885,77 @@ func TestSession_IdleLeadPostsBackgroundAnswer(t *testing.T) {
 	}
 	if n := len(msgs); n != 3 || msgs[2].Body != "ok" {
 		t.Errorf("messages after the second turn = %+v, want its reply \"ok\" as the third", msgs)
+	}
+}
+
+func TestSession_DirectBotUsesRecipientIDAfterRename(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	original := *testBotID(t, st, "architect")
+	bot, err := st.Bot(ctx, original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Name = "renamed"
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	replacement := *testBotID(t, st, "architect")
+	if _, err = st.AddSpaceMember(ctx, ch.ID, replacement); err != nil {
+		t.Fatal(err)
+	}
+	sender := *testBotID(t, st, "lead")
+	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{SpaceID: ch.ID, From: "lead", To: "architect", FromBotID: &sender, ToBotID: &original, Body: "private"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	sess, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err = sess.RunDirectBot(ctx, replacement, "private", req, discard); !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("wrong recipient = %v", err)
+	}
+	if ag.started {
+		t.Fatal("wrong recipient started")
+	}
+	if err = sess.RunDirectBot(ctx, original, "private", req, discard); err != nil {
+		t.Fatal(err)
+	}
+	directs, err := st.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(directs) != 2 || directs[1].FromBotID == nil || *directs[1].FromBotID != original || directs[1].From != "renamed" {
+		t.Fatalf("directs = %+v, %v", directs, err)
+	}
+}
+
+func TestSession_CoordinatorUsesEditedProfileOnReopen(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	id := *testBotID(t, st, "architect")
+	bot, err := st.Bot(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Backend = "codex"
+	bot.PermissionMode = "workspace-write"
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	var backend string
+	sess, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), func(b string) (agent.Agent, error) { backend = b; return ag, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if err = sess.Run(ctx, "hello", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if backend != "codex" || ag.cfg.PermissionMode != "workspace-write" {
+		t.Fatalf("backend = %q, permission = %q", backend, ag.cfg.PermissionMode)
 	}
 }

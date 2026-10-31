@@ -78,7 +78,7 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	ts.Close()
 	h1.Close()
 
@@ -131,7 +131,7 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	ts.Close()
 	h.Close()
 
@@ -183,7 +183,7 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
 	if status, body := do(t, http.MethodPost, ts.URL+"/spaces",
-		`{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`); status != 201 {
+		`{"projectId":1,"workItemId":1,"name":"main"}`); status != 201 {
 		t.Fatalf("create Space = %d %s", status, body)
 	}
 
@@ -282,7 +282,7 @@ func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 		t.Fatalf("work item github stored with no Space yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
 	}
 
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	h.s.pollGitHub(context.Background())
 	msgs, err := st.Messages(context.Background(), 1, 0)
 	if err != nil {
@@ -320,7 +320,7 @@ func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -377,7 +377,7 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -434,7 +434,7 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -484,7 +484,7 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 			do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
+			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 			binDir := t.TempDir()
 			writeFakeGh(t, binDir, repo)
@@ -564,7 +564,7 @@ func ghWorkItemSetup(t *testing.T, url, team string) string {
 	do(t, http.MethodPost, url+"/work-items", `{"projectId":1,"title":"Demo"}`)
 	do(t, http.MethodPost, url+"/work-items/1/worktree", "")
 	do(t, http.MethodPost, url+"/spaces",
-		`{"projectId":1,"workItemId":1,"name":"main","team":"`+team+`","backend":"claude"}`)
+		`{"projectId":1,"workItemId":1,"name":"main","team":"`+team+`"}`)
 	return repo
 }
 
@@ -572,7 +572,7 @@ const _ghFailedCheck = `{"number":12,"url":"https://github.com/x/y/pull/12","sta
 	`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",` +
 	`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/9/job/9"}]}`
 
-func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
+func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -580,7 +580,7 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -594,6 +594,19 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	coordinatorID := *testServerBot(t, st, "lead")
+	coordinator, err := st.Bot(ctx, coordinatorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator.Name = "Maya"
+	if _, err = st.UpdateBot(ctx, coordinator); err != nil {
+		t.Fatal(err)
+	}
+	replacement := *testServerBot(t, st, "lead")
+	if _, err = st.AddSpaceMember(ctx, 1, replacement); err != nil {
+		t.Fatal(err)
+	}
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -609,8 +622,8 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	setGhResponse(t, respFile, _ghFailedCheck)
 	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
-	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"developer","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"Maya","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"Maya","status":"done"}`)
 
 	fake.mu.Lock()
 	texts := append([]string(nil), fake.ran...)
@@ -675,7 +688,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -729,8 +742,8 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 	// Drain both turns so the wake's own chain, started once the log fetch returns, does not
 	// race the test's cleanup.
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done"}`, `turn {"role":"developer","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+		`turn {"role":"lead","status":"done"}`, `turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 }
 
 // TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy covers a wake that cannot run because
@@ -744,7 +757,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -804,8 +817,8 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 
 	h.s.pollGitHub(ctx)
-	sub.want(t, `turn {"role":"developer","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"developer","status":"done"}`)
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`)
 
 	fake.mu.Lock()
 	ran = len(fake.ran)
@@ -827,7 +840,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	}
 }
 
-func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
+func TestPollGitHub_SoloTeamFailedCheckWakesCoordinator(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -835,7 +848,9 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	dataDir := t.TempDir()
-	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
+	fake := &fakeSession{st: st}
+	h := newHandler(st, testMemory(t, st), dataDir, space.NewTrees(dataDir), func(_ context.Context, id int64) (session, error) { fake.spaceID.Store(id); return fake, nil })
+	t.Cleanup(h.Close)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
@@ -847,7 +862,9 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	t.Setenv("GH_FAKE_RESPONSE", respFile)
 	setGhResponse(t, respFile, _ghFailedCheck)
 
+	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
+	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	msgs, err := st.Messages(ctx, 1, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -860,7 +877,7 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(turns) != 0 {
-		t.Fatalf("turns = %+v, want none: a solo team has no developer to wake", turns)
+		t.Fatalf("fake session should not create turns: %+v", turns)
 	}
 }
 
@@ -874,7 +891,7 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -908,8 +925,8 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 
 	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
-	sub.want(t, _idleFrame, "note {}", "note {}", "note {}", `turn {"role":"developer","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+	sub.want(t, _idleFrame, "note {}", "note {}", "note {}", `turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 
 	fake.mu.Lock()
 	texts := append([]string(nil), fake.ran...)
@@ -960,7 +977,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude", Write: true},
 	}}); err != nil {
@@ -996,8 +1013,8 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		if run == 1 {
 			want = []string{"note {}", "note {}"} // the PR note, then the check note
 		}
-		want = append(want, `turn {"role":"developer","status":"running"}`,
-			`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+		want = append(want, `turn {"role":"lead","status":"running"}`,
+			`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 		sub.want(t, want...)
 	}
 	fake.mu.Lock()

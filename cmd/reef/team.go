@@ -44,13 +44,13 @@ func teamApply(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("read team file: %w", err)
 	}
-	var t store.Team
+	var spec store.TeamSpec
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&t); err != nil {
+	if err := dec.Decode(&spec); err != nil {
 		return fmt.Errorf("parse %s: %w", pos[0], err)
 	}
-	t, err = st.ApplyTeam(ctx, t)
+	t, err := st.ApplyTeam(ctx, spec)
 	if err != nil {
 		return err
 	}

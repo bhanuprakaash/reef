@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useTeammates } from '@/lib/api/get-teammates';
+import { useBots } from '@/lib/api/get-bots';
 import { useAddMember } from '@/modules/teams/api/add-member';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import type { Role } from '@/types/api';
@@ -11,12 +11,10 @@ type Props = { team: string; members: Role[]; onAdded: (role: Role) => void };
 
 export function AddMemberRow({ team, members, onAdded }: Props) {
   const [open, setOpen] = useState(false);
-  const teammates = useTeammates();
+  const bots = useBots();
   const add = useAddMember();
   const close = () => setOpen(false);
-  const available = (teammates.data ?? []).filter(
-    (t) => !members.some((m) => m.teammateId === t.id),
-  );
+  const available = (bots.data ?? []).filter((t) => !members.some((m) => m.botId === t.id));
 
   return (
     <>
@@ -25,9 +23,9 @@ export function AddMemberRow({ team, members, onAdded }: Props) {
         onClick={() => setOpen(true)}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-faint text-sm text-soft outline-none hover:bg-card focus-visible:ring-3 focus-visible:ring-ring"
       >
-        <span aria-hidden="true">+</span> Add a Teammate
+        <span aria-hidden="true">+</span> Add a Bot
       </button>
-      <Dialog open={open} onClose={close} title="Add a Teammate">
+      <Dialog open={open} onClose={close} title="Add a Bot">
         {open && (
           <div className="space-y-1.5">
             {available.map((t) => (
@@ -37,7 +35,7 @@ export function AddMemberRow({ team, members, onAdded }: Props) {
                 disabled={add.isPending}
                 onClick={() =>
                   add.mutate(
-                    { team, teammateId: t.id },
+                    { team, botId: t.id },
                     {
                       onSuccess: (role) => {
                         onAdded(role);
@@ -55,9 +53,9 @@ export function AddMemberRow({ team, members, onAdded }: Props) {
             ))}
             {available.length === 0 && (
               <p className="text-sm text-muted">
-                Every teammate is in this team. Create more on the{' '}
-                <Link to="/teammates" className="underline">
-                  Teammates page
+                Every bot is in this team. Create more on the{' '}
+                <Link to="/bots" className="underline">
+                  Bots page
                 </Link>
                 .
               </p>
