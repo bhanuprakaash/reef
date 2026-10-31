@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate, guidance };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate, guidance, 'guidance-share': guidanceShare };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -4513,6 +4513,36 @@ async function guidance() {
   const turns = turnsOf();
   check(turns === '2|0,1' || turns === '2|0,2', 'the guidance ran as its own turn after the first one', turns);
   await shot('guidance-delivered');
+}
+
+async function guidanceShare() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  await addProject();
+  const project = (await getJson('/projects')).at(-1);
+  const a = (await sendJson('POST', '/bots', { name: `ana-${suffix}`, backend: 'claude' })).body;
+  const b = (await sendJson('POST', '/bots', { name: `ben-${suffix}`, backend: 'claude' })).body;
+  const room = (await sendJson('POST', '/spaces', { projectId: project.id, name: `room-${suffix}`, botIds: [a.id, b.id], coordinatorBotId: a.id })).body;
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: 'Output the numbers from 1 to 600, one per line, no tools.' });
+  const g = (await sendJson('POST', `/spaces/${room.id}/bots/${a.id}/guidance`, { body: 'Reply with one word.', key: `k-${suffix}` })).body;
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: `@${b.name} Say ok in one word. Use no tools.` });
+  const turnsOf = () => sql(`select group_concat(bot_id) from (select bot_id from turn where space_id=${room.id} and status='done' order by id)`);
+  for (let i = 0; i < 240 && turnsOf() !== `${a.id},${a.id},${b.id}`; i++) await page.waitForTimeout(250);
+  check(turnsOf() === `${a.id},${a.id},${b.id}`, 'the busy Bot finished, then its guidance ran, then the waiting Bot', turnsOf());
+  const notice = `User guidance (to ${a.name}, message ${g.request.originMessageId}): Reply with one word.`;
+  const seen = sql(`select count(*) from turn where space_id=${room.id} and bot_id=${b.id} and instr(wake_text, '${notice}') > 0`);
+  check(seen === '1', 'the waiting Bot got the attributed guidance in its wake', seen);
+  await sendJson('POST', `/spaces/${room.id}/send`, { text: `@${b.name} Say fine in one word. Use no tools.` });
+  for (let i = 0; i < 80 && sql(`select count(*) from turn where space_id=${room.id} and bot_id=${b.id} and status='done'`) !== '2'; i++) await page.waitForTimeout(250);
+  const again = sql(`select count(*) from turn where space_id=${room.id} and bot_id=${b.id} and instr(wake_text, 'User guidance') > 0`);
+  check(again === '1', 'the guidance is not repeated on its next wake', again);
+  const notes = sql(`select count(*) from message where space_id=${room.id} and exchange_id=${g.request.id}`);
+  check(notes === '1', 'the Space holds one message linking the guidance', notes);
+  await page.goto(`${base}/spaces/${room.id}`);
+  const linked = main.getByText(`To ${a.name}: Reply with one word.`).first();
+  await linked.waitFor();
+  await linked.scrollIntoViewIfNeeded();
+  await shot('guidance-share');
 }
 
 try {

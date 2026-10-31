@@ -119,6 +119,7 @@ var _scenarios = []scenario{
 	{"rollback-hello", "", pat(`^Say hello\. Answer in one or two sentences, use no tools\.\s*$`)},
 	{"rollback-files-changed", "", pat(`Did anything change in the files since your last answer`)},
 	{"short-answer", "", pat(`Answer in one or two sentences, use no tools\.\s*$`)},
+	{"ack-heard", "", pat(`^\S+ wrote: (ack\s*$|1 2 3 4 5 6 7 8 9 10 )`)},
 }
 
 // matchScenario returns the name of the first scenario whose role fits role and whose

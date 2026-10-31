@@ -67,6 +67,43 @@ func TestGuidanceRunsAfterTheCurrentTurnAndBeforeWaitingHandoffs(t *testing.T) {
 	}
 }
 
+func TestGuidanceRunsBeforeAnotherBotsQueuedHandoff(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	env.teamSpace(t,
+		store.Role{Name: "lead", Lead: true, Backend: "claude"},
+		store.Role{Name: "architect", Backend: "claude"},
+		store.Role{Name: "dev", Backend: "claude"})
+	handoff := func(key string) store.DirectMessage {
+		origin := int64(1)
+		dm, _, err := env.st.CreateExchange(ctx, store.DirectMessage{
+			SpaceID: 2, OriginSpaceID: &origin, From: "lead", To: "dev",
+			FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "dev"),
+			Body: "build " + key, RequestKey: &key,
+		}, "Asked dev: build "+key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := env.h.s.deliverExchange(ctx, 2, dm.ID); err != nil {
+			t.Fatal(err)
+		}
+		return dm
+	}
+	env.sendTo(t, 2, "go block")
+	<-env.fake.started
+	build := handoff("one")
+	env.guide(t, "architect", "k1", "use sessions")
+	env.fake.release <- struct{}{}
+	env.waitState(t, build.ID, store.DirectAnswered)
+	env.waitIdle(t, 2)
+
+	ran := env.ranTexts()
+	if len(ran) < 3 || !strings.HasSuffix(ran[0], "go block") || !strings.HasPrefix(ran[1], "Guidance from the user") ||
+		!strings.Contains(ran[2], "build one") {
+		t.Errorf("turns ran %q, want the message, the guidance, then the dev handoff", ran)
+	}
+}
+
 func TestGuidanceWaitsWhileThePausedSpaceStaysPaused(t *testing.T) {
 	ctx := context.Background()
 	env := exchangeEnv(t)

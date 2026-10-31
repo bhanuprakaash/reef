@@ -1118,6 +1118,15 @@ turn starts. Ordinary user messages keep their order. A paused Space keeps guida
 it first. `POST /spaces/{id}/stop` is separate: it stops the running turn and fails waiting
 exchanges as it does for any.
 
+The `To <Bot>: <text>` message is the Space's record that user guidance happened: it links the
+exchange, whose own turn holds the detail, and nothing else is copied into the conversation. Every
+other member of the Space also gets the guidance, once: the next turn it starts after the guidance
+turn started, whatever woke it, begins with `User guidance (to <Bot>, message <id>): <text>`.
+Wakes already queued behind the guidance therefore start after it and carry it. A turn already
+running when the guidance arrives is not changed and is never described as corrected. An
+instruction a Bot sends with `send_to_space` is also kind `guidance`, but a Bot wrote it: it
+queues as a Bot handoff and is not shared this way.
+
 ### Space references
 
 A user message can refer to a Space with the token `#[Name](space:ID)`. The composer writes it
