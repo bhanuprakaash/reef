@@ -1,14 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { api } from '@/lib/api-client';
 import type { Message } from '@/types/api';
 
 export const MESSAGE_PAGE = 50;
-
-export const messagesQuery = (spaceId: number) => ({
-  queryKey: ['messages', spaceId],
-  queryFn: () => api<Message[]>(`/messages?space=${spaceId}&limit=${MESSAGE_PAGE}`),
-});
 
 export function mergeMessages(earlier: Message[], newest: Message[]) {
   const byId = new Map([...earlier, ...newest].map((m) => [m.id, m]));
@@ -16,41 +12,65 @@ export function mergeMessages(earlier: Message[], newest: Message[]) {
   return all.filter((m) => m.parentId === null || byId.has(m.parentId));
 }
 
-// The newest page is the live query, refetched whenever a turn streams or ends. Earlier pages are
-// fetched once on demand, together with the newest page as it was then, and merged by id, so a
-// refetch that slides the newest window never repeats, drops or reorders messages.
-export function useMessages(spaceId: number) {
-  const query = useQuery(messagesQuery(spaceId));
-  const [earlier, setEarlier] = useState<Message[]>([]);
-  const [atStart, setAtStart] = useState(false);
-  const [loadingEarlier, setLoadingEarlier] = useState(false);
-  const [earlierError, setEarlierError] = useState<Error>();
-
-  const loaded = useMemo(() => mergeMessages(earlier, query.data ?? []), [earlier, query.data]);
-
-  async function loadEarlier() {
-    const before = Math.min(...[...earlier, ...(query.data ?? [])].map((m) => m.id));
-    setLoadingEarlier(true);
-    setEarlierError(undefined);
-    try {
-      const page = await api<Message[]>(
-        `/messages?space=${spaceId}&limit=${MESSAGE_PAGE}&before=${before}`,
-      );
-      setEarlier((prev) => [...page, ...prev, ...(query.data ?? [])]);
-      if (page.length < MESSAGE_PAGE) setAtStart(true);
-    } catch (e) {
-      setEarlierError(e as Error);
-    } finally {
-      setLoadingEarlier(false);
+// The first fetch is the newest page. Each refetch keeps what is loaded below its newest page and
+// replaces the rest, so streaming never slides the window and loaded earlier pages stay.
+export const messagesQuery = (queryClient: QueryClient, spaceId: number) => ({
+  queryKey: ['messages', spaceId],
+  queryFn: async () => {
+    const have = queryClient.getQueryData<Message[]>(['messages', spaceId]) ?? [];
+    const from = (have.at(-MESSAGE_PAGE) ?? have[0])?.id;
+    if (from === undefined) {
+      return api<Message[]>(`/messages?space=${spaceId}&limit=${MESSAGE_PAGE}`);
     }
-  }
+    const tail = await api<Message[]>(`/messages?space=${spaceId}&after=${from - 1}`);
+    const now = queryClient.getQueryData<Message[]>(['messages', spaceId]) ?? [];
+    return [...now.filter((m) => m.id < from), ...tail];
+  },
+});
+
+// The newest message below id + 1 is the message with that id.
+const rootQuery = (spaceId: number, id: number) => ({
+  queryKey: ['message-root', spaceId, id],
+  queryFn: async () =>
+    (await api<Message[]>(`/messages?space=${spaceId}&limit=1&before=${id + 1}`))[0],
+  staleTime: Infinity,
+});
+
+export function useMessages(spaceId: number) {
+  const queryClient = useQueryClient();
+  const query = useQuery(messagesQuery(queryClient, spaceId));
+  const [atStart, setAtStart] = useState(false);
+  const loaded = query.data;
+
+  const earlier = useMutation({
+    mutationFn: async () => {
+      const page = await api<Message[]>(
+        `/messages?space=${spaceId}&limit=${MESSAGE_PAGE}&before=${loaded![0].id}`,
+      );
+      queryClient.setQueryData<Message[]>(['messages', spaceId], (have = []) => [...page, ...have]);
+      if (page.length < MESSAGE_PAGE) setAtStart(true);
+    },
+  });
+
+  const ids = new Set(loaded?.map((m) => m.id));
+  const missing = [
+    ...new Set(
+      loaded?.flatMap((m) => (m.parentId !== null && !ids.has(m.parentId) ? [m.parentId] : [])),
+    ),
+  ];
+  const roots = useQueries({ queries: missing.map((id) => rootQuery(spaceId, id)) });
 
   return {
     ...query,
-    data: query.isSuccess ? loaded : undefined,
-    hasEarlier: !atStart && (query.data?.length ?? 0) >= MESSAGE_PAGE,
-    loadingEarlier,
-    earlierError,
-    loadEarlier,
+    data:
+      loaded &&
+      mergeMessages(
+        roots.flatMap((r) => (r.data ? [r.data] : [])),
+        loaded,
+      ),
+    hasEarlier: !atStart && (loaded?.length ?? 0) >= MESSAGE_PAGE,
+    loadingEarlier: earlier.isPending,
+    earlierError: earlier.error ?? undefined,
+    loadEarlier: earlier.mutate,
   };
 }

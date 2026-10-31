@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { messagesQuery } from '@/lib/api/get-messages';
+import { api } from '@/lib/api-client';
 import { spacesQuery } from '@/lib/api/get-spaces';
 import { sendMessage } from '@/lib/api/send-message';
 import { teamsQuery } from '@/lib/api/get-teams';
@@ -45,7 +45,10 @@ export function useSendReview(workItemId: number) {
         teams,
       );
       if (!space) throw new Error('no Space with a developer role on this Work item');
-      const messages = await queryClient.fetchQuery(messagesQuery(space.id));
+      const messages = await queryClient.fetchQuery({
+        queryKey: ['messages', space.id, 'all'],
+        queryFn: () => api<Message[]>(`/messages?space=${space.id}`),
+      });
       const parent = pickRoot(messages);
       const text = reviewText(comments);
       await sendMessage(space.id, parent ? text : `@developer\n${text}`, parent);

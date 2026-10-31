@@ -209,7 +209,7 @@ export function SpaceView({
                     loading={messages.loadingEarlier}
                     onClick={() => {
                       hold();
-                      void messages.loadEarlier();
+                      messages.loadEarlier();
                     }}
                   >
                     Load earlier messages
