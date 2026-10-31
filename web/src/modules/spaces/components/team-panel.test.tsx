@@ -84,6 +84,13 @@ describe('TeamPanel', () => {
     expect(markup.match(/>Remove</g)).toHaveLength(2);
   });
 
+  it('shows a pending removal from the Space data, not from the click', () => {
+    const markup = render(role, { ...role, botId: 2, name: 'mira', lead: false, leaving: true });
+
+    expect(markup).toContain('Leaves after its current turn.');
+    expect(markup.match(/>Remove</g)).toHaveLength(1);
+  });
+
   it('shows no hint when the session matches the Bot', () => {
     const markup = render({ ...role, session: { ...role.session!, stale: false } });
 

@@ -7,12 +7,10 @@ export function useRemoveMember(spaceId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ botId, coordinator }: RemoveMemberInput) => {
-      const res = await api<{ pending: boolean } | undefined>(
-        `/spaces/${spaceId}/members/${botId}`,
-        { method: 'DELETE', body: JSON.stringify(coordinator ? { coordinator } : {}) },
-      );
-      // The api client returns no body for 202, the reply of a removal that waits for the turn.
-      return { botId, pending: res === undefined };
+      await api(`/spaces/${spaceId}/members/${botId}`, {
+        method: 'DELETE',
+        body: JSON.stringify(coordinator ? { coordinator } : {}),
+      });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['spaces', spaceId] }),
   });

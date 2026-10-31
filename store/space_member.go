@@ -20,6 +20,17 @@ func (s *Store) SpaceTeam(ctx context.Context, id int64) (Team, error) {
 	if err != nil {
 		return Team{}, fmt.Errorf("read members of Space %d: %w", id, err)
 	}
+	pending, err := s.LeavingMembers(ctx, id)
+	if err != nil {
+		return Team{}, err
+	}
+	for _, p := range pending {
+		for i := range roles {
+			if roles[i].BotID == p.BotID {
+				roles[i].Leaving = true
+			}
+		}
+	}
 	return Team{Name: c.Team, Roles: roles}, nil
 }
 

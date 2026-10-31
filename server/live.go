@@ -117,8 +117,6 @@ type live struct {
 	shed []wake
 	// drop is the revoked Bots whose agent closes before the next turn, as a turn is running.
 	drop []int64
-	// leave is the Bots that leave the Space when the turn that is running ends.
-	leave []leaving
 	// turnBot and turnCancel are the Bot of the turn that is running and the cancel of that turn
 	// alone; revoked is set when that turn was cancelled because its Bot was revoked, and the
 	// chain goes on.
@@ -175,6 +173,8 @@ type chain struct {
 	// unpause is set when start clears the Space's pause and sets its budget to budget.
 	unpause bool
 	budget  int64
+	// settling marks the chain that applies pending removals, which does not settle again.
+	settling bool
 }
 
 // directFail is a wake a chain ends without running, whose sender is told that delivery
@@ -354,7 +354,7 @@ func (s *server) dropIdle(id int64, l *live, deleted bool) {
 	if s.lives[id] != l || l.state != _idle || l.sess != nil {
 		return
 	}
-	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil && len(l.drop) == 0 && len(l.leave) == 0) {
+	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil && len(l.drop) == 0) {
 		delete(s.lives, id)
 	}
 }
@@ -734,6 +734,12 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil && wakeErr == nil {
 		held, err = s.withWaitingExchanges(r.Context(), id, held, false)
+		if err == nil {
+			var team store.Team
+			if team, err = s.st.SpaceTeam(r.Context(), id); err == nil {
+				held = keepMembers(held, team)
+			}
+		}
 	}
 	if wakeErr != nil {
 		for _, h := range holds {
@@ -1220,6 +1226,9 @@ func (c *chain) release(err error) error {
 		close(c.done)
 		close(c.ready)
 		c.s.dropIdle(c.id, c.l, false)
+		if !c.settling {
+			c.s.settleLeaving(c.ctx, c.id)
+		}
 	} else {
 		close(c.done)
 	}
@@ -1453,6 +1462,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.mu.Unlock()
 		c.finalize(mine, directFailed, holds)
 		close(c.done)
+		s.settleLeaving(c.ctx, c.id)
 	}
 	for {
 		var w wake
@@ -1520,11 +1530,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 				}
 			}
 		}
-		leave := l.leave
-		l.leave = nil
 		l.mu.Unlock()
-		if len(leave) > 0 {
-			s.applyLeaving(c.ctx, c.id, sess, leave)
+		if err := s.applyLeaving(c.ctx, c.id, sess); err != nil {
+			log.Printf("apply removals in Space %d: %v", c.id, err)
 		}
 		team, teamErr := s.st.SpaceTeam(context.WithoutCancel(c.ctx), c.id)
 		l.mu.Lock()

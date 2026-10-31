@@ -100,6 +100,54 @@ func TestRemoveMember_BusyBotFinishesItsTurnThenPendingRequestsAreCancelled(t *t
 	env.waitIdle(t, 2)
 }
 
+func TestRemoveMember_RemovalDuringAClaimIsStoredAndAppliedWhenTheClaimReleases(t *testing.T) {
+	ctx := context.Background()
+	env := exchangeEnv(t)
+	architect := *testServerBot(t, env.st, "architect")
+	c, _, err := env.h.s.claim(ctx, 2, _noTurn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := env.removeMember(t, 2, architect, ""); status != http.StatusAccepted || body != `{"pending":true}` {
+		t.Fatalf("remove during a claim = %d %q, want 202 pending", status, body)
+	}
+	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/members", ""); status != 200 ||
+		!strings.Contains(body, `"name":"architect","lead":false,"leaving":true`) {
+		t.Errorf("members = %d %s, want architect leaving", status, body)
+	}
+	if err := c.release(nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := env.roster(t, 2); !slices.Equal(got, []string{"lead*"}) {
+		t.Errorf("roster after the claim = %v, want architect gone", got)
+	}
+}
+
+func TestRemoveMember_ContinueRunsNoWakeForARemovedBot(t *testing.T) {
+	ctx := context.Background()
+	env := exchangeEnv(t)
+	architect := testServerBot(t, env.st, "architect")
+	if err := env.st.PauseSpace(ctx, 2, "held"); err != nil {
+		t.Fatal(err)
+	}
+	s := env.h.s
+	s.mu.Lock()
+	l := s.entryLocked(2)
+	s.mu.Unlock()
+	l.mu.Lock()
+	l.held = []wake{{botID: architect, role: "architect", text: "review"}}
+	l.mu.Unlock()
+	if status, body := env.removeMember(t, 2, *architect, ""); status != http.StatusOK {
+		t.Fatalf("remove architect = %d %s, want 200", status, body)
+	}
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/continue", ""); status != http.StatusNoContent {
+		t.Fatalf("continue = %d %s, want 204", status, body)
+	}
+	if n := env.turnCount(t, 2); n != 0 {
+		t.Errorf("turns after continue = %d, want none for the removed Bot", n)
+	}
+}
+
 func TestRemoveMember_CoordinatorAndLastBotNeedAReplacement(t *testing.T) {
 	env := exchangeEnv(t)
 	lead, architect := *testServerBot(t, env.st, "lead"), *testServerBot(t, env.st, "architect")

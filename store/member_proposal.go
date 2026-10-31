@@ -37,8 +37,8 @@ func (s *Store) CreateMemberProposal(
 	if err != nil {
 		return MemberProposal{}, err
 	}
-	if c.Kind == KindConversation {
-		return MemberProposal{}, fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
+	if c.Kind == KindConversation || c.Kind == KindConsultation {
+		return MemberProposal{}, fmt.Errorf("%w: Space %d is a %s with one Bot", ErrInvalid, id, c.Kind)
 	}
 	if strings.TrimSpace(reason) == "" {
 		return MemberProposal{}, fmt.Errorf("%w: a member proposal needs a reason", ErrInvalid)

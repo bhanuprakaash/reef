@@ -1,0 +1,2 @@
+ALTER TABLE space_member ADD COLUMN leaving INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE space_member ADD COLUMN leaving_coordinator INTEGER NOT NULL DEFAULT 0;

@@ -12,13 +12,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// leaving is a Bot that leaves its Space once the turn that is running ends, and the member that
-// leads in its place when it led.
-type leaving struct {
-	botID       int64
-	coordinator int64
-}
-
 func (s *server) memberRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /spaces/{id}/members/{botId}", s.removeSpaceMember)
 	mux.HandleFunc("/spaces/{id}/members/{botId}", methodNotAllowed)
@@ -126,7 +119,7 @@ func (s *server) removeSpaceMember(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	pending, err := s.dropMember(r.Context(), id, leaving{botID, coordinator})
+	pending, err := s.dropMember(r.Context(), id, store.PendingRemoval{SpaceID: id, BotID: botID, Coordinator: coordinator})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -138,66 +131,85 @@ func (s *server) removeSpaceMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"pending": false})
 }
 
-// dropMember removes the Bot at once when the Space is idle, or queues the removal for the end
-// of the turn that is running, which it reports as pending.
-func (s *server) dropMember(ctx context.Context, id int64, m leaving) (pending bool, err error) {
-	if s.queueLeaving(id, m) {
-		return true, nil
+// dropMember marks the Bot as leaving, then removes it at once when the Space is idle. When a
+// chain holds the Space it reports the removal as pending: that chain applies it when it ends.
+func (s *server) dropMember(ctx context.Context, id int64, m store.PendingRemoval) (pending bool, err error) {
+	if err := s.st.MarkMemberLeaving(ctx, id, m.BotID, m.Coordinator); err != nil {
+		return false, err
 	}
 	c, _, err := s.claim(ctx, id, _noTurn)
-	if errors.Is(err, store.ErrConflict) && s.queueLeaving(id, m) {
+	if errors.Is(err, store.ErrConflict) {
 		return true, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	err = s.st.RemoveSpaceMember(ctx, id, m.botID, m.coordinator)
 	c.l.mu.Lock()
 	sess := c.l.sess
 	c.l.mu.Unlock()
-	if err == nil && sess != nil {
-		if derr := sess.Drop(m.botID); derr != nil {
-			log.Printf("close removed Bot %d of Space %d: %v", m.botID, id, derr)
-		}
+	err = s.applyLeaving(ctx, id, sess)
+	if team, terr := s.st.SpaceTeam(ctx, id); terr == nil {
+		c.l.mu.Lock()
+		c.l.held, c.l.queued = keepMembers(c.l.held, team), keepMembers(c.l.queued, team)
+		c.l.mu.Unlock()
 	}
 	if err = c.release(err); err != nil {
 		return false, err
 	}
-	s.notify(id, "direct")
 	return false, nil
 }
 
-// queueLeaving queues m for the end of the running turn of Space id, and reports false when the
-// Space is idle.
-func (s *server) queueLeaving(id int64, m leaving) bool {
-	l := s.lookup(id)
-	if l == nil {
-		return false
+// settleLeaving applies the removals still pending in Space id when a chain ends. When another
+// chain already holds the Space, that chain applies them when it ends.
+func (s *server) settleLeaving(ctx context.Context, id int64) {
+	ctx = context.WithoutCancel(ctx)
+	pending, err := s.st.LeavingMembers(ctx, id)
+	if err != nil {
+		log.Printf("list leaving members of Space %d: %v", id, err)
+		return
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.state == _idle {
-		return false
+	if len(pending) == 0 {
+		return
 	}
-	l.leave = append(l.leave, m)
-	return true
+	c, _, err := s.claim(ctx, id, _noTurn)
+	if err != nil {
+		return
+	}
+	c.l.mu.Lock()
+	sess := c.l.sess
+	c.l.mu.Unlock()
+	c.settling = true
+	_ = s.applyLeaving(ctx, id, sess)
+	_ = c.release(nil)
 }
 
-// applyLeaving removes the Bots that waited for the turn that ended. A removal that no longer
-// holds gets a notice in the Space and leaves the Bot a member.
-func (s *server) applyLeaving(ctx context.Context, id int64, sess session, leave []leaving) {
+// applyLeaving removes the Bots marked as leaving Space id and closes their agents in sess, when
+// the Space has one. A removal that no longer holds gets a notice in the Space and leaves the Bot
+// a member; the errors are returned.
+func (s *server) applyLeaving(ctx context.Context, id int64, sess session) error {
 	ctx = context.WithoutCancel(ctx)
-	for _, m := range leave {
-		err := s.st.RemoveSpaceMember(ctx, id, m.botID, m.coordinator)
+	pending, err := s.st.LeavingMembers(ctx, id)
+	if err != nil {
+		return err
+	}
+	if len(pending) == 0 {
+		return nil
+	}
+	var errs []error
+	for _, m := range pending {
+		err := s.st.ApplyMemberRemoval(ctx, m)
 		if err == nil {
-			if derr := sess.Drop(m.botID); derr != nil {
-				log.Printf("close removed Bot %d of Space %d: %v", m.botID, id, derr)
+			if sess != nil {
+				if derr := sess.Drop(m.BotID); derr != nil {
+					log.Printf("close removed Bot %d of Space %d: %v", m.BotID, id, derr)
+				}
 			}
 			continue
 		}
-		log.Printf("remove Bot %d from Space %d: %v", m.botID, id, err)
-		name := fmt.Sprintf("Bot %d", m.botID)
-		if bot, berr := s.st.Bot(ctx, m.botID); berr == nil {
+		log.Printf("remove Bot %d from Space %d: %v", m.BotID, id, err)
+		errs = append(errs, err)
+		name := fmt.Sprintf("Bot %d", m.BotID)
+		if bot, berr := s.st.Bot(ctx, m.BotID); berr == nil {
 			name = bot.Name
 		}
 		if _, err := s.st.CreateMessage(ctx, store.Message{
@@ -207,12 +219,15 @@ func (s *server) applyLeaving(ctx context.Context, id int64, sess session, leave
 		}
 	}
 	s.notify(id, "direct")
+	return errors.Join(errs...)
 }
 
-// keepMembers drops from ws the wakes of Bots that are not in team.
+// keepMembers drops from ws the wakes of Bots that are not in team or are leaving it.
 func keepMembers(ws []wake, team store.Team) []wake {
 	return slices.DeleteFunc(ws, func(w wake) bool {
-		return w.botID != nil && !slices.ContainsFunc(team.Roles, func(r store.Role) bool { return r.BotID == *w.botID })
+		return w.botID != nil && !slices.ContainsFunc(team.Roles, func(r store.Role) bool {
+			return r.BotID == *w.botID && !r.Leaving
+		})
 	})
 }
 

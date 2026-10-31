@@ -25,6 +25,7 @@ type roleView struct {
 	BotID          int64        `json:"botId,omitempty"`
 	Name           string       `json:"name"`
 	Lead           bool         `json:"lead"`
+	Leaving        bool         `json:"leaving,omitempty"`
 	Write          bool         `json:"write"`
 	Backend        string       `json:"backend"`
 	PermissionMode string       `json:"permissionMode"`
@@ -192,7 +193,7 @@ func viewTeam(t store.Team) teamView {
 
 func viewRole(r store.Role) roleView {
 	return roleView{
-		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
+		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Leaving: r.Leaving, Write: r.Write, Backend: r.Backend,
 		PermissionMode: r.PermissionMode, Description: r.Description, Skills: r.Skills, Face: r.Face,
 		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools,
 		Connections: connectionIDs(r.Connections),

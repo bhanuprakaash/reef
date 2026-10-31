@@ -170,7 +170,7 @@ export function TeamPanel({
                     Refresh
                   </Button>
                   {roles.length > 1 &&
-                    (remove.data?.pending && remove.data.botId === role.botId ? (
+                    (role.leaving ? (
                       <span className="self-center text-[12.5px] text-muted">
                         Leaves after its current turn.
                       </span>

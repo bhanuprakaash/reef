@@ -36,6 +36,15 @@ type BotChat struct {
 	LastActivity time.Time   `json:"lastActivity"`
 }
 
+// _involved is true for a Space the Bot, bound five times, is a member of, or a work item or
+// free Space it has a turn, a message or an exchange in, so the record of a Bot that left stays
+// readable. A chat or consultation belongs to its members alone.
+const _involved = "(EXISTS (SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = ?) " +
+	"OR (space.kind IN ('work_item', 'free') AND (" +
+	"EXISTS (SELECT 1 FROM turn WHERE space_id = space.id AND bot_id = ?) " +
+	"OR EXISTS (SELECT 1 FROM message WHERE space_id = space.id AND bot_id = ?) " +
+	"OR EXISTS (SELECT 1 FROM direct_message WHERE space_id = space.id AND (from_bot_id = ? OR to_bot_id = ?)))))"
+
 // _consultRequest is the request that began a consultation: the first with an origin chat.
 const _consultRequest = "(SELECT MIN(id) FROM direct_message WHERE space_id = space.id " +
 	"AND reply_to_id IS NULL AND origin_space_id IS NOT NULL AND space.kind = 'consultation')"
@@ -48,10 +57,9 @@ func (s *Store) BotChats(ctx context.Context, botID int64, p ConversationPage) (
 	if err != nil {
 		return nil, err
 	}
-	member := "EXISTS (SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = ?)"
-	where := " AND ((space.kind != 'consultation' AND " + member + ") OR " +
-		"(space.kind = 'consultation' AND (" + member + " OR req.from_bot_id = ?)))"
-	args := []any{botID, botID, botID}
+	where := " AND ((space.kind != 'consultation' AND " + _involved + ") OR " +
+		"(space.kind = 'consultation' AND (" + _involved + " OR req.from_bot_id = ?)))"
+	args := []any{botID, botID, botID, botID, botID, botID, botID, botID, botID, botID, botID}
 	if p.ProjectID != nil {
 		where += " AND EXISTS (SELECT 1 FROM space_project WHERE project_id = ? " +
 			"AND space_id IN (space.id, req.origin_space_id))"
@@ -69,6 +77,7 @@ func (s *Store) BotChats(ctx context.Context, botID int64, p ConversationPage) (
 		"SELECT space.id, space.kind, space.name, space.closed_at IS NOT NULL, "+_activity+", "+
 			"EXISTS (SELECT 1 FROM turn WHERE space_id = space.id AND status = 'running' "+
 			"AND (space.kind = 'consultation' OR bot_id = ?)), "+
+			"EXISTS (SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = ?), "+
 			"COALESCE((SELECT bot_id FROM space_member WHERE space_id = space.id AND lead = 1), 0), "+
 			"COALESCE((SELECT bot.name FROM space_member JOIN bot ON bot.id = bot_id "+
 			"WHERE space_id = space.id AND lead = 1), ''), "+
@@ -76,7 +85,7 @@ func (s *Store) BotChats(ctx context.Context, botID int64, p ConversationPage) (
 			"COALESCE(req.origin_space_id, 0), COALESCE((SELECT name FROM space WHERE id = req.origin_space_id), '') "+
 			"FROM space LEFT JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE space_id = space.id) "+
 			"LEFT JOIN direct_message req ON req.id = "+_consultRequest+" WHERE 1 = 1"+where+" ORDER BY "+order,
-		append([]any{botID}, args...)...)
+		append([]any{botID, botID}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("list Bot chats: %w", err)
 	}
@@ -84,7 +93,8 @@ func (s *Store) BotChats(ctx context.Context, botID int64, p ConversationPage) (
 		var c BotChat
 		var name, leadName, askerName, originName, last string
 		var leadID, askerID, originID int64
-		if err := r.Scan(&c.SpaceID, &c.Kind, &name, &c.Closed, &last, &c.Active,
+		var member bool
+		if err := r.Scan(&c.SpaceID, &c.Kind, &name, &c.Closed, &last, &c.Active, &member,
 			&leadID, &leadName, &askerID, &askerName, &originID, &originName); err != nil {
 			return BotChat{}, err
 		}
@@ -106,6 +116,9 @@ func (s *Store) BotChats(ctx context.Context, botID int64, p ConversationPage) (
 			}
 		default:
 			c.Kind, c.Label = ChatSpace, spaceLabel(bot.Name, name)
+			if !member {
+				c.Label += " (left)"
+			}
 		}
 		return c, nil
 	})
@@ -141,24 +154,30 @@ type BotActivity struct {
 	Turns     []ActivityTurn  `json:"turns"`
 }
 
-// BotActivity reads the activity of a member Bot in a Space. It writes nothing and needs no
-// workspace, so a closed Space reads like an open one. A Bot that is not a member is ErrNotFound.
+// BotActivity reads the activity of a Bot in a Space. It writes nothing and needs no
+// workspace, so a closed Space reads like an open one, and a Bot that left still reads. A Bot
+// with no membership, turn, message or exchange there is ErrNotFound.
 func (s *Store) BotActivity(ctx context.Context, spaceID, botID int64) (BotActivity, error) {
 	c, err := s.Space(ctx, spaceID)
 	if err != nil {
 		return BotActivity{}, err
 	}
 	var botName string
+	var member bool
 	err = s.db.QueryRowContext(ctx,
-		"SELECT bot.name FROM space_member JOIN bot ON bot.id = bot_id WHERE space_id = ? AND bot_id = ?",
-		spaceID, botID).Scan(&botName)
+		"SELECT bot.name, EXISTS (SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = bot.id) "+
+			"FROM space, bot WHERE space.id = ? AND bot.id = ? AND "+_involved,
+		spaceID, botID, botID, botID, botID, botID, botID).Scan(&botName, &member)
 	if errors.Is(err, sql.ErrNoRows) {
-		return BotActivity{}, fmt.Errorf("%w: bot %d is not a member of Space %d", ErrNotFound, botID, spaceID)
+		return BotActivity{}, fmt.Errorf("%w: bot %d has no activity in Space %d", ErrNotFound, botID, spaceID)
 	}
 	if err != nil {
 		return BotActivity{}, fmt.Errorf("read member: %w", err)
 	}
 	a := BotActivity{Space: c, BotID: botID, Label: spaceLabel(botName, c.Name), Turns: []ActivityTurn{}}
+	if !member {
+		a.Label += " (left)"
+	}
 	switch c.Kind {
 	case KindConversation:
 		a.Label = c.Name

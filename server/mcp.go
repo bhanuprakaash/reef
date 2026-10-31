@@ -328,12 +328,14 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"user's inbox; the user accepts or changes the selection before the Space is created. " +
 			"A proposal creates nothing and grants no access.",
 	}, m.proposeSpace)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name: "propose_member",
-		Description: "Propose adding another Bot to this Space. The user approves it in the Space " +
-			"before the Bot joins; a proposal adds nobody and grants no access. Handoffs to Bots " +
-			"already in the Space need no proposal.",
-	}, m.proposeMember)
+	if c, err := st.Space(context.Background(), tok.SpaceID); err != nil || c.Kind != store.KindConsultation {
+		mcp.AddTool(srv, &mcp.Tool{
+			Name: "propose_member",
+			Description: "Propose adding another Bot to this Space. The user approves it in the Space " +
+				"before the Bot joins; a proposal adds nobody and grants no access. Handoffs to Bots " +
+				"already in the Space need no proposal.",
+		}, m.proposeMember)
+	}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_skill",
 		Description: "Propose a new skill when the user asks you to draft one. It shows in this " +

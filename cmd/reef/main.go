@@ -142,6 +142,15 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
+	leaving, err := st.LeavingMembers(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("list pending removals: %w", err)
+	}
+	for _, p := range leaving {
+		if err := st.ApplyMemberRemoval(ctx, p); err != nil {
+			logger.Printf("remove Bot %d from Space %d: %v", p.BotID, p.SpaceID, err)
+		}
+	}
 	if err := st.PauseWaitingExchangeSpaces(ctx); err != nil {
 		return fmt.Errorf("pause Spaces with waiting exchanges: %w", err)
 	}

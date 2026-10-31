@@ -104,3 +104,53 @@ func (s *Store) RemoveSpaceMember(ctx context.Context, id, botID, coordinator in
 	}
 	return nil
 }
+
+// PendingRemoval is a Bot marked to leave Space SpaceID once the turn that is running ends, and
+// the member that leads in its place when it led.
+type PendingRemoval struct {
+	SpaceID     int64
+	BotID       int64
+	Coordinator int64
+}
+
+// MarkMemberLeaving records that the Bot leaves Space id when its running turn ends. The mark
+// survives a restart; ApplyMemberRemoval ends it.
+func (s *Store) MarkMemberLeaving(ctx context.Context, id, botID, coordinator int64) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE space_member SET leaving = 1, leaving_coordinator = ? WHERE space_id = ? AND bot_id = ?",
+		coordinator, id, botID)
+	if err != nil {
+		return fmt.Errorf("mark member leaving: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("%w: bot %d is not a member of Space %d", ErrNotFound, botID, id)
+	}
+	return nil
+}
+
+// LeavingMembers lists the removals still pending in Space id, or in every Space when id is 0.
+func (s *Store) LeavingMembers(ctx context.Context, id int64) ([]PendingRemoval, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT space_id, bot_id, leaving_coordinator FROM space_member "+
+			"WHERE leaving = 1 AND (? = 0 OR space_id = ?) ORDER BY id", id, id)
+	if err != nil {
+		return nil, fmt.Errorf("list leaving members: %w", err)
+	}
+	return scanAll(rows, func(r interface{ Scan(...any) error }) (p PendingRemoval, err error) {
+		return p, r.Scan(&p.SpaceID, &p.BotID, &p.Coordinator)
+	})
+}
+
+// ApplyMemberRemoval removes the Bot of a pending removal. A removal that no longer holds
+// leaves the Bot a member that is not leaving, and returns why.
+func (s *Store) ApplyMemberRemoval(ctx context.Context, p PendingRemoval) error {
+	err := s.RemoveSpaceMember(ctx, p.SpaceID, p.BotID, p.Coordinator)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		if _, cerr := s.db.ExecContext(ctx,
+			"UPDATE space_member SET leaving = 0, leaving_coordinator = 0 WHERE space_id = ? AND bot_id = ?",
+			p.SpaceID, p.BotID); cerr != nil {
+			return errors.Join(err, cerr)
+		}
+	}
+	return err
+}

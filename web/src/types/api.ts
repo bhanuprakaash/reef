@@ -211,6 +211,7 @@ export type Role = {
   botId: number;
   name: string;
   lead: boolean;
+  leaving?: boolean;
   write: boolean;
   backend: string;
   provider?: string;
