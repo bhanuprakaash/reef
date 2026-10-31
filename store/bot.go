@@ -7,25 +7,23 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/bhanuprakaash/reef/agent"
 )
 
 // Bot is one persistent agent and its configuration.
 type Bot struct {
-	ID             int64             `json:"id"`
-	Name           string            `json:"name"`
-	Description    string            `json:"description"`
-	Skills         []string          `json:"skills"`
-	Backend        string            `json:"backend"`
-	Model          string            `json:"model,omitempty"`
-	Provider       string            `json:"provider,omitempty"`
-	Face           string            `json:"face,omitempty"`
-	Colour         string            `json:"colour,omitempty"`
-	Tools          []string          `json:"tools"`
-	MCPServers     []agent.MCPServer `json:"mcpServers"`
-	Write          bool              `json:"write"`
-	PermissionMode string            `json:"permissionMode"`
+	ID             int64    `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Skills         []string `json:"skills"`
+	Backend        string   `json:"backend"`
+	Model          string   `json:"model,omitempty"`
+	Provider       string   `json:"provider,omitempty"`
+	Face           string   `json:"face,omitempty"`
+	Colour         string   `json:"colour,omitempty"`
+	Tools          []string `json:"tools"`
+	Connections    []int64  `json:"connections"`
+	Write          bool     `json:"write"`
+	PermissionMode string   `json:"permissionMode"`
 }
 
 type Membership struct {
@@ -33,12 +31,12 @@ type Membership struct {
 }
 
 const _botCols = "id, name, description, skills, backend, model, provider, face, colour, tools, " +
-	"mcp_servers, write, permission_mode"
+	"connections, write, permission_mode"
 
 func (t Bot) role() Role {
 	return Role{Name: t.Name, Write: t.Write, Backend: t.Backend, PermissionMode: t.PermissionMode,
 		Description: t.Description, Skills: t.Skills, Face: t.Face, Colour: t.Colour, Model: t.Model, Provider: t.Provider,
-		Tools: t.Tools, MCPServers: t.MCPServers}
+		Tools: t.Tools}
 }
 
 // CreateBot adds t, or fails with ErrConflict when the name is taken.
@@ -47,15 +45,15 @@ func (s *Store) CreateBot(ctx context.Context, t Bot) (Bot, error) {
 	if err != nil {
 		return Bot{}, err
 	}
-	skills, tools, servers, err := encodeLists(t.Skills, t.Tools, t.MCPServers)
+	skills, tools, connections, err := encodeLists(t.Skills, t.Tools, t.Connections)
 	if err != nil {
 		return Bot{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO bot (name, description, skills, backend, model, provider, face, colour, "+
-			"tools, mcp_servers, write, permission_mode) "+
+			"tools, connections, write, permission_mode) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		t.Name, t.Description, skills, t.Backend, t.Model, t.Provider, t.Face, t.Colour, tools, servers,
+		t.Name, t.Description, skills, t.Backend, t.Model, t.Provider, t.Face, t.Colour, tools, connections,
 		t.Write, t.PermissionMode)
 	if err != nil {
 		if isUnique(err) {
@@ -95,15 +93,15 @@ func (s *Store) UpdateBot(ctx context.Context, t Bot) (Bot, error) {
 	if err != nil {
 		return Bot{}, err
 	}
-	skills, tools, servers, err := encodeLists(t.Skills, t.Tools, t.MCPServers)
+	skills, tools, connections, err := encodeLists(t.Skills, t.Tools, t.Connections)
 	if err != nil {
 		return Bot{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE bot SET name = ?, description = ?, skills = ?, backend = ?, model = ?, provider = ?, "+
-			"face = ?, colour = ?, tools = ?, mcp_servers = ?, write = ?, permission_mode = ? "+
+			"face = ?, colour = ?, tools = ?, connections = ?, write = ?, permission_mode = ? "+
 			"WHERE id = ?",
-		t.Name, t.Description, skills, t.Backend, t.Model, t.Provider, t.Face, t.Colour, tools, servers,
+		t.Name, t.Description, skills, t.Backend, t.Model, t.Provider, t.Face, t.Colour, tools, connections,
 		t.Write, t.PermissionMode, t.ID)
 	if err != nil {
 		if isUnique(err) {
@@ -308,6 +306,9 @@ func (s *Store) checkBot(ctx context.Context, t Bot) (Bot, error) {
 		return Bot{}, err
 	}
 	t.Skills = skills
+	if err := s.checkConnections(ctx, t.Connections); err != nil {
+		return Bot{}, err
+	}
 	if _, err := s.RoleBin(ctx, t.role()); err != nil {
 		return Bot{}, err
 	}
@@ -315,7 +316,7 @@ func (s *Store) checkBot(ctx context.Context, t Bot) (Bot, error) {
 }
 
 func encodeLists(
-	skills, tools []string, servers []agent.MCPServer,
+	skills, tools []string, connections []int64,
 ) (string, string, string, error) {
 	sk, err := json.Marshal(nonNil(skills))
 	if err != nil {
@@ -325,18 +326,18 @@ func encodeLists(
 	if err != nil {
 		return "", "", "", fmt.Errorf("encode tools: %w", err)
 	}
-	sv, err := json.Marshal(nonNil(servers))
+	sv, err := json.Marshal(nonNil(connections))
 	if err != nil {
-		return "", "", "", fmt.Errorf("encode mcp servers: %w", err)
+		return "", "", "", fmt.Errorf("encode connections: %w", err)
 	}
 	return string(sk), string(tl), string(sv), nil
 }
 
 func scanBot(r interface{ Scan(...any) error }) (Bot, error) {
 	var t Bot
-	var skills, tools, servers string
+	var skills, tools, connections string
 	if err := r.Scan(&t.ID, &t.Name, &t.Description, &skills, &t.Backend, &t.Model, &t.Provider,
-		&t.Face, &t.Colour, &tools, &servers, &t.Write, &t.PermissionMode); err != nil {
+		&t.Face, &t.Colour, &tools, &connections, &t.Write, &t.PermissionMode); err != nil {
 		return Bot{}, err
 	}
 	if err := json.Unmarshal([]byte(skills), &t.Skills); err != nil {
@@ -345,8 +346,8 @@ func scanBot(r interface{ Scan(...any) error }) (Bot, error) {
 	if err := json.Unmarshal([]byte(tools), &t.Tools); err != nil {
 		return Bot{}, fmt.Errorf("bot %s: bad tools: %w", t.Name, err)
 	}
-	if err := json.Unmarshal([]byte(servers), &t.MCPServers); err != nil {
-		return Bot{}, fmt.Errorf("bot %s: bad mcp servers: %w", t.Name, err)
+	if err := json.Unmarshal([]byte(connections), &t.Connections); err != nil {
+		return Bot{}, fmt.Errorf("bot %s: bad connections: %w", t.Name, err)
 	}
 	return t, nil
 }

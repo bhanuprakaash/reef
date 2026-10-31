@@ -2,18 +2,19 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useUpdateBot } from '@/modules/teams/api/update-bot';
 import { RolePanel } from '@/modules/teams/components/role-panel';
-import type { Provider, Role, Skills, Bot } from '@/types/api';
+import type { Connection, Provider, Role, Skills, Bot } from '@/types/api';
 import { Button } from '@/components/button';
 
 type Props = {
   bot: Bot;
   skills?: Skills;
+  connections?: Connection[];
   providers?: Provider[];
   noProject?: boolean;
   onClose: () => void;
 };
 
-export function BotPanel({ bot, skills, providers, noProject, onClose }: Props) {
+export function BotPanel({ bot, skills, connections, providers, noProject, onClose }: Props) {
   const [role, setRole] = useState<Role>({ ...bot, botId: bot.id, lead: false });
   const save = useUpdateBot();
 
@@ -21,6 +22,7 @@ export function BotPanel({ bot, skills, providers, noProject, onClose }: Props) 
     <RolePanel
       role={role}
       skills={skills}
+      connections={connections}
       providers={providers}
       noProject={noProject}
       onChange={setRole}

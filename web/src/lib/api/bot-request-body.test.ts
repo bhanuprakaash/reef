@@ -11,12 +11,13 @@ it('sends only the fields the server knows for a Bot', () => {
     description: 'Reads.',
     skills: [],
     tools: ['Read'],
-    mcp: [{ name: 'mcp1', label: 'true' }],
+    connections: [3],
   });
 
   expect(Object.keys(body).sort()).toEqual([
     'backend',
     'colour',
+    'connections',
     'description',
     'face',
     'model',

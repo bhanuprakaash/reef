@@ -1701,8 +1701,9 @@ async function workshop() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
     throw new Error('apply the team full first (teams/full.json, see features/bots.md)');
   }
-  const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update bot set mcp_servers = '${mcpBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["ghost-skill"]' where name = 'developer'`, true);
+  sql(`insert or ignore into connection (name, command, args, env, url, created_at) values ('verify-conn', 'true', '[]', '{"API_KEY":"sk-verify-9911"}', '', '2026-01-01T00:00:00Z')`, true);
+  const connBefore = `[${sql("select id from connection where name = 'verify-conn'")}]`;
+  sql(`update bot set connections = '${connBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["ghost-skill"]' where name = 'developer'`, true);
   mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
   writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
 
@@ -1745,7 +1746,7 @@ async function workshop() {
   check(row('bot.description') === persona, "saving the developer's persona on the Bots page updates its teammate row");
   check(row('bot.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
   check(row('bot.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('bot.skills'));
-  check(row('bot.mcp_servers') === mcpBefore, "the developer's mcpServers, left out of the Bot panel, are unchanged");
+  check(row('bot.connections') === connBefore, "the developer's selected connections are unchanged by saving other settings");
 
   // Unrestricted Bash on a Bot without write: the server's error shows in the Bot panel.
   await page.goto(`${base}/bots?bot=${sql("select id from bot where name = 'architect'")}`);
@@ -1762,7 +1763,7 @@ async function workshop() {
   await page.goto(`${base}/bots?bot=${row('bot.id')}`);
   await main.getByLabel('developer tool Read').waitFor();
   check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the Bot\'s tools');
-  check(await main.getByLabel('developer tool mcp__mcp1__*').count() === 1, 'the tool picker has one entry for the Bot\'s MCP server');
+  check(await main.getByLabel('developer tool mcp__verify-conn__*').count() === 1, 'the tool picker has one entry for the Bot\'s selected connection');
   await main.getByLabel('developer tool WebFetch').check();
   await main.getByLabel('developer add tool').fill('Bash(git log:*)');
   await main.getByLabel('developer add tool').press('Enter');
@@ -1771,7 +1772,7 @@ async function workshop() {
   await main.getByRole('button', { name: 'Save Bot' }).click();
   await page.getByText('Saved').waitFor();
   check(row('bot.tools').includes('Bash(git log:*)') && row('bot.tools').includes('"WebFetch"') && !row('bot.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the Bot", row('bot.tools'));
-  check(row('bot.mcp_servers') === mcpBefore, "the Bot's MCP server is unchanged by the panel", row('bot.mcp_servers'));
+  check(row('bot.connections') === connBefore, "the Bot's selected connection is unchanged by the panel", row('bot.connections'));
 
   // Duplicate makes a new Crew `reef team list` (the same store) shows.
   await page.goto(`${base}/teams?team=full`);

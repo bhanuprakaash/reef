@@ -144,7 +144,7 @@ func testTeamSpec(t *testing.T, s *Store, ctx context.Context, team Team) (TeamS
 		if r.BotID == 0 {
 			b, err := s.CreateBot(ctx, Bot{Name: r.Name, Description: r.Description, Skills: r.Skills,
 				Backend: r.Backend, Model: r.Model, Provider: r.Provider, Face: r.Face, Colour: r.Colour,
-				Tools: r.Tools, MCPServers: r.MCPServers, Write: r.Write, PermissionMode: r.PermissionMode})
+				Tools: r.Tools, Connections: connectionIDs(r.Connections), Write: r.Write, PermissionMode: r.PermissionMode})
 			if errors.Is(err, ErrConflict) {
 				bots, lerr := s.Bots(ctx)
 				if lerr != nil {
@@ -164,4 +164,12 @@ func testTeamSpec(t *testing.T, s *Store, ctx context.Context, team Team) (TeamS
 		spec.Roles = append(spec.Roles, Member{BotID: r.BotID, Lead: r.Lead})
 	}
 	return spec, nil
+}
+
+func connectionIDs(cs []Connection) []int64 {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids
 }

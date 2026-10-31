@@ -8,3 +8,4 @@ export const skillsKey = (projectId: number) => [...skillsRootKey, projectId];
 export const skillLibraryKey = [...skillsRootKey, 'library'];
 export const workItemPrKey = (workItemId: number) => ['work-item-pr', workItemId];
 export const providersKey = ['providers'];
+export const connectionsKey = ['connections'];

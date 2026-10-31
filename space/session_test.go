@@ -417,11 +417,15 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("HOME", t.TempDir())
 	st, f := openStore(t)
+	web, err := st.CreateConnection(ctx, store.Connection{Name: "web", URL: "http://x"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
 			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"claude:sketch"},
-			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
+			Tools: []string{"Read", "Grep"}, Connections: []store.Connection{web},
 		},
 	}}); err != nil {
 		t.Fatal(err)
@@ -469,7 +473,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
 	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep", "Skill(sketch)", "mcp__reef__*"}) ||
-		ags[0].cfg.MCPServers["mcp1"].URL != "http://x" {
+		ags[0].cfg.MCPServers["web"].URL != "http://x" {
 		t.Errorf("config = %+v, want the role's tools and mcp server", ags[0].cfg)
 	}
 	if tokenRole != "architect" {
@@ -1799,5 +1803,63 @@ func TestSession_CoordinatorUsesEditedProfileOnReopen(t *testing.T) {
 	}
 	if backend != "codex" || ag.cfg.PermissionMode != "workspace-write" {
 		t.Fatalf("backend = %q, permission = %q", backend, ag.cfg.PermissionMode)
+	}
+}
+
+func TestSession_ConnectionsReachOnlySelectedBots(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("HOME", t.TempDir())
+	st, f := openStore(t)
+	web, err := st.CreateConnection(ctx, store.Connection{Name: "web", URL: "http://x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := st.CreateConnection(ctx, store.Connection{Name: "files", Command: "files-mcp", Args: []string{"--ro"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "architect", Backend: "claude", Connections: []store.Connection{web, files}},
+		{Name: "tester", Backend: "codex"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(ctx, store.Message{SpaceID: ch.ID, Author: "user", Body: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for _, role := range []string{"architect", "tester"} {
+		if err := s.RunAs(ctx, role, "go", &root.ID, nil, func(agent.Event) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(ags) != 2 {
+		t.Fatalf("agents = %d, want 2", len(ags))
+	}
+	got := ags[0].cfg.MCPServers
+	if got["web"].URL != "http://x" || got["files"].Command != "files-mcp" ||
+		!reflect.DeepEqual(got["files"].Args, []string{"--ro"}) || len(got) != 3 {
+		t.Errorf("architect servers = %+v, want reef, web by url and files by command", got)
+	}
+	if got := ags[1].cfg.MCPServers; len(got) != 1 || got["reef"].Command == "" {
+		t.Errorf("tester servers = %+v, want only reef", got)
 	}
 }

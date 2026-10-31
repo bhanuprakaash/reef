@@ -46,7 +46,7 @@ func testApplyTeam(t *testing.T, st *store.Store, ctx context.Context, team stor
 			continue
 		}
 		id := testBotID(t, st, role.Name)
-		bot := store.Bot{ID: *id, Name: role.Name, Description: role.Description, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+		bot := store.Bot{ID: *id, Name: role.Name, Description: role.Description, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, Connections: connectionIDs(role.Connections), Write: role.Write, PermissionMode: role.PermissionMode}
 		if teamErr != nil {
 			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
@@ -456,4 +456,12 @@ func testBotSessionID(t *testing.T, st *store.Store, spaceID int64, botID *int64
 		t.Fatal(err)
 	}
 	return &bs.ID
+}
+
+func connectionIDs(cs []store.Connection) []int64 {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids
 }

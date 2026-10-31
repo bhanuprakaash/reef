@@ -28,7 +28,7 @@ const bot = (id: number, name: string): Bot => ({
   description: '',
   skills: [],
   tools: [],
-  mcp: [],
+  connections: [],
 });
 
 const msg = (id: number, parentId: number | null, author: string): Message => ({

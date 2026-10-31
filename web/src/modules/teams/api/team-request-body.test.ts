@@ -13,7 +13,7 @@ it('sends a member as its Bot id and lead flag only', () => {
     description: 'Reads.',
     skills: [],
     tools: ['Read'],
-    mcp: [],
+    connections: [],
   };
 
   expect(teamRequestBody({ name: 'crew', responsibility: 'Ship it.', roles: [role] })).toEqual({

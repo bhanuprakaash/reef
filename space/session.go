@@ -535,8 +535,8 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		Args:    []string{"mcp", "--data", s.dataDir},
 		Env:     map[string]string{TokenEnv: tok.Token},
 	}}
-	for i, srv := range r.MCPServers {
-		servers["mcp"+strconv.Itoa(i+1)] = srv
+	for _, c := range r.Connections {
+		servers[c.Name] = c.Server()
 	}
 	cwd, key, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
 	if err != nil {

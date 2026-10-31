@@ -138,8 +138,8 @@ read them: create a Bot for each role with its text as the `description`, then a
   lead role, has 0` (or `has 2`), `reef: invalid: unknown bot 9`, `reef: invalid: every member needs a
   botId`, `reef: parse team.json: json: unknown field "backend"`.
 - A Bot's `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
-  and so it does the reef tools (`mcp__reef__*`), but not the tools of the Bot's own `mcpServers`
-  unless `tools` lists them (`mcp__mcp1__*`).
+  and so it does the reef tools (`mcp__reef__*`), but not the tools of the Bot's selected connections
+  unless `tools` lists them (`mcp__<connection name>__*`).
   A claude Bot that picks skills (`skills`) may use only those: each `claude:` ref is allowed as `Skill(name)` and every
   other claude skill on disk is denied. A Bot that picks none keeps every skill. A codex Bot gets the
   names in its prompt only.
@@ -429,7 +429,7 @@ so the next turn of that role does not send its intro again. It starts no agent:
 its first turn, in the project's folder (a Space on a work item: the work item's worktree, see
 [server.md](server.md#spaces-live)), with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that bot's own new token in `REEF_TOKEN`), plus
-the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
+the connections the Bot selected. Claude runs the reef tools without approval; the connections'
 servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
 So a `reef chat` on a work item needs the project to be a git repo with a commit. Like `reef
 serve`, it takes a checkpoint before each turn of a role with `write` (the `solo` lead has

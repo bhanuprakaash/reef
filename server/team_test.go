@@ -10,74 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
-
-func TestTeamsOmitMCPServers(t *testing.T) {
-	st, err := openStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "keys", Roles: []store.Role{{
-		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
-			{Command: "my-mcp", Args: []string{"--key", "sk-secret-123"}},
-		},
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
-	ts := httptest.NewServer(h)
-	t.Cleanup(ts.Close)
-	t.Cleanup(h.Close)
-
-	for _, path := range []string{"/teams", "/teams/keys"} {
-		status, body := do(t, http.MethodGet, ts.URL+path, "")
-		if status != 200 || !strings.Contains(body, `"mcp":[{"name":"mcp1","label":"my-mcp"}]`) ||
-			strings.Contains(body, "mcpServers") || strings.Contains(body, "sk-secret-123") {
-			t.Errorf("GET %s = %d %s, want the lead with an mcp label and no mcpServers", path, status, body)
-		}
-	}
-	if got, err := st.Team(context.Background(), "keys"); err != nil ||
-		got.Roles[0].MCPServers[0].Args[1] != "sk-secret-123" {
-		t.Errorf("stored team = %+v, %v, want the mcp server kept for the agent", got, err)
-	}
-}
-
-func TestSpaceMembersOmitMCPServers(t *testing.T) {
-	st, err := openStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	ctx := context.Background()
-	_, err = testServerTeam(t, st, ctx, store.Team{Name: "keys", Roles: []store.Role{{
-		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
-			{Command: "my-mcp", Env: map[string]string{"API_KEY": "sk-secret-123"}},
-		},
-	}}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys"}); err != nil {
-		t.Fatal(err)
-	}
-	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
-	ts := httptest.NewServer(h)
-	t.Cleanup(ts.Close)
-	t.Cleanup(h.Close)
-
-	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/members", "")
-	if status != 200 || !strings.Contains(body, `"mcp":[{"name":"mcp1","label":"my-mcp"}]`) ||
-		strings.Contains(body, "mcpServers") || strings.Contains(body, "sk-secret-123") {
-		t.Errorf("GET members = %d %s, want the lead with an mcp label and no env", status, body)
-	}
-}
 
 func TestTeamsReturnFace(t *testing.T) {
 	st, err := openStore(t.TempDir())
@@ -236,9 +170,9 @@ func TestSpaceTeam(t *testing.T) {
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
 	want := `{"id":2,"name":"core","responsibility":"","roles":[{"botId":2,"name":"core-lead","lead":true,"write":false,"backend":"codex",` +
-		`"permissionMode":"read-only","description":"","skills":[],"tools":[],"mcp":[]},` +
+		`"permissionMode":"read-only","description":"","skills":[],"tools":[],"connections":[]},` +
 		`{"botId":3,"name":"core-architect","lead":false,"write":true,"backend":"claude","permissionMode":"","description":"",` +
-		`"skills":[],"tools":[],"mcp":[]}]}`
+		`"skills":[],"tools":[],"connections":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
 	}
@@ -253,10 +187,12 @@ func TestPutTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	mine, err := st.CreateConnection(context.Background(), store.Connection{Name: "mine", Command: "my-mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "crew-lead", Lead: true, Backend: "claude", Description: "old description", MCPServers: []agent.MCPServer{
-			{Command: "my-mcp", Args: []string{"--key", "sk-secret-456"}},
-		}},
+		{Name: "crew-lead", Lead: true, Backend: "claude", Description: "old description", Connections: []store.Connection{mine}},
 		{Name: "crew-developer", Backend: "claude", Write: true},
 	}})
 	if err != nil {
@@ -270,15 +206,15 @@ func TestPutTeam(t *testing.T) {
 	// A team body names Bot ids and a lead; the Bots keep their profile.
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew",
 		`{"name":"crew","roles":[{"botId":2,"lead":true}]}`)
-	if status != 200 || strings.Contains(resBody, "mcpServers") || !strings.Contains(resBody, `"description":"old description"`) {
-		t.Fatalf("PUT /teams/crew = %d %s, want 200 with the lead's own description and no mcpServers", status, resBody)
+	if status != 200 || !strings.Contains(resBody, `"description":"old description"`) {
+		t.Fatalf("PUT /teams/crew = %d %s, want 200 with the lead's own description", status, resBody)
 	}
 	got, err := st.Team(context.Background(), "crew")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Roles) != 1 || len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
-		t.Errorf("crew roles = %+v, want the lead with its stored mcpServers", got.Roles)
+	if len(got.Roles) != 1 || len(got.Roles[0].Connections) != 1 || got.Roles[0].Connections[0].Name != "mine" {
+		t.Errorf("crew roles = %+v, want the lead with its connection", got.Roles)
 	}
 
 	// The same error as `reef team apply`: two leads.
@@ -339,10 +275,12 @@ func TestPutTeamCopyFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	mine, err := st.CreateConnection(context.Background(), store.Connection{Name: "mine", Command: "my-mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, err = testServerTeam(t, st, context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "crew-lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
-			{Command: "my-mcp", Args: []string{"--key", "sk-secret-789"}},
-		}},
+		{Name: "crew-lead", Lead: true, Backend: "claude", Connections: []store.Connection{mine}},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -354,15 +292,15 @@ func TestPutTeamCopyFrom(t *testing.T) {
 
 	body := `{"roles":[{"botId":2,"lead":true}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
-	if status != 200 || strings.Contains(resBody, "mcpServers") {
-		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200 without mcpServers", status, resBody)
+	if status != 200 {
+		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200", status, resBody)
 	}
 	got, err := st.Team(context.Background(), "crew2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-789" {
-		t.Errorf("copy's lead mcpServers = %+v, want the Bot's kept", got.Roles[0].MCPServers)
+	if len(got.Roles[0].Connections) != 1 || got.Roles[0].Connections[0].Name != "mine" {
+		t.Errorf("copy's lead connections = %+v, want the Bot's kept", got.Roles[0].Connections)
 	}
 
 	// A copy over a name that already exists is a conflict, not a silent replace.

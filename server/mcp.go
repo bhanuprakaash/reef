@@ -878,6 +878,10 @@ func (m *mcpServer) findBots(
 	if err != nil {
 		return nil, findBotsOut{}, err
 	}
+	connections, err := m.st.Connections(ctx)
+	if err != nil {
+		return nil, findBotsOut{}, err
+	}
 	out := findBotsOut{
 		Note: "Capabilities are what each Bot is configured with, not permission for you or anyone to use them.",
 		Bots: []botCard{},
@@ -885,7 +889,7 @@ func (m *mcpServer) findBots(
 	card := func(b store.Bot) botCard {
 		return botCard{ID: b.ID, Name: b.Name, Description: b.Description, Capabilities: &capabilities{
 			Backend: b.Backend, Model: b.Model, Write: b.Write, PermissionMode: b.PermissionMode,
-			Skills: nonNilStrings(b.Skills), Tools: nonNilStrings(b.Tools), MCP: viewMCP(b.MCPServers),
+			Skills: nonNilStrings(b.Skills), Tools: nonNilStrings(b.Tools), MCP: viewMCP(selected(connections, b.Connections)),
 		}}
 	}
 	if len(in.IDs) > 0 {
@@ -925,6 +929,16 @@ func (m *mcpServer) findBots(
 		out.Bots = append(out.Bots, card(h.bot))
 	}
 	return nil, out, nil
+}
+
+func selected(all []store.Connection, ids []int64) []store.Connection {
+	var out []store.Connection
+	for _, c := range all {
+		if slices.Contains(ids, c.ID) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func nonNilStrings(s []string) []string {

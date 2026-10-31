@@ -7,22 +7,21 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// botView is a Bot as REST shows it. Its MCP servers show only a name and a label,
-// like a role's: their args, env and url may carry keys.
+// botView is a Bot as REST shows it.
 type botView struct {
-	ID             int64     `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	Skills         []string  `json:"skills"`
-	Backend        string    `json:"backend"`
-	Model          string    `json:"model,omitempty"`
-	Provider       string    `json:"provider,omitempty"`
-	Face           string    `json:"face,omitempty"`
-	Colour         string    `json:"colour,omitempty"`
-	Tools          []string  `json:"tools"`
-	MCP            []mcpView `json:"mcp"`
-	Write          bool      `json:"write"`
-	PermissionMode string    `json:"permissionMode"`
+	ID             int64    `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	Skills         []string `json:"skills"`
+	Backend        string   `json:"backend"`
+	Model          string   `json:"model,omitempty"`
+	Provider       string   `json:"provider,omitempty"`
+	Face           string   `json:"face,omitempty"`
+	Colour         string   `json:"colour,omitempty"`
+	Tools          []string `json:"tools"`
+	Connections    []int64  `json:"connections"`
+	Write          bool     `json:"write"`
+	PermissionMode string   `json:"permissionMode"`
 }
 
 type addMemberBody struct {
@@ -123,8 +122,7 @@ func (s *server) getBot(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewBot(t))
 }
 
-// putBot replaces every field of the Bot. A body that omits mcpServers keeps the
-// stored ones, since REST never shows them; `"mcpServers": []` clears them.
+// putBot replaces every field of the Bot.
 func (s *server) putBot(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -141,14 +139,6 @@ func (s *server) putBot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	if in.MCPServers == nil {
-		cur, err := s.st.Bot(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		in.MCPServers = cur.MCPServers
-	}
 	t, err := s.st.UpdateBot(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
@@ -222,6 +212,6 @@ func viewBot(t store.Bot) botView {
 	return botView{
 		ID: t.ID, Name: t.Name, Description: t.Description, Skills: t.Skills, Backend: t.Backend,
 		Model: t.Model, Provider: t.Provider, Face: t.Face, Colour: t.Colour, Tools: t.Tools,
-		MCP: viewMCP(t.MCPServers), Write: t.Write, PermissionMode: t.PermissionMode,
+		Connections: t.Connections, Write: t.Write, PermissionMode: t.PermissionMode,
 	}
 }

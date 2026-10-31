@@ -5,14 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
-// their args, env and url may carry keys.
+// teamView is a team as REST shows it.
 type teamView struct {
 	ID             int64      `json:"id"`
 	Name           string     `json:"name"`
@@ -21,24 +18,24 @@ type teamView struct {
 }
 
 type roleView struct {
-	BotID          int64     `json:"botId,omitempty"`
-	Name           string    `json:"name"`
-	Lead           bool      `json:"lead"`
-	Write          bool      `json:"write"`
-	Backend        string    `json:"backend"`
-	PermissionMode string    `json:"permissionMode"`
-	Description    string    `json:"description"`
-	Skills         []string  `json:"skills"`
-	Face           string    `json:"face,omitempty"`
-	Colour         string    `json:"colour,omitempty"`
-	Model          string    `json:"model,omitempty"`
-	Provider       string    `json:"provider,omitempty"`
-	Tools          []string  `json:"tools"`
-	MCP            []mcpView `json:"mcp"`
+	BotID          int64    `json:"botId,omitempty"`
+	Name           string   `json:"name"`
+	Lead           bool     `json:"lead"`
+	Write          bool     `json:"write"`
+	Backend        string   `json:"backend"`
+	PermissionMode string   `json:"permissionMode"`
+	Description    string   `json:"description"`
+	Skills         []string `json:"skills"`
+	Face           string   `json:"face,omitempty"`
+	Colour         string   `json:"colour,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	Provider       string   `json:"provider,omitempty"`
+	Tools          []string `json:"tools"`
+	Connections    []int64  `json:"connections"`
 }
 
-// mcpView names one of a role's MCP servers as the agent sees it (mcp1, mcp2, ...) and labels it
-// by its command, or the host of its url.
+// mcpView names a connection as the agent sees its MCP server and labels it by its command, or
+// the host of its url.
 type mcpView struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
@@ -148,14 +145,14 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewTeam(applied))
 }
 
-func viewMCP(servers []agent.MCPServer) []mcpView {
-	views := make([]mcpView, len(servers))
-	for i, srv := range servers {
-		label := srv.Command
-		if u, err := url.Parse(srv.URL); label == "" && err == nil {
+func viewMCP(connections []store.Connection) []mcpView {
+	views := make([]mcpView, len(connections))
+	for i, c := range connections {
+		label := c.Command
+		if u, err := url.Parse(c.URL); label == "" && err == nil {
 			label = u.Host
 		}
-		views[i] = mcpView{Name: mcpName(i), Label: label}
+		views[i] = mcpView{Name: c.Name, Label: label}
 	}
 	return views
 }
@@ -172,8 +169,15 @@ func viewRole(r store.Role) roleView {
 	return roleView{
 		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
 		PermissionMode: r.PermissionMode, Description: r.Description, Skills: r.Skills, Face: r.Face,
-		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
+		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools,
+		Connections: connectionIDs(r.Connections),
 	}
 }
 
-func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
+func connectionIDs(cs []store.Connection) []int64 {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids
+}

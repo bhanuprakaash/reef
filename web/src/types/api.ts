@@ -171,7 +171,17 @@ export type Role = {
   colour?: string;
   model?: string;
   tools: string[];
-  mcp: { name: string; label: string }[];
+  connections: number[];
+};
+
+export type Connection = {
+  id: number;
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  createdAt: string;
 };
 
 export type Provider = {

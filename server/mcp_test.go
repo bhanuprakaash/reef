@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bhanuprakaash/reef/agent"
 	"net"
 	"os"
 	"path/filepath"
@@ -62,7 +61,7 @@ func testServerTeam(t *testing.T, st *store.Store, ctx context.Context, team sto
 	for i, role := range team.Roles {
 		if role.BotID == 0 {
 			id := *testServerBot(t, st, role.Name)
-			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, Connections: connectionIDs(role.Connections), Write: role.Write, PermissionMode: role.PermissionMode}
 			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
@@ -81,7 +80,7 @@ func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, te
 	for i, role := range team.Roles {
 		if role.BotID == 0 {
 			id := *testServerBot(t, st, role.Name)
-			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, Connections: connectionIDs(role.Connections), Write: role.Write, PermissionMode: role.PermissionMode}
 			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
@@ -1249,16 +1248,20 @@ func TestMCPFindBots(t *testing.T) {
 	lead, developer := leadAndDeveloper(t, st)
 	ctx := context.Background()
 	call := callTool(t, st, lead)
+	pw, err := st.CreateConnection(ctx, store.Connection{Name: "pw", Command: "pw-mcp", Env: map[string]string{"KEY": "sk-secret"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	tester, err := st.CreateBot(ctx, store.Bot{
 		Name: "tester", Backend: "claude", Description: "Breaks code with real browsers", Skills: []string{"claude:verify"},
-		Tools: []string{"Read"}, MCPServers: []agent.MCPServer{{Command: "pw", Env: map[string]string{"KEY": "sk-secret"}}},
+		Tools: []string{"Read"}, Connections: []int64{pw.ID},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	got, isErr := call("find_bots", map[string]any{"query": "browsers"})
-	want := fmt.Sprintf(`{"bots":[{"capabilities":{"backend":"claude","mcp":[{"label":"pw","name":"mcp1"}],`+
+	want := fmt.Sprintf(`{"bots":[{"capabilities":{"backend":"claude","mcp":[{"label":"pw-mcp","name":"pw"}],`+
 		`"skills":["claude:verify"],"tools":["Read"],"write":false},"description":"Breaks code with real browsers",`+
 		`"id":%d,"name":"tester"}],"note":"Capabilities are what each Bot is configured with, not permission for `+
 		`you or anyone to use them."}`, tester.ID)

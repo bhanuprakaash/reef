@@ -2,7 +2,7 @@ import type { Role } from '@/types/api';
 
 export function botRequestBody(role: Omit<Role, 'botId'>) {
   const { name, description, skills, backend, provider, model, face, colour } = role;
-  const { tools, write, permissionMode } = role;
+  const { tools, connections, write, permissionMode } = role;
   return {
     name,
     description,
@@ -13,6 +13,7 @@ export function botRequestBody(role: Omit<Role, 'botId'>) {
     face,
     colour,
     tools,
+    connections,
     write,
     permissionMode,
   };

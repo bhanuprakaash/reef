@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/bhanuprakaash/reef/agent"
 )
 
 const (
@@ -21,31 +19,31 @@ const (
 // is execution history: editing the Bot changes no BotSession, and a Space holds one active
 // BotSession per member Bot.
 type BotSession struct {
-	ID             int64             `json:"id"`
-	SpaceID        int64             `json:"spaceId"`
-	BotID          int64             `json:"botId"`
-	Backend        string            `json:"backend"`
-	Provider       string            `json:"provider,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	Description    string            `json:"description"`
-	Skills         []string          `json:"skills"`
-	Tools          []string          `json:"tools"`
-	MCPServers     []agent.MCPServer `json:"mcpServers"`
-	Write          bool              `json:"write"`
-	PermissionMode string            `json:"permissionMode"`
-	Status         string            `json:"status"`
-	CreatedAt      time.Time         `json:"createdAt"`
-	EndedAt        *time.Time        `json:"endedAt"`
+	ID             int64        `json:"id"`
+	SpaceID        int64        `json:"spaceId"`
+	BotID          int64        `json:"botId"`
+	Backend        string       `json:"backend"`
+	Provider       string       `json:"provider,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Description    string       `json:"description"`
+	Skills         []string     `json:"skills"`
+	Tools          []string     `json:"tools"`
+	Connections    []Connection `json:"connections"`
+	Write          bool         `json:"write"`
+	PermissionMode string       `json:"permissionMode"`
+	Status         string       `json:"status"`
+	CreatedAt      time.Time    `json:"createdAt"`
+	EndedAt        *time.Time   `json:"endedAt"`
 }
 
 const _botSessionCols = "id, space_id, bot_id, backend, provider, model, description, skills, tools, " +
-	"mcp_servers, write, permission_mode, status, created_at, ended_at"
+	"connections, write, permission_mode, status, created_at, ended_at"
 
 // Apply returns r with the settings the BotSession adopted in place of the Bot's own. Name, Lead,
 // Face and Colour stay.
 func (b BotSession) Apply(r Role) Role {
 	r.Backend, r.Provider, r.Model, r.Description = b.Backend, b.Provider, b.Model, b.Description
-	r.Skills, r.Tools, r.MCPServers = b.Skills, b.Tools, b.MCPServers
+	r.Skills, r.Tools, r.Connections = b.Skills, b.Tools, b.Connections
 	r.Write, r.PermissionMode = b.Write, b.PermissionMode
 	return r
 }
@@ -75,21 +73,38 @@ func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotS
 		BotSessionReplaced, now, spaceID, botID, BotSessionActive); err != nil {
 		return BotSession{}, fmt.Errorf("replace bot session: %w", err)
 	}
+	var picked string
+	err = tx.QueryRowContext(ctx, "SELECT connections FROM bot WHERE id = ?", botID).Scan(&picked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return BotSession{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
+	}
+	if err != nil {
+		return BotSession{}, fmt.Errorf("read bot connections: %w", err)
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(picked), &ids); err != nil {
+		return BotSession{}, fmt.Errorf("bot %d: bad connections: %w", botID, err)
+	}
+	all, err := listConnections(ctx, tx)
+	if err != nil {
+		return BotSession{}, err
+	}
+	resolved, err := json.Marshal(pickConnections(all, ids))
+	if err != nil {
+		return BotSession{}, fmt.Errorf("encode connections: %w", err)
+	}
 	res, err := tx.ExecContext(ctx,
 		"INSERT INTO bot_session (space_id, bot_id, backend, provider, model, description, skills, tools, "+
-			"mcp_servers, write, permission_mode, status, created_at) "+
-			"SELECT ?, id, backend, provider, model, description, skills, tools, mcp_servers, write, "+
+			"connections, write, permission_mode, status, created_at) "+
+			"SELECT ?, id, backend, provider, model, description, skills, tools, ?, write, "+
 			"permission_mode, ?, ? FROM bot WHERE id = ?",
-		spaceID, BotSessionActive, now, botID)
+		spaceID, string(resolved), BotSessionActive, now, botID)
 	if err != nil {
 		return BotSession{}, fmt.Errorf("insert bot session: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
 		return BotSession{}, fmt.Errorf("insert bot session: %w", err)
-	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return BotSession{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 	}
 	if err := tx.Commit(); err != nil {
 		return BotSession{}, fmt.Errorf("commit adopt bot session: %w", err)
@@ -118,10 +133,10 @@ func (s *Store) EndBotSession(ctx context.Context, id int64, status string) erro
 
 func scanBotSession(r interface{ Scan(...any) error }) (BotSession, error) {
 	var b BotSession
-	var skills, tools, servers, created string
+	var skills, tools, connections, created string
 	var ended sql.NullString
 	if err := r.Scan(&b.ID, &b.SpaceID, &b.BotID, &b.Backend, &b.Provider, &b.Model, &b.Description,
-		&skills, &tools, &servers, &b.Write, &b.PermissionMode, &b.Status, &created, &ended); err != nil {
+		&skills, &tools, &connections, &b.Write, &b.PermissionMode, &b.Status, &created, &ended); err != nil {
 		return BotSession{}, err
 	}
 	if err := json.Unmarshal([]byte(skills), &b.Skills); err != nil {
@@ -130,8 +145,8 @@ func scanBotSession(r interface{ Scan(...any) error }) (BotSession, error) {
 	if err := json.Unmarshal([]byte(tools), &b.Tools); err != nil {
 		return BotSession{}, fmt.Errorf("bot session %d: bad tools: %w", b.ID, err)
 	}
-	if err := json.Unmarshal([]byte(servers), &b.MCPServers); err != nil {
-		return BotSession{}, fmt.Errorf("bot session %d: bad mcp servers: %w", b.ID, err)
+	if err := json.Unmarshal([]byte(connections), &b.Connections); err != nil {
+		return BotSession{}, fmt.Errorf("bot session %d: bad connections: %w", b.ID, err)
 	}
 	var err error
 	if b.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
