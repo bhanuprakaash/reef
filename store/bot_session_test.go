@@ -11,7 +11,7 @@ func TestBotSession_AdoptKeepsSettingsAcrossBotEdits(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
 	sam, err := s.CreateBot(ctx, Bot{
-		Name: "sam", Backend: "claude", Model: "haiku", Description: "You code.", Skills: []string{"sketch"},
+		Name: "sam", Backend: "claude", Model: "haiku", Description: "You code.", Skills: []string{"claude:sketch"},
 		Tools: []string{"Read"}, Write: true, PermissionMode: "acceptEdits",
 	})
 	if err != nil {
@@ -36,7 +36,7 @@ func TestBotSession_AdoptKeepsSettingsAcrossBotEdits(t *testing.T) {
 	}
 	got, err := s.ActiveBotSession(ctx, chat.ID, sam.ID)
 	if err != nil || got.ID != first.ID || got.Backend != "claude" || got.Model != "haiku" ||
-		got.Description != "You code." || !reflect.DeepEqual(got.Skills, []string{"sketch"}) ||
+		got.Description != "You code." || !reflect.DeepEqual(got.Skills, []string{"claude:sketch"}) ||
 		!reflect.DeepEqual(got.Tools, []string{"Read"}) || !got.Write || got.PermissionMode != "acceptEdits" ||
 		got.Status != BotSessionActive {
 		t.Fatalf("active session = %+v, %v, want the settings adopted before the edit", got, err)
