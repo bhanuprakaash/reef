@@ -1,4 +1,4 @@
-// Package skill lists the skills a backend finds on disk. Reef keeps no copy of them.
+// Package skill lists the skills a backend finds on disk and reads skill packages to import into Reef's library.
 package skill
 
 import (

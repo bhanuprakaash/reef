@@ -13,7 +13,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { AddProviderForm } from '@/modules/providers/components/add-provider-form';
 import { ProviderList } from '@/modules/providers/components/provider-list';
 import { usePutProfile } from '@/lib/api/put-profile';
-import type { SkillInfo } from '@/types/api';
+import type { SkillInfo, SkillSource } from '@/types/api';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 
@@ -185,7 +185,7 @@ function SkillGroup({ title, skills }: { title: string; skills: SkillInfo[] }) {
       {skills.length === 0 && <p className="text-[13px] text-muted">None found.</p>}
       <ul className="flex max-h-[min(480px,60vh)] flex-col divide-y divide-hairline overflow-y-auto">
         {skills.map((s) => (
-          <li key={s.name} className="flex flex-col gap-0.5 py-2.5">
+          <li key={s.ref} className="flex flex-col gap-0.5 py-2.5">
             <span className="font-mono text-[13px]">{s.name}</span>
             {s.description && (
               <span title={s.description} className="line-clamp-1 text-[12.5px] text-muted">
@@ -203,23 +203,26 @@ function SkillsSection() {
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
   const skills = useSkills(project?.id);
-  const [backend, setBackend] = useState<'claude' | 'codex'>('claude');
+  const [backend, setBackend] = useState<SkillSource>('reef');
   const backends = [
+    { value: 'reef' as const, title: 'Reef' },
     { value: 'claude' as const, title: 'Claude Code' },
     { value: 'codex' as const, title: 'Codex' },
   ];
   const shown = backends.find((b) => b.value === backend)!;
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
-  const matching = (skills.data?.[backend] ?? []).filter(
-    (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
+  const matching = (skills.data ?? []).filter(
+    (s) =>
+      s.source === backend &&
+      (s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)),
   );
 
   return (
     <Section title="Skills">
       <p className="text-[13px] text-muted">
-        Read from disk for {project ? project.name : 'the current project'}. Roles pick from the
-        list of their backend.
+        Reef skills live in the library on the Bots page. Claude and Codex skills are read from disk
+        for {project ? project.name : 'the current project'}.
       </p>
       {!project && <p className="text-sm text-muted">Pick a project to see its skills.</p>}
       {skills.isError && <p className="text-sm text-danger">{skills.error.message}</p>}
@@ -232,7 +235,10 @@ function SkillsSection() {
                 value: b.value,
                 label: (
                   <>
-                    {b.title} <span className="text-muted">{skills.data[b.value].length}</span>
+                    {b.title}{' '}
+                    <span className="text-muted">
+                      {skills.data.filter((s) => s.source === b.value).length}
+                    </span>
                   </>
                 ),
               }))}

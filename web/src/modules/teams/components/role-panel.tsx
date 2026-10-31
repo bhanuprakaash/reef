@@ -222,7 +222,7 @@ export function RolePanel({
         <SkillPicker
           label={label}
           picked={role.skills}
-          available={role.backend === 'codex' ? skills?.codex : skills?.claude}
+          available={skills}
           noProject={noProject}
           limits={role.backend === 'claude'}
           onChange={(next) => onChange({ ...role, skills: next })}

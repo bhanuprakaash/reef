@@ -19,7 +19,9 @@ describe('SkillPicker', () => {
       <SkillPicker
         label="dev"
         picked={[]}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         onChange={() => {}}
       />,
     );
@@ -31,8 +33,10 @@ describe('SkillPicker', () => {
     const markup = renderToStaticMarkup(
       <SkillPicker
         label="dev"
-        picked={['how']}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        picked={['claude:how']}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         limits
         onChange={() => {}}
       />,
@@ -45,8 +49,10 @@ describe('SkillPicker', () => {
     const markup = renderToStaticMarkup(
       <SkillPicker
         label="dev"
-        picked={['how']}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        picked={['claude:how']}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         onChange={() => {}}
       />,
     );
@@ -59,7 +65,9 @@ describe('SkillPicker', () => {
       <SkillPicker
         label="dev"
         picked={[]}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         limits
         onChange={() => {}}
       />,

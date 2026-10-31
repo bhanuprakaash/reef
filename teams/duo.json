@@ -11,7 +11,7 @@
       "name": "architect",
       "backend": "claude",
       "description": "You are the architect. Answer in one short sentence, and end it with the word PLANNED. Use no tools unless asked to. Never @mention anyone.",
-      "skills": ["short-plans"],
+      "skills": ["claude:short-plans"],
       "tools": ["Read"]
     }
   ]

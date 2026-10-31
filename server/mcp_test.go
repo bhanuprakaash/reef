@@ -1250,7 +1250,7 @@ func TestMCPFindBots(t *testing.T) {
 	ctx := context.Background()
 	call := callTool(t, st, lead)
 	tester, err := st.CreateBot(ctx, store.Bot{
-		Name: "tester", Backend: "claude", Description: "Breaks code with real browsers", Skills: []string{"verify"},
+		Name: "tester", Backend: "claude", Description: "Breaks code with real browsers", Skills: []string{"claude:verify"},
 		Tools: []string{"Read"}, MCPServers: []agent.MCPServer{{Command: "pw", Env: map[string]string{"KEY": "sk-secret"}}},
 	})
 	if err != nil {
@@ -1259,7 +1259,7 @@ func TestMCPFindBots(t *testing.T) {
 
 	got, isErr := call("find_bots", map[string]any{"query": "browsers"})
 	want := fmt.Sprintf(`{"bots":[{"capabilities":{"backend":"claude","mcp":[{"label":"pw","name":"mcp1"}],`+
-		`"skills":["verify"],"tools":["Read"],"write":false},"description":"Breaks code with real browsers",`+
+		`"skills":["claude:verify"],"tools":["Read"],"write":false},"description":"Breaks code with real browsers",`+
 		`"id":%d,"name":"tester"}],"note":"Capabilities are what each Bot is configured with, not permission for `+
 		`you or anyone to use them."}`, tester.ID)
 	if got != want || isErr || strings.Contains(got, "sk-secret") {

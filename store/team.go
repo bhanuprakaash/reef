@@ -354,6 +354,10 @@ func validateRole(r Role) error {
 	return nil
 }
 
+func hasSkillSource(ref string) bool {
+	return strings.HasPrefix(ref, "reef:") || strings.HasPrefix(ref, "claude:") || strings.HasPrefix(ref, "codex:")
+}
+
 func cleanSkills(r Role) ([]string, error) {
 	names := make([]string, 0, len(r.Skills))
 	for _, name := range r.Skills {
@@ -363,6 +367,9 @@ func cleanSkills(r Role) ([]string, error) {
 			return nil, fmt.Errorf("%w: role %s has an empty skill name", ErrInvalid, r.Name)
 		case !skill.ValidName(name):
 			return nil, fmt.Errorf("%w: role %s: skill %q must be letters, digits, :, _ or -",
+				ErrInvalid, r.Name, name)
+		case !hasSkillSource(name):
+			return nil, fmt.Errorf("%w: role %s: skill %q must start with reef:, claude: or codex:",
 				ErrInvalid, r.Name, name)
 		case slices.Contains(names, name):
 			return nil, fmt.Errorf("%w: role %s lists skill %q twice", ErrInvalid, r.Name, name)

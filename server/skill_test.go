@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/skill"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -39,6 +40,11 @@ func TestGetSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.ImportSkill(context.Background(), "folder", "/src/how", "", "", skill.Package{
+		Name: "how", Description: "Same name in the library.",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
@@ -51,9 +57,10 @@ func TestGetSkills(t *testing.T) {
 		want  string
 	}{
 		{"a project", "?project=" + strconv.FormatInt(p.ID, 10), http.StatusOK,
-			`{"claude":[{"name":"how","description":"Explain flow."},` +
-				`{"name":"repo-skill","description":"In the repo."}],` +
-				`"codex":[{"name":"probe","description":"For codex."}]}`},
+			`[{"ref":"reef:how","name":"how","description":"Same name in the library.","source":"reef","version":1},` +
+				`{"ref":"claude:how","name":"how","description":"Explain flow.","source":"claude"},` +
+				`{"ref":"claude:repo-skill","name":"repo-skill","description":"In the repo.","source":"claude"},` +
+				`{"ref":"codex:probe","name":"probe","description":"For codex.","source":"codex"}]`},
 		{"no project", "", http.StatusBadRequest, ""},
 		{"not a number", "?project=x", http.StatusBadRequest, ""},
 		{"unknown project", "?project=999", http.StatusNotFound, ""},

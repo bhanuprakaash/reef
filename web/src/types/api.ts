@@ -184,9 +184,31 @@ export type Provider = {
   createdAt?: string;
 };
 
-export type SkillInfo = { name: string; description: string };
+export type SkillSource = 'reef' | 'claude' | 'codex';
 
-export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
+export type SkillInfo = {
+  ref: string;
+  name: string;
+  description: string;
+  source: SkillSource;
+  version?: number;
+};
+
+export type Skills = SkillInfo[];
+
+export type LibrarySkill = {
+  id: number;
+  name: string;
+  description: string;
+  sourceKind: 'folder' | 'git';
+  source: string;
+  ref: string;
+  dir: string;
+  revision: string;
+  version: number;
+};
+
+export type LibrarySkillFiles = LibrarySkill & { files: { path: string; body: string }[] };
 
 export type Bot = Omit<Role, 'lead' | 'botId'> & { id: number };
 

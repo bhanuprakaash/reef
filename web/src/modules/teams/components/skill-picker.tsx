@@ -1,6 +1,6 @@
 import type { SkillInfo } from '@/types/api';
 import { ChipList } from '@/modules/teams/components/chip-list';
-import { addableSkills, isMissing } from '@/modules/teams/utils/skills';
+import { addableSkills, isMissing, sourceLabel } from '@/modules/teams/utils/skills';
 import { Select } from '@/components/select';
 
 type Props = {
@@ -32,10 +32,10 @@ export function SkillPicker({ label, picked, available, noProject, limits, onCha
         disabled={addable.length === 0}
         options={[
           { value: '', label: 'Add a skill' },
-          ...addable.map((name) => ({
-            value: name,
-            label: name,
-            hint: available?.find((s) => s.name === name)?.description,
+          ...addable.map((s) => ({
+            value: s.ref,
+            label: `${s.name} · ${sourceLabel(s.source)}`,
+            hint: s.description,
           })),
         ]}
         onChange={(name) => name && onChange([...picked, name])}

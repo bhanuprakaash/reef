@@ -463,15 +463,16 @@ func TestPutBotSkills(t *testing.T) {
 		want   int
 	}{
 		{"a string", `"x"`, http.StatusBadRequest},
-		{"an empty name", `["how",""]`, http.StatusBadRequest},
-		{"a blank name", `["how"," "]`, http.StatusBadRequest},
-		{"a duplicate", `["how","how"]`, http.StatusBadRequest},
-		{"a duplicate after trimming", `["how"," how"]`, http.StatusBadRequest},
+		{"no source", `["how"]`, http.StatusBadRequest},
+		{"an empty name", `["claude:how",""]`, http.StatusBadRequest},
+		{"a blank name", `["claude:how"," "]`, http.StatusBadRequest},
+		{"a duplicate", `["claude:how","claude:how"]`, http.StatusBadRequest},
+		{"a duplicate after trimming", `["claude:how"," claude:how"]`, http.StatusBadRequest},
 		{"a space inside", `["how why"]`, http.StatusBadRequest},
 		{"a slash", `["a/b"]`, http.StatusBadRequest},
 		{"a dot", `["v1.2"]`, http.StatusBadRequest},
 		{"a parenthesis", `["Bash(rm:*)"]`, http.StatusBadRequest},
-		{"clean names", `["how","plugin:skill","a_b-1"]`, http.StatusOK},
+		{"clean names", `["claude:how","claude:plugin:skill","reef:a_b-1"]`, http.StatusOK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -482,9 +483,9 @@ func TestPutBotSkills(t *testing.T) {
 		})
 	}
 
-	body := `{"name":"lead","backend":"claude","skills":[" how ","why"]}`
+	body := `{"name":"lead","backend":"claude","skills":[" claude:how ","claude:why"]}`
 	if status, resBody := do(t, http.MethodPut, ts.URL+"/bots/1", body); status != http.StatusOK ||
-		!strings.Contains(resBody, `"skills":["how","why"]`) {
+		!strings.Contains(resBody, `"skills":["claude:how","claude:why"]`) {
 		t.Errorf("PUT skills with a padded name = %d %s, want 200 and the trimmed names", status, resBody)
 	}
 }

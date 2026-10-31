@@ -716,7 +716,7 @@ func changesFiles(tool string) bool {
 // access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.
 // A write role on claude also gets Task to run parallel subagents. On codex a permission
 // mode the role sets stays when the role writes, so it may narrow it. A claude role may use only
-// the skills it picked, if it picked any: onDisk names the skills on disk, and each one not picked is denied.
+// the claude: skills it picked, if it picked any: onDisk names the skills on disk, and each one not picked is denied.
 func access(r store.Role, onDisk []string) (mode string, tools, denied []string) {
 	mode, tools = r.PermissionMode, slices.Clone(r.Tools)
 	switch {
@@ -735,12 +735,16 @@ func access(r store.Role, onDisk []string) (mode string, tools, denied []string)
 		})
 	}
 	if r.Backend == "claude" && len(r.Skills) > 0 {
-		for _, name := range r.Skills {
-			tools = append(tools, "Skill("+name+")")
+		var picked []string
+		for _, ref := range r.Skills {
+			if name, ok := strings.CutPrefix(ref, "claude:"); ok {
+				picked = append(picked, name)
+				tools = append(tools, "Skill("+name+")")
+			}
 		}
 		denied = slices.Clone(denied)
 		for _, name := range onDisk {
-			if !slices.Contains(r.Skills, name) {
+			if !slices.Contains(picked, name) {
 				denied = append(denied, "Skill("+name+")")
 			}
 		}

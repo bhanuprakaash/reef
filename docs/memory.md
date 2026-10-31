@@ -140,7 +140,7 @@ read them: create a Bot for each role with its text as the `description`, then a
 - A Bot's `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the Bot's own `mcpServers`
   unless `tools` lists them (`mcp__mcp1__*`).
-  A claude Bot that picks skills (`skills`) may use only those: each is allowed as `Skill(name)` and every
+  A claude Bot that picks skills (`skills`) may use only those: each `claude:` ref is allowed as `Skill(name)` and every
   other claude skill on disk is denied. A Bot that picks none keeps every skill. A codex Bot gets the
   names in its prompt only.
   A claude Bot without `write` cannot list plain `Bash` (or `Bash(*)`): saving it is

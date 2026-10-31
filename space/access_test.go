@@ -99,8 +99,8 @@ func TestSession_RunAsDeniesUnpickedSkills(t *testing.T) {
 	st, f := openStore(t)
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "tester", Backend: "claude", Tools: []string{"Read"}, Skills: []string{"how"}},
-		{Name: "reviewer", Backend: "codex", Skills: []string{"how"}},
+		{Name: "tester", Backend: "claude", Tools: []string{"Read"}, Skills: []string{"claude:how"}},
+		{Name: "reviewer", Backend: "codex", Skills: []string{"claude:how"}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -187,22 +187,28 @@ func TestAccess(t *testing.T) {
 		},
 		{
 			"claude without write allows its picked skills and denies the other skills on disk",
-			store.Role{Backend: "claude", Tools: []string{"Read"}, Skills: []string{"how"}},
+			store.Role{Backend: "claude", Tools: []string{"Read"}, Skills: []string{"claude:how"}},
 			[]string{"how", "why", "slack:standup"},
 			"default", []string{"Read", "Skill(how)"},
 			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill(why)", "Skill(slack:standup)"},
 		},
 		{
 			"claude with write allows its picked skills after Task",
-			store.Role{Backend: "claude", Write: true, Tools: []string{"Read"}, Skills: []string{"how", "why"}},
+			store.Role{Backend: "claude", Write: true, Tools: []string{"Read"}, Skills: []string{"claude:how", "claude:why"}},
 			[]string{"how", "why", "teach"},
 			"", []string{"Read", "Task", "Skill(how)", "Skill(why)"}, []string{"Skill(teach)"},
 		},
 		{
 			"claude denies no skill by name when every skill on disk is picked",
-			store.Role{Backend: "claude", Write: true, Skills: []string{"how"}},
+			store.Role{Backend: "claude", Write: true, Skills: []string{"claude:how"}},
 			[]string{"how"},
 			"", []string{"Task", "Skill(how)"}, nil,
+		},
+		{
+			"claude allows no rule for a skill picked from reef or codex",
+			store.Role{Backend: "claude", Write: true, Skills: []string{"reef:how", "codex:why"}},
+			[]string{"how", "why"},
+			"", []string{"Task"}, []string{"Skill(how)", "Skill(why)"},
 		},
 		{
 			"claude with no picked skills keeps every skill",
@@ -212,7 +218,7 @@ func TestAccess(t *testing.T) {
 		},
 		{
 			"codex gets no skill rules",
-			store.Role{Backend: "codex", Write: true, Skills: []string{"how"}},
+			store.Role{Backend: "codex", Write: true, Skills: []string{"claude:how"}},
 			[]string{"how", "why"},
 			"workspace-write", nil, nil,
 		},
