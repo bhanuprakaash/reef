@@ -170,8 +170,8 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 }
 
 // ensureCoordinator makes the first member of Space id its coordinator when none leads.
-func ensureCoordinator(ctx context.Context, tx *sql.Tx, id int64) error {
-	_, err := tx.ExecContext(ctx,
+func ensureCoordinator(ctx context.Context, x execer, id int64) error {
+	_, err := x.ExecContext(ctx,
 		"UPDATE space_member SET lead = 1 WHERE id = (SELECT MIN(id) FROM space_member WHERE space_id = ?) "+
 			"AND NOT EXISTS (SELECT 1 FROM space_member WHERE space_id = ? AND lead = 1)", id, id)
 	return err

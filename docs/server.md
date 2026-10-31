@@ -635,6 +635,7 @@ tool calls.
 | `DELETE /spaces/{id}/projects/{projectId}` | | 200 the Space's projects after it; the Space, its history and its sessions stay, and so does a project it was not associated with | 400 a Space of a work item; 404 Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
 | `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
+| `PUT /spaces/{id}/coordinator` | `botId` | 200 the Space's members, that Bot the only coordinator. Changes where messages that mention nobody go, and nothing else: no Work item, owner or other member changes. Closes the Space's idle agent so the next turn starts with the new coordinator | 400 not a member; 404; 409 a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
@@ -1009,6 +1010,7 @@ restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each it
 | `fyi` | `sub_item` | a Bot made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
 | `fyi` | `proposed` | a Bot proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it, and the suggested Team | `id` | `POST /inbox/dismiss` |
 | `fyi` | `started` | the queue moved an item to in progress, including one sent back from review | `Started from the queue: ` and its title | `id` | `POST /inbox/dismiss` |
+| `fyi` | `space_proposed` | a Bot proposed a Space with `propose_space`; `workItemId` is null, `proposal` has `id`, `proposedBy`, `name`, `botIds` and `coordinatorBotId` | who proposed it, and its name | `id` | `POST /inbox/dismiss`; the window opens the new Space form with the proposal filled in, and dismisses it when the Space is created |
 | `fyi` | `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
 
 `at` is the time of the failed turn's end, of the message, of the proof for `review`, of the row

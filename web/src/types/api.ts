@@ -201,7 +201,16 @@ export type DirectMessage = {
 };
 
 export type InboxItem = {
-  kind: 'paused' | 'held' | 'failed' | 'review' | 'waiting' | 'sub_item' | 'proposed' | 'started';
+  kind:
+    | 'paused'
+    | 'held'
+    | 'failed'
+    | 'review'
+    | 'waiting'
+    | 'sub_item'
+    | 'proposed'
+    | 'started'
+    | 'space_proposed';
   group: 'needs_you' | 'review' | 'fyi';
   spaceId: number;
   workItemId: number | null;
@@ -210,6 +219,15 @@ export type InboxItem = {
   turnId?: number;
   messageId?: number;
   id?: number;
+  proposal?: SpaceProposal;
+};
+
+export type SpaceProposal = {
+  id: number;
+  proposedBy: string;
+  name: string;
+  botIds: number[];
+  coordinatorBotId: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';

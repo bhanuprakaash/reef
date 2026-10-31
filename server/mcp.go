@@ -142,6 +142,11 @@ type (
 		Description string   `json:"description" jsonschema:"what to do and why"`
 		Acceptance  []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
 	}
+	proposeSpaceIn struct {
+		Name          string  `json:"name" jsonschema:"what the Space is for, in a few words"`
+		BotIDs        []int64 `json:"botIds" jsonschema:"ids of the Bots to put in the Space, from find_bots"`
+		CoordinatorID int64   `json:"coordinatorBotId,omitempty" jsonschema:"the Bot that gets messages that mention nobody; default the first Bot"`
+	}
 	subItemIn struct {
 		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
 	}
@@ -292,6 +297,12 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"responsibility fits it best suggested. The user decides whether and when to queue it; " +
 			"a proposal never starts work.",
 	}, m.proposeWorkItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_space",
+		Description: "Propose a new Space with participants and a coordinator. It lands in the " +
+			"user's inbox; the user accepts or changes the selection before the Space is created. " +
+			"A proposal creates nothing and grants no access.",
+	}, m.proposeSpace)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sub_items",
 		Description: "List this work item's sub-items with their status, oldest first.",
@@ -845,6 +856,19 @@ func (m *mcpServer) proposeWorkItem(
 		return nil, store.WorkItem{}, err
 	}
 	return nil, w, nil
+}
+
+func (m *mcpServer) proposeSpace(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeSpaceIn,
+) (*mcp.CallToolResult, store.SpaceProposal, error) {
+	name, err := m.currentName(ctx)
+	if err != nil {
+		return nil, store.SpaceProposal{}, err
+	}
+	p, err := m.st.CreateSpaceProposal(ctx, store.SpaceProposal{
+		ProposedBy: name, Name: in.Name, BotIDs: in.BotIDs, CoordinatorBotID: in.CoordinatorID,
+	})
+	return nil, p, err
 }
 
 func (m *mcpServer) findBots(

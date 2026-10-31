@@ -20,6 +20,7 @@ const kindColors: Record<InboxItem['kind'], string> = {
   sub_item: 'text-muted',
   proposed: 'text-muted',
   started: 'text-muted',
+  space_proposed: 'text-muted',
 };
 
 export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {

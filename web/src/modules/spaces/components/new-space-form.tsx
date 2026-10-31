@@ -1,8 +1,9 @@
 import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateSpace } from '@/modules/spaces/api/create-space';
+import { useBots } from '@/lib/api/get-bots';
 import { useTeams } from '@/lib/api/get-teams';
-import type { Role } from '@/types/api';
+import type { Role, SpaceProposal } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature, GroupAvatar } from '@/components/creature';
 import { TextField } from '@/components/text-field';
@@ -13,21 +14,36 @@ type Props = {
   projectId?: number;
   workItemId: number | null;
   itemTeam?: string;
+  proposal?: SpaceProposal;
+  onCreated?: () => void;
   onClose: () => void;
 };
 
-export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props) {
-  const [picked, setPicked] = useState([itemTeam ?? 'solo']);
+export function NewSpaceForm({
+  projectId,
+  workItemId,
+  itemTeam,
+  proposal,
+  onCreated,
+  onClose,
+}: Props) {
+  const [picked, setPicked] = useState(proposal ? [] : [itemTeam ?? 'solo']);
   const [dropped, setDropped] = useState<number[]>([]);
-  const [chosen, setChosen] = useState<number | null>(null);
-  const [name, setName] = useState('');
+  const [chosen, setChosen] = useState<number | null>(proposal?.coordinatorBotId ?? null);
+  const [name, setName] = useState(proposal?.name ?? '');
   const create = useCreateSpace();
   const teams = useTeams();
+  const bots = useBots();
   const navigate = useNavigate();
   const nameId = useId();
   const teamList = (teams.data ?? []).filter((t) => itemTeam === undefined || t.name === itemTeam);
 
-  const pickedRoles = picked.flatMap((n) => teams.data?.find((t) => t.name === n)?.roles ?? []);
+  const proposed: Role[] = (bots.data ?? [])
+    .filter((b) => proposal?.botIds.includes(b.id))
+    .map((b) => ({ ...b, botId: b.id, lead: false }));
+  const pickedRoles = proposed.concat(
+    picked.flatMap((n) => teams.data?.find((t) => t.name === n)?.roles ?? []),
+  );
   const listed = pickedRoles.filter(
     (r, i) => pickedRoles.findIndex((o) => o.botId === r.botId) === i,
   );
@@ -55,13 +71,14 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
           {
             projectId,
             workItemId,
-            name: name.trim() || `${picked[0]} ${time}`,
+            name: name.trim() || `${picked[0] ?? 'space'} ${time}`,
             team: picked[0],
             botIds: roster.map((r) => r.botId),
             coordinatorBotId: coordinator.botId,
           },
           {
             onSuccess: (space) => {
+              onCreated?.();
               onClose();
               void navigate(`/spaces/${space.id}`);
             },

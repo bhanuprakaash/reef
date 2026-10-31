@@ -46,6 +46,9 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, erro
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return Role{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 	}
+	if err := ensureCoordinator(ctx, s.db, id); err != nil {
+		return Role{}, fmt.Errorf("set coordinator: %w", err)
+	}
 	roles, err := s.roles(ctx, "space_member", "space_id", id)
 	if err != nil {
 		return Role{}, fmt.Errorf("read members of Space %d: %w", id, err)
@@ -56,6 +59,25 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, erro
 		}
 	}
 	return Role{}, fmt.Errorf("bot %d in Space %d: %w", botID, id, ErrNotFound)
+}
+
+// SetSpaceCoordinator makes the member Bot botID the coordinator of Space id, and no other
+// member. It changes nothing else: Work items keep their owners. It returns the Space's members.
+func (s *Store) SetSpaceCoordinator(ctx context.Context, id, botID int64) ([]Role, error) {
+	if _, err := s.Space(ctx, id); err != nil {
+		return nil, err
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE space_member SET lead = (bot_id = ?) WHERE space_id = ? "+
+			"AND EXISTS (SELECT 1 FROM space_member WHERE space_id = ? AND bot_id = ?)",
+		botID, id, id, botID)
+	if err != nil {
+		return nil, fmt.Errorf("set coordinator: %w", err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return nil, fmt.Errorf("%w: bot %d is not a member of Space %d", ErrInvalid, botID, id)
+	}
+	return s.roles(ctx, "space_member", "space_id", id)
 }
 
 // AddSpaceCrew puts every Bot of the Team that is not yet in Space id into it, with no lead.
@@ -76,6 +98,9 @@ func (s *Store) AddSpaceCrew(ctx context.Context, id int64, crew string) ([]Role
 			"SELECT ?, bot_id, 0 FROM team_member WHERE team_id = (SELECT id FROM team WHERE name = ?) "+
 			"ORDER BY id", id, crew); err != nil {
 		return nil, fmt.Errorf("insert Space crew: %w", err)
+	}
+	if err := ensureCoordinator(ctx, s.db, id); err != nil {
+		return nil, fmt.Errorf("set coordinator: %w", err)
 	}
 	return s.roles(ctx, "space_member", "space_id", id)
 }

@@ -20,6 +20,8 @@ const (
 	KindSubItem  = "sub_item"
 	KindProposed = "proposed"
 	KindStarted  = "started"
+
+	KindSpaceProposed = "space_proposed"
 )
 
 // _inboxItems selects paused, held and failed items. A closed Space has none. A paused Space
@@ -73,15 +75,16 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 // MessageID is its id) or sub_item, proposed or started (a row of inbox_fyi; ID). An item of a
 // Work item has no Space: SpaceID is 0.
 type InboxItem struct {
-	Kind       string    `json:"kind"`
-	Group      string    `json:"group"`
-	SpaceID    int64     `json:"spaceId"`
-	WorkItemID *int64    `json:"workItemId"`
-	Text       string    `json:"text"`
-	At         time.Time `json:"at"`
-	TurnID     *int64    `json:"turnId,omitempty"`
-	MessageID  *int64    `json:"messageId,omitempty"`
-	ID         *int64    `json:"id,omitempty"`
+	Kind       string         `json:"kind"`
+	Group      string         `json:"group"`
+	SpaceID    int64          `json:"spaceId"`
+	WorkItemID *int64         `json:"workItemId"`
+	Text       string         `json:"text"`
+	At         time.Time      `json:"at"`
+	TurnID     *int64         `json:"turnId,omitempty"`
+	MessageID  *int64         `json:"messageId,omitempty"`
+	ID         *int64         `json:"id,omitempty"`
+	Proposal   *SpaceProposal `json:"proposal,omitempty"`
 }
 
 func groupOf(kind string) string {
@@ -116,6 +119,11 @@ func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
 		return nil, err
 	}
 	items = append(items, work...)
+	proposals, err := s.spaceProposalItems(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, proposals...)
 	slices.SortStableFunc(items, func(a, b InboxItem) int { return b.At.Compare(a.At) })
 	return items, nil
 }
@@ -153,6 +161,8 @@ func (s *Store) DismissInbox(ctx context.Context, i InboxItem) error {
 			ErrConflict, i.Kind)
 	}
 	switch {
+	case i.Kind == KindSpaceProposed && i.ID != nil:
+		return s.dismissSpaceProposal(ctx, *i.ID)
 	case i.Kind == "waiting" && i.MessageID != nil:
 		return s.dismissWaiting(ctx, i.SpaceID, *i.MessageID)
 	case i.ID != nil && slices.Contains([]string{KindSubItem, KindProposed, KindStarted}, i.Kind):
@@ -167,6 +177,17 @@ func (s *Store) DismissInbox(ctx context.Context, i InboxItem) error {
 	}
 	return fmt.Errorf("%w: a %q item is dismissed by its id, or for waiting its Space and message",
 		ErrInvalid, i.Kind)
+}
+
+func (s *Store) dismissSpaceProposal(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM space_proposal WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("dismiss Space proposal: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return fmt.Errorf("Space proposal %d: %w", id, ErrNotFound)
+	}
+	return nil
 }
 
 func (s *Store) dismissWaiting(ctx context.Context, spaceID, messageID int64) error {

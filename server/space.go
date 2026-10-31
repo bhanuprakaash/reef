@@ -29,6 +29,8 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /spaces/{id}/members", s.listSpaceMembers)
 	mux.HandleFunc("POST /spaces/{id}/members", s.addSpaceMember)
 	mux.HandleFunc("/spaces/{id}/members", methodNotAllowed)
+	mux.HandleFunc("PUT /spaces/{id}/coordinator", s.setSpaceCoordinator)
+	mux.HandleFunc("/spaces/{id}/coordinator", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/projects", s.listSpaceProjects)
 	mux.HandleFunc("/spaces/{id}/projects", methodNotAllowed)
 	mux.HandleFunc("PUT /spaces/{id}/projects/{projectId}", s.addSpaceProject)
@@ -505,6 +507,35 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, role)
+}
+
+func (s *server) setSpaceCoordinator(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		BotID int64 `json:"botId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	c, _, err := s.claim(r.Context(), id, _noTurn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	roles, err := s.st.SetSpaceCoordinator(r.Context(), id, in.BotID)
+	if err = c.release(err); err != nil {
+		writeError(w, err)
+		return
+	}
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
+	writeJSON(w, http.StatusOK, viewTeam(store.Team{Roles: roles}).Roles)
 }
 
 func (s *server) reopenSpace(w http.ResponseWriter, r *http.Request) {

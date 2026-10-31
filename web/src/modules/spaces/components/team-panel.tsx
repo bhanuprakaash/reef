@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { useSetCoordinator } from '@/modules/spaces/api/set-coordinator';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import type { Role } from '@/types/api';
@@ -27,6 +28,7 @@ const stateLabel: Record<CreatureState, string> = {
 
 export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose }: Props) {
   const inspector = useInspector(spaceId, true);
+  const setCoordinator = useSetCoordinator(spaceId);
 
   function stateOf(role: Role): CreatureState {
     if (role.botId === working) return 'working';
@@ -75,7 +77,7 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
                     <Link to={`/bots?bot=${role.botId}`} className="truncate capitalize">
                       {role.name}
                     </Link>
-                    {role.lead && <Chip className="h-5 px-2 text-[11px]">lead</Chip>}
+                    {role.lead && <Chip className="h-5 px-2 text-[11px]">coordinator</Chip>}
                   </span>
                   <span className="block text-[12.5px] text-muted">
                     {[backendLabel[role.backend] ?? role.backend, stateLabel[state]]
@@ -83,6 +85,16 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
                       .join(' · ')}
                   </span>
                 </span>
+                {!role.lead && (
+                  <button
+                    type="button"
+                    disabled={setCoordinator.isPending}
+                    onClick={() => setCoordinator.mutate(role.botId)}
+                    className="rounded-field px-2 py-1 text-[12.5px] text-muted hover:bg-card hover:text-fg"
+                  >
+                    Make coordinator
+                  </button>
+                )}
                 {usage && (
                   <span className="text-[12.5px] tabular-nums text-muted">
                     {formatTokens(usage.inputTokens + usage.outputTokens)} tokens
@@ -92,6 +104,9 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
             );
           })}
         </ul>
+        {setCoordinator.isError && (
+          <p className="mt-1.5 text-sm text-danger">{setCoordinator.error.message}</p>
+        )}
       </div>
       {workItemId !== null && (
         <div>

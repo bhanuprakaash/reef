@@ -9,6 +9,7 @@ import { HomePage } from '@/app/routes/home';
 import { InboxPage } from '@/app/routes/inbox';
 import { ProjectPage } from '@/app/routes/project';
 import { ReviewPage } from '@/app/routes/review';
+import { SpaceProposalPage } from '@/app/routes/space-proposal';
 import { SettingsPage } from '@/app/routes/settings';
 import { BotPage } from '@/app/routes/bot';
 import { BotsPage } from '@/app/routes/bots';
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: '/spaces/:id', element: <SpacePage /> },
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },
+      { path: '/space-proposals/:id', element: <SpaceProposalPage /> },
       { path: '/teams', element: <TeamsPage /> },
       { path: '/bots', element: <BotsPage /> },
       { path: '/bots/:id', element: <BotPage /> },

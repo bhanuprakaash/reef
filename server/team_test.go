@@ -549,3 +549,36 @@ func TestCrewRosterOnly(t *testing.T) {
 		t.Errorf("GET /bots after = %d %s, want ann kept", status, body)
 	}
 }
+
+func TestSpaceCoordinatorChange(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	ann, bob, cy := *testServerBot(t, st, "ann"), *testServerBot(t, st, "bob"), *testServerBot(t, st, "cy")
+	post := func(path, body string) (int, string) { return do(t, http.MethodPost, ts.URL+path, body) }
+	put := func(path, body string) (int, string) { return do(t, http.MethodPut, ts.URL+path, body) }
+	status, body := post("/spaces", fmt.Sprintf(`{"name":"s","botIds":[%d,%d]}`, ann, bob))
+	if status != 201 {
+		t.Fatalf("POST /spaces = %d %s, want 201", status, body)
+	}
+
+	status, body = put("/spaces/1/coordinator", fmt.Sprintf(`{"botId":%d}`, bob))
+	if status != 200 || strings.Count(body, `"lead":true`) != 1 ||
+		!strings.HasPrefix(body, fmt.Sprintf(`[{"botId":%d,"name":"bob","lead":true`, bob)) {
+		t.Errorf("PUT coordinator = %d %s, want bob the only coordinator", status, body)
+	}
+	if status, body = put("/spaces/1/coordinator", fmt.Sprintf(`{"botId":%d}`, cy)); status != 400 {
+		t.Errorf("PUT coordinator of a non-member = %d %s, want 400", status, body)
+	}
+
+	// A Bot added to a Space with no members becomes its coordinator.
+	if _, err := st.CreateSpace(ctx, store.Space{Name: "empty"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().ExecContext(ctx, "DELETE FROM space_member WHERE space_id = 2"); err != nil {
+		t.Fatal(err)
+	}
+	if status, body = post("/spaces/2/members", fmt.Sprintf(`{"botId":%d}`, cy)); status != 201 ||
+		!strings.Contains(body, `"lead":true`) {
+		t.Errorf("POST first member = %d %s, want the coordinator", status, body)
+	}
+}
