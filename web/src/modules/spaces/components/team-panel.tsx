@@ -47,13 +47,13 @@ export function TeamPanel({
   }
 
   return (
-    <aside aria-label="Team" className="space-y-6">
+    <aside aria-label="Bots" className="space-y-6">
       <div>
         <div className="mb-2 flex items-center">
-          <h2 className="text-[13px] text-muted">Team</h2>
+          <h2 className="text-[13px] text-muted">Bots</h2>
           <button
             type="button"
-            aria-label="Close team"
+            aria-label="Close Bots"
             onClick={onClose}
             className="ml-auto flex size-8 items-center justify-center rounded-field text-soft hover:bg-card max-md:hidden"
           >

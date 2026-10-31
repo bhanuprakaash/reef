@@ -28,7 +28,7 @@ export function BotsPage() {
       <header className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-[32px] font-normal tracking-[-0.02em]">Bots</h1>
-          <p className="mt-1 text-[13px] text-muted">Define a Bot once, add it to any team.</p>
+          <p className="mt-1 text-[13px] text-muted">Define a Bot once, add it to any Crew.</p>
         </div>
         <Button className="ml-auto" variant="primary" onClick={() => setCreating(true)}>
           <svg

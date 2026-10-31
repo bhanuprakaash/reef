@@ -66,8 +66,8 @@ export function Board({ items, teams }: Props) {
       (teamName(a) ?? '~').localeCompare(teamName(b) ?? '~'),
     );
     return teamIds.map((id) => (
-      <div key={id ?? 'none'} role="group" aria-label={`${teamName(id) ?? 'No Team'} queue`}>
-        <h3 className="px-1 pb-1.5 text-xs text-muted">{teamName(id) ?? 'No Team'}</h3>
+      <div key={id ?? 'none'} role="group" aria-label={`${teamName(id) ?? 'No Crew'} queue`}>
+        <h3 className="px-1 pb-1.5 text-xs text-muted">{teamName(id) ?? 'No Crew'}</h3>
         <ul className="flex flex-col gap-2">
           {column
             .filter((i) => i.teamId === id)

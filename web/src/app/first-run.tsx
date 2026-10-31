@@ -131,12 +131,12 @@ export function FirstRun() {
         </div>
         {twoSteps && <p className="text-[13px] text-muted">Step {askName ? 1 : 2} of 2</p>}
         <h1 className="text-4xl font-normal tracking-[-0.02em]">
-          {askName ? 'What should the team call you?' : 'Welcome to the reef'}
+          {askName ? 'What should your Bots call you?' : 'Welcome to the reef'}
         </h1>
         <p className="text-base text-muted">
           {askName
-            ? 'Your team uses your name when they talk to you.'
-            : 'Point Reef at a repo. Every Work item you start there keeps its own memory, and a team works on it with you.'}
+            ? 'Your Bots use your name when they talk to you.'
+            : 'Point Reef at a repo. Every Work item you start there keeps its own memory, and Bots work on it with you.'}
         </p>
         {askName ? <NameStep /> : <ProjectStep />}
         <p className="text-[13px] text-muted">

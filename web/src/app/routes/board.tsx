@@ -60,11 +60,11 @@ export function BoardPage() {
         />
         <Select
           variant="pill"
-          aria-label="Team"
+          aria-label="Crew"
           value={team}
           onChange={filter('team')}
           options={[
-            { value: 'all', label: 'All Teams' },
+            { value: 'all', label: 'All Crews' },
             ...(teams.data ?? []).map((t) => ({ value: String(t.id), label: t.name })),
           ]}
         />

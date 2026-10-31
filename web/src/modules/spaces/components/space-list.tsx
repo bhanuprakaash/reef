@@ -27,7 +27,7 @@ export function SpaceList({ spaces }: { spaces: Space[] }) {
     return (
       <EmptyState
         title="No Spaces yet"
-        body="Start one to talk to the team."
+        body="Start one to talk to a Bot."
         face="jellyfish"
         compact
       />

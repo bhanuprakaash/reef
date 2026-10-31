@@ -76,7 +76,7 @@ export function SpaceHeader({
       <button
         type="button"
         onClick={onTeam}
-        aria-label="Show team"
+        aria-label="Show Bots"
         className="flex shrink-0 items-center justify-center rounded-field max-md:size-11"
       >
         <GroupAvatar roles={roles} faces={faces} size={26} working={working} />
@@ -166,7 +166,7 @@ export function SpaceHeader({
           variant="ghost"
           type="button"
           onClick={onTeam}
-          aria-label="Team"
+          aria-label="Bots"
           className={phoneIcon}
         >
           <svg
@@ -183,7 +183,7 @@ export function SpaceHeader({
             <circle cx="12" cy="12" r="9" />
             <path d="M12 11v6M12 7.5v.5" />
           </svg>
-          <span className="max-md:hidden">Team</span>
+          <span className="max-md:hidden">Bots</span>
         </Button>
         {space.workItemId !== null && (
           <Link to={`/work-items/${space.workItemId}`} className={`${buttonClass()} ml-1.5`}>

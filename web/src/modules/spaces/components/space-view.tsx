@@ -397,7 +397,7 @@ export function SpaceView({
               <div className="mb-5 flex items-center gap-2.5 md:hidden">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xl">#{space.name}</div>
-                  <div className="text-[13px] text-muted">Team · {space.team}</div>
+                  {space.team && <div className="text-[13px] text-muted">Crew · {space.team}</div>}
                 </div>
                 {space.workItemId !== null && !closed && (
                   <Button

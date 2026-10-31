@@ -159,7 +159,7 @@ export function Composer({
         : roles
           ? narrow
             ? 'Message, @ to mention'
-            : 'Message the team, @ to mention'
+            : 'Message the Space, @ to mention'
           : 'Message';
 
   return (

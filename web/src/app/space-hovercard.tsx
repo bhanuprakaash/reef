@@ -66,7 +66,7 @@ export function SpaceCard({
           </dd>
         </dl>
       )}
-      <ul aria-label="Team" className="flex flex-col gap-1.5">
+      <ul aria-label="Bots" className="flex flex-col gap-1.5">
         {(team.length > 0 ? team : [{ id: space.botId, name: space.role, face: undefined }]).map(
           (member) => {
             const active = working.includes(member.id);
