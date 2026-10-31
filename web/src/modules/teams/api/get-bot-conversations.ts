@@ -10,7 +10,8 @@ const path = (id: number, projectId: number | undefined, rest: string) =>
 export function useBotLatestChat(id: number, projectId: number | undefined, enabled = true) {
   return useQuery({
     queryKey: ['spaces', 'bot', id, 'latest', projectId ?? 'all'],
-    queryFn: async () => (await api<SpacePreview[]>(path(id, projectId, 'limit=1')))[0] ?? null,
+    queryFn: async () =>
+      (await api<SpacePreview[]>(path(id, projectId, 'resumable=1&limit=1')))[0] ?? null,
     enabled,
   });
 }

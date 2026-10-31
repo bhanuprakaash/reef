@@ -61,6 +61,7 @@ func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	page.Resumable = r.URL.Query().Get("resumable") == "1"
 	limit, err := queryID(r, "limit")
 	if err != nil {
 		writeError(w, err)

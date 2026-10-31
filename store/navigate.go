@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -38,8 +40,10 @@ func (s *Store) SetPin(ctx context.Context, kind string, id int64) error {
 		return fmt.Errorf("%w: pin kind %q is not bot, chat or space", ErrInvalid, kind)
 	}
 	var one int
-	if err := s.db.QueryRowContext(ctx, q, id).Scan(&one); err != nil {
+	if err := s.db.QueryRowContext(ctx, q, id).Scan(&one); errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("%s %d: %w", kind, id, ErrNotFound)
+	} else if err != nil {
+		return fmt.Errorf("pin %s %d: %w", kind, id, err)
 	}
 	if _, err := s.db.ExecContext(ctx,
 		"INSERT INTO pin (kind, target_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
@@ -64,6 +68,7 @@ func (s *Store) Pins(ctx context.Context) ([]Pin, error) {
 		`SELECT p.kind, p.target_id, COALESCE(b.name, c.name), p.created_at FROM pin p
 		LEFT JOIN bot b ON p.kind = 'bot' AND b.id = p.target_id
 		LEFT JOIN space c ON p.kind != 'bot' AND c.id = p.target_id
+		WHERE COALESCE(b.name, c.name) IS NOT NULL
 		ORDER BY p.created_at DESC, p.rowid DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list pins: %w", err)
@@ -82,11 +87,12 @@ func (s *Store) Pins(ctx context.Context) ([]Pin, error) {
 
 // ConversationPage narrows and pages a Bot's conversations. ProjectID keeps those associated
 // with the Project. Before is the id of the last conversation of the previous page. Limit
-// 0 lists all.
+// 0 lists all. Resumable drops the conversations that moved to a Space.
 type ConversationPage struct {
 	ProjectID *int64
 	Before    *int64
 	Limit     int
+	Resumable bool
 }
 
 // _activity orders conversations: the time of the newest message, or else of the creation.
@@ -110,6 +116,9 @@ func (s *Store) BotConversationsPage(
 	if p.ProjectID != nil {
 		where += " AND EXISTS (SELECT 1 FROM space_project WHERE space_id = space.id AND project_id = ?)"
 		args = append(args, *p.ProjectID)
+	}
+	if p.Resumable {
+		where += " AND space.moved_to IS NULL"
 	}
 	if p.Before != nil {
 		where += " AND (" + _activity + ", space.id) < " + _cursorActivity

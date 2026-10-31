@@ -62,6 +62,16 @@ func TestNavigate_PinsLatestChatPagesAndFind(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(names(got), []string{"chat 5"}) {
 		t.Errorf("latest under project 2 = %v, %v, want [chat 5]", names(got), err)
 	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE space SET moved_to = ? WHERE id = ?", free.ID, chats[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err = s.BotConversationsPage(ctx, sam.ID, ConversationPage{ProjectID: &one, Limit: 1, Resumable: true})
+	if err != nil || !reflect.DeepEqual(names(got), []string{"chat 2"}) {
+		t.Errorf("resumable latest under project 1 = %v, %v, want [chat 2]", names(got), err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE space SET moved_to = NULL WHERE id = ?", chats[0].ID); err != nil {
+		t.Fatal(err)
+	}
 	var seen []string
 	var before *int64
 	for {
@@ -106,6 +116,14 @@ func TestNavigate_PinsLatestChatPagesAndFind(t *testing.T) {
 	}
 	if pins, _ = s.Pins(ctx); len(pins) != 2 {
 		t.Errorf("pins after deleting a pinned Space = %d, want 2", len(pins))
+	}
+
+	if _, err := s.db.ExecContext(ctx,
+		"INSERT INTO pin (kind, target_id, created_at) VALUES ('bot', 999, ?)", time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		t.Fatal(err)
+	}
+	if pins, err = s.Pins(ctx); err != nil || len(pins) != 2 {
+		t.Errorf("pins with an orphan pin = %d, %v, want 2", len(pins), err)
 	}
 
 	var msgs []Message
