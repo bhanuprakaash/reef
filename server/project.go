@@ -338,7 +338,12 @@ func (s *server) pauseTargetingItems(ctx context.Context, held []store.WorkItem,
 		}
 		note := fmt.Sprintf("Project %s was deleted. Its workspace is removed; its branch stays in the repository. "+
 			"Decide how this Work item goes on, then continue the Space.", name)
-		if err := s.pauseWithNote(ctx, sp.ID, "project "+name+" was deleted", note); err != nil {
+		if sp.Paused != "" {
+			_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: note})
+		} else {
+			err = s.pauseWithNote(ctx, sp.ID, "project "+name+" was deleted", note)
+		}
+		if err != nil {
 			return err
 		}
 	}
