@@ -10,7 +10,6 @@ var _reviewStart = time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 
 func (e *liveEnv) setClock(at time.Time) { e.clock.Store(at.Unix()) }
 
-// reviewMarker reads the review columns of Bot id.
 func reviewMarker(t *testing.T, e *liveEnv, id int64) (reviewed int64, started sql.NullInt64) {
 	t.Helper()
 	err := e.st.DB().QueryRow(
@@ -22,7 +21,6 @@ func reviewMarker(t *testing.T, e *liveEnv, id int64) (reviewed int64, started s
 	return reviewed, started
 }
 
-// waitReview loops until the review of Bot id has ended: its claim is cleared.
 func waitReview(t *testing.T, e *liveEnv, id int64) (reviewed int64) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

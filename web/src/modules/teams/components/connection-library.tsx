@@ -167,7 +167,8 @@ export function ConnectionLibrary() {
         <p className="mt-1 text-[13px] text-muted">
           Tools a Bot can use, from a local process or an HTTP server. A Bot only gets the ones you
           select for it. A connection listens for nothing and sends nothing on its own. Changes
-          reach new chats and chats you Refresh.
+          reach new chats and chats you Refresh. Saved secrets show as ****; leave them to keep the
+          stored value.
         </p>
       </div>
       {connections.isError && <p className="text-sm text-danger">{connections.error.message}</p>}

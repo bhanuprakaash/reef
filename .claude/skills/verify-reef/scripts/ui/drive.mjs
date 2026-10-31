@@ -1823,7 +1823,7 @@ async function workshop() {
   }
   sql(`insert or ignore into connection (name, command, args, env, url, created_at) values ('verify-conn', 'true', '[]', '{"API_KEY":"sk-verify-9911"}', '', '2026-01-01T00:00:00Z')`, true);
   const connBefore = `[${sql("select id from connection where name = 'verify-conn'")}]`;
-  sql(`update bot set connections = '${connBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["ghost-skill"]' where name = 'developer'`, true);
+  sql(`update bot set connections = '${connBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["claude:ghost-skill"]' where name = 'developer'`, true);
   mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
   writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
 
@@ -1843,9 +1843,9 @@ async function workshop() {
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Otter', exact: true }).click();
   await shot('persona-edited');
-  const ghost = main.getByText('ghost-skill').locator('..');
+  const ghost = main.getByText('claude:ghost-skill').locator('..');
   check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
-  await main.getByRole('button', { name: 'Remove ghost-skill', exact: true }).click();
+  await main.getByRole('button', { name: 'Remove claude:ghost-skill', exact: true }).click();
   const addSkill = page.getByRole('listbox', { name: `${mate} add skill`, exact: true });
   await main.getByRole('combobox', { name: `${mate} add skill`, exact: true }).click();
   const offered = await addSkill.getByRole('option').allInnerTexts();
@@ -1863,9 +1863,9 @@ async function workshop() {
   await main.getByRole('button', { name: 'Save Bot' }).click();
   await page.getByText('Saved').waitFor();
   await shot('persona-saved');
-  check(row('bot.description') === persona, "saving the developer's persona on the Bots page updates its teammate row");
-  check(row('bot.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
-  check(row('bot.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('bot.skills'));
+  check(row('bot.description') === persona, "saving the developer's description on the Bots page updates the Bot row");
+  check(row('bot.face') === 'otter', "picking a creature for the developer saves it to the Bot row");
+  check(row('bot.skills') === '["claude:workshop-skill"]', "saving the developer's skills updates the Bot row", row('bot.skills'));
   check(row('bot.connections') === connBefore, "the developer's selected connections are unchanged by saving other settings");
 
   // Unrestricted Bash on a Bot without write: the server's error shows in the Bot panel.
@@ -1918,11 +1918,26 @@ async function workshop() {
   const otters = await main.locator('svg [fill="#C08A5B"]').count();
   const penguins = await main.locator('svg [fill="#3FBFA0"]').count();
   check(otters > 0 && penguins === 0, "the Space shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
-  const prompt = sql(`select prompt from turn where space_id = ${cid} and role = 'developer' order by id limit 1`);
-  check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
+  const instructed = readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').includes(marker);
+  check(instructed, "the new Space's developer session starts with the new description in its system prompt", instructed ? marker : '(marker not in the fake claude log)');
+
+  // A Bot edited after its session adopted: the Bots panel shows what the session runs with.
+  const devId = row('bot.id');
+  const devBot = await (await fetch(`${base}/bots/${devId}`)).json();
+  const edited = await fetch(`${base}/bots/${devId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...devBot, model: 'workshop-edited-model' }) });
+  check(edited.status === 200, 'the developer Bot is edited after its session adopted', String(edited.status));
+  await page.goto(`${base}/spaces/${cid}`);
+  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  const botsPanel = page.getByRole('complementary', { name: 'Bots' });
+  await botsPanel.getByText('Refresh to adopt edits').waitFor();
+  const adopted = await botsPanel.innerText();
+  await shot('team-panel-adopted');
+  check(adopted.includes('Session runs with') && !adopted.includes('workshop-edited-model'), "the Bots panel shows the adopted settings, not the Bot's edited model", adopted.replace(/\s+/g, ' ').slice(0, 200));
+  check(adopted.includes('Bot settings changed. Refresh to adopt edits.'), 'the Bots panel says the Bot changed and Refresh adopts it');
 
   await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
+  await skills.getByRole('button', { name: 'Claude Code' }).click();
   await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
   const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
   await shot('settings-skills');

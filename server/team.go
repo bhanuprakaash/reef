@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -18,20 +19,41 @@ type teamView struct {
 }
 
 type roleView struct {
-	BotID          int64    `json:"botId,omitempty"`
-	Name           string   `json:"name"`
-	Lead           bool     `json:"lead"`
-	Write          bool     `json:"write"`
-	Backend        string   `json:"backend"`
-	PermissionMode string   `json:"permissionMode"`
-	Description    string   `json:"description"`
-	Skills         []string `json:"skills"`
-	Face           string   `json:"face,omitempty"`
-	Colour         string   `json:"colour,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	Provider       string   `json:"provider,omitempty"`
-	Tools          []string `json:"tools"`
-	Connections    []int64  `json:"connections"`
+	BotID          int64        `json:"botId,omitempty"`
+	Name           string       `json:"name"`
+	Lead           bool         `json:"lead"`
+	Write          bool         `json:"write"`
+	Backend        string       `json:"backend"`
+	PermissionMode string       `json:"permissionMode"`
+	Description    string       `json:"description"`
+	Skills         []string     `json:"skills"`
+	Face           string       `json:"face,omitempty"`
+	Colour         string       `json:"colour,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Provider       string       `json:"provider,omitempty"`
+	Tools          []string     `json:"tools"`
+	Connections    []int64      `json:"connections"`
+	Session        *sessionView `json:"session,omitempty"`
+}
+
+// sessionView is what a Bot's active session in a Space runs with. Stale says the Bot's own
+// settings have changed since. Connections are names only: the session's env and urls stay out.
+type sessionView struct {
+	Backend        string             `json:"backend"`
+	Model          string             `json:"model,omitempty"`
+	PermissionMode string             `json:"permissionMode"`
+	Write          bool               `json:"write"`
+	Tools          []string           `json:"tools"`
+	Skills         []sessionSkillView `json:"skills"`
+	Connections    []string           `json:"connections"`
+	RefreshPending bool               `json:"refreshPending"`
+	Stale          bool               `json:"stale"`
+}
+
+type sessionSkillView struct {
+	Ref        string `json:"ref"`
+	Compatible bool   `json:"compatible"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 // mcpView names a connection as the agent sees its MCP server and labels it by its command, or
@@ -172,6 +194,27 @@ func viewRole(r store.Role) roleView {
 		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools,
 		Connections: connectionIDs(r.Connections),
 	}
+}
+
+func viewSession(bs store.BotSession, live store.Role, pending bool) *sessionView {
+	v := &sessionView{
+		Backend: bs.Backend, Model: bs.Model, PermissionMode: bs.PermissionMode, Write: bs.Write,
+		Tools: nonNil(bs.Tools), Skills: make([]sessionSkillView, len(bs.Skills)),
+		Connections: make([]string, len(bs.Connections)), RefreshPending: pending,
+	}
+	for i, k := range bs.Skills {
+		v.Skills[i] = sessionSkillView{Ref: k.Ref, Compatible: k.Compatible, Reason: k.Reason}
+	}
+	for i, c := range bs.Connections {
+		v.Connections[i] = c.Name
+	}
+	adopted := bs.Apply(live)
+	v.Stale = bs.Backend != live.Backend || bs.Provider != live.Provider || bs.Model != live.Model ||
+		bs.Description != live.Description || bs.Write != live.Write ||
+		bs.PermissionMode != live.PermissionMode || !slices.Equal(bs.Tools, live.Tools) ||
+		!slices.Equal(adopted.Skills, live.Skills) ||
+		!slices.Equal(connectionIDs(bs.Connections), connectionIDs(live.Connections))
+	return v
 }
 
 func connectionIDs(cs []store.Connection) []int64 {

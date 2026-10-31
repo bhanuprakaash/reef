@@ -174,6 +174,19 @@ export type Role = {
   model?: string;
   tools: string[];
   connections: number[];
+  session?: RoleSession;
+};
+
+export type RoleSession = {
+  backend: string;
+  model?: string;
+  permissionMode: string;
+  write: boolean;
+  tools: string[];
+  skills: { ref: string; compatible: boolean; reason?: string }[];
+  connections: string[];
+  refreshPending: boolean;
+  stale: boolean;
 };
 
 export type Connection = {

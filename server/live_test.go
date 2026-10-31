@@ -282,7 +282,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), reviewed: make(chan int64, 8), directStart: make(chan struct{}, 2)}}
+	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), reviewed: make(chan int64, 1), directStart: make(chan struct{}, 2)}}
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)

@@ -354,7 +354,7 @@ neither a working directory nor permission to change a repository, and filters n
   memory scope and cannot `propose_work_item`.
 - Attach (`POST /spaces/{id}/attach`) takes any top-level work item, whatever the Space is
   associated with: the Space moves to the work item's project and is associated with it too, and its
-  other associations stay.
+  other associations stay. Its `space` memory items move to the work item only when no other Project is associated; otherwise they stay in the Space scope.
 
 ### pin
 
@@ -512,7 +512,7 @@ A Bot adopts its settings in a Space at the Bot's first turn there: table `bot_s
 
 ### connection
 
-A tool connection set up once in Reef: an MCP server a Bot is offered when it selects the connection. It is a local process (`command`, `args`, `env`) or an HTTP server (`url`), exactly one of the two. Both claude and codex take both kinds. It names the server the backend shows the tools under: `mcp__<name>__<tool>`. `name` is unique, letters, digits, `_` or `-`, and not `reef`, which is the reef server. A connection is only tools offered to the Bots that select it: it starts no listener and no Channel, and gives no authority to send anything anywhere. A session gets the connections its Bot selected when the session adopted its settings, next to the `reef` server; changing a Bot's selection reaches new sessions and a Refresh, not a session that is running. REST shows the whole configuration, `env` included, so the window can edit it.
+A tool connection set up once in Reef: an MCP server a Bot is offered when it selects the connection. It is a local process (`command`, `args`, `env`) or an HTTP server (`url`), exactly one of the two. Both claude and codex take both kinds. It names the server the backend shows the tools under: `mcp__<name>__<tool>`. `name` is unique, letters, digits, `_` or `-`, and not `reef`, which is the reef server. A connection is only tools offered to the Bots that select it: it starts no listener and no Channel, and gives no authority to send anything anywhere. A session gets the connections its Bot selected when the session adopted its settings, next to the `reef` server; changing a Bot's selection reaches new sessions and a Refresh, not a session that is running. REST masks secrets: each `env` value is `****` and the userinfo and query values of `url` are `****`. `PUT` sends the mask back to keep the stored value (a mask with no stored value is `invalid`), and a local process saved with no `env` keeps its stored one. `bot_session` rows keep the full configuration, and no REST response shows it.
 
 ### provider
 
@@ -660,7 +660,7 @@ tool calls.
 | `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
 | `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a bot still names it (the error names the bot; change that bot first) |
-| `GET /connections` | | 200 every connection by name, each `{id, name, command, args, env, url, createdAt}` | |
+| `GET /connections` | | 200 every connection by name, each `{id, name, command, args, env, url, createdAt}` with secrets masked (see [connection](#connection)) | |
 | `POST /connections` | `name`, and `command` with optional `args` and `env`, or `url` (`http` or `https`) | 201 the connection | 400 neither or both of `command` and `url`, a bad name or url; 409 name taken |
 | `PUT /connections/{id}` | every field | 200 | 400, 404, 409 name taken |
 | `DELETE /connections/{id}` | | 204; it leaves every Bot's selection, and the sessions that already have it keep it | 404 |
@@ -698,7 +698,7 @@ tool calls.
 | `GET /spaces/{id}/projects` | | 200 the projects the Space is associated with, by id, `[]` when none | 404 |
 | `PUT /spaces/{id}/projects/{projectId}` | no body needed | 200 the Space's projects after it; doing it twice changes nothing | 400 a Space of a work item, which stays in its work item's project; 404 Space or project |
 | `DELETE /spaces/{id}/projects/{projectId}` | | 200 the Space's projects after it; the Space, its history and its sessions stay, and so does a project it was not associated with | 400 a Space of a work item; 404 Space |
-| `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
+| `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role, plus `session` for a Bot with an active session: `{backend, model, permissionMode, write, tools, skills: [{ref, compatible, reason}], connections (names only), refreshPending, stale}`, what the session runs with. `stale` is true when the Bot's own settings differ from it | 404 |
 | `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
 | `PUT /spaces/{id}/coordinator` | `botId` | 200 the Space's members, that Bot the only coordinator. Changes where messages that mention nobody go, and nothing else: no Work item, owner or other member changes. Closes the Space's idle agent so the next turn starts with the new coordinator | 400 not a member; 404; 409 a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |

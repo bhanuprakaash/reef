@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/memory"
@@ -392,10 +393,16 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 	if err != nil {
 		return store.Space{}, err
 	}
-	from := memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)}
-	to := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(workItemID, 10)}
-	if _, err := s.ms.Rescope(ctx, from, to); err != nil {
+	projects, err := s.st.SpaceProjects(ctx, ch.ID)
+	if err != nil {
 		return store.Space{}, err
+	}
+	if !slices.ContainsFunc(projects, func(o store.Project) bool { return o.ID != f.ProjectID }) {
+		from := memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)}
+		to := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(workItemID, 10)}
+		if _, err := s.ms.Rescope(ctx, from, to); err != nil {
+			return store.Space{}, err
+		}
 	}
 	body := fmt.Sprintf("This Space is now attached to work item %q (%d). It works in %s on %s.",
 		f.Title, f.ID, worktree.Path(s.dataDir, p.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
@@ -468,7 +475,24 @@ func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, viewTeam(t).Roles)
+	pending, err := s.st.RefreshPendingBots(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	roles := viewTeam(t).Roles
+	for i, role := range t.Roles {
+		bs, err := s.st.ActiveBotSession(r.Context(), id, role.BotID)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		roles[i].Session = viewSession(bs, role, slices.Contains(pending, role.BotID))
+	}
+	writeJSON(w, http.StatusOK, roles)
 }
 
 func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
@@ -507,7 +531,7 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, role)
+	writeJSON(w, http.StatusCreated, viewRole(role))
 }
 
 func (s *server) setSpaceCoordinator(w http.ResponseWriter, r *http.Request) {

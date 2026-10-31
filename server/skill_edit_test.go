@@ -49,7 +49,7 @@ func TestSkillEditorAndDrafts(t *testing.T) {
 
 	call := callTool(t, st, tok)
 	got, isErr := call("propose_skill", map[string]any{
-		"name": "triage",
+		"name":  "triage",
 		"files": []map[string]string{{"path": "SKILL.md", "body": "---\nname: triage\ndescription: Sort bugs.\n---\nSteps."}},
 	})
 	if want := `{"id":1,"message":"draft saved; the user will review it"}`; got != want || isErr {
