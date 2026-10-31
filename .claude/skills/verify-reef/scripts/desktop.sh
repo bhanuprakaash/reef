@@ -130,7 +130,7 @@ fid=${row% *} proj=${row#* }
 tok=$("$H" reef -- token "$fid" --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
 bare=$("$H" sql "select id from work_item where title = 'Bare'" | tail -n 1)
 [ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no Work item or token; see $E/reef.log"; exit 1; }
-WT="$DATA/worktrees/$proj/$fid"
+WT="$DATA/worktrees/item-$fid/$proj-$("$H" sql "select lower(name) from project where id = $proj" | tail -n 1)"
 
 # The app reads PATH from the login shell; with HOME scratch, these rc files are the user's.
 if [ "${REEF_VERIFY_CLAUDE:-fake}" != real ]; then
@@ -417,8 +417,8 @@ spa "/work-items/$bare"
 click_toggle
 sleep 1.5
 bare_text=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''")
-check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/$bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
-	"on a Work item with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/$bare"
+check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/item-$bare" ] && case $bare_text in *'No workspace yet'*) echo 1 ;; esac)" \
+	"on a Work item with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/item-$bare"
 
 stub_open "(cb) => setTimeout(() => cb(null, '', ''), 1000)"
 spa "/work-items/$fid"

@@ -1,14 +1,17 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -191,22 +194,33 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	gone := projectGone(p.Path)
-	if !gone {
-		for _, f := range fs {
-			if err := s.checkWorkItemTree(r.Context(), p, f); err != nil {
-				writeError(w, err)
-				return
-			}
-		}
+	own, err := s.st.ProjectCheckpointRefs(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	refs[id] = append(refs[id], own...)
+	ws, err := s.st.ProjectWorkspaces(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
 	for _, f := range fs {
-		if gone {
-			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.TreeKey()))
-		} else {
-			err = s.removeWorkItemTree(r.Context(), p, f)
-		}
+		more, err := s.st.WorkItemWorkspaces(r.Context(), f.ID)
 		if err != nil {
+			writeError(w, err)
+			return
+		}
+		ws = append(ws, more...)
+	}
+	slices.SortFunc(ws, func(a, b store.Workspace) int { return cmp.Compare(a.ID, b.ID) })
+	ws = slices.CompactFunc(ws, func(a, b store.Workspace) bool { return a.ID == b.ID })
+	if err := s.removeWorkspaces(r.Context(), ws); err != nil {
+		writeError(w, err)
+		return
+	}
+	for _, f := range fs {
+		if err := os.RemoveAll(space.WorkRoot(s.dataDir, f.TreeKey())); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -225,11 +239,17 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if !gone {
-		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
+	own = refs[id]
+	delete(refs, id)
+	if !projectGone(p.Path) {
+		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, own); err != nil {
 			writeError(w, err)
 			return
 		}
+	}
+	if err := s.deleteRefs(context.WithoutCancel(r.Context()), refs); err != nil {
+		writeError(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

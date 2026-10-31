@@ -21,8 +21,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 104 {
-		t.Errorf("user_version = %d, want 104", version)
+	if version != 105 {
+		t.Errorf("user_version = %d, want 105", version)
 	}
 
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
@@ -43,7 +43,7 @@ func TestOpen(t *testing.T) {
 		"acceptance_line", "approval", "bot", "bot_session", "brief", "connection", "decision", "direct_message", "inbox_fyi", "member_proposal", "message", "message_ref", "pin",
 		"profile", "project", "proof", "proposal", "provider", "role_notes", "setting", "skill", "skill_draft", "skill_file", "space", "space_member", "space_project", "space_proposal",
 		"team", "team_fts", "team_fts_config", "team_fts_data", "team_fts_docsize", "team_fts_idx",
-		"team_member", "token", "tool_call", "turn", "work_item", "work_item_github",
+		"team_member", "token", "tool_call", "turn", "turn_checkpoint", "work_item", "work_item_github",
 		"work_item_github_check", "work_item_participant", "work_item_target", "workspace",
 	}
 	if !reflect.DeepEqual(tables, want) {
@@ -67,8 +67,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 104 {
-		t.Errorf("user_version after reopen = %d, want 104", version)
+	if version != 105 {
+		t.Errorf("user_version after reopen = %d, want 105", version)
 	}
 	var name string
 	if err := s.db.QueryRow("SELECT name FROM project WHERE id = 1").Scan(&name); err != nil {
@@ -97,7 +97,7 @@ func TestOpenNewerDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec("PRAGMA user_version = 105"); err != nil {
+	if _, err := s.db.Exec("PRAGMA user_version = 106"); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -136,8 +136,8 @@ func TestOpenConcurrent(t *testing.T) {
 	if err := stores[0].db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 104 {
-		t.Errorf("user_version = %d, want 104", version)
+	if version != 105 {
+		t.Errorf("user_version = %d, want 105", version)
 	}
 }
 

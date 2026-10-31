@@ -5,11 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -26,11 +24,6 @@ var ErrNoRepo = errors.New("work items need the project folder to be a git repo 
 // ErrDirty is returned by Remove for a worktree with uncommitted changes.
 var ErrDirty = errors.New("uncommitted changes")
 
-// Path is where the worktree of the work item with tree key key in project projectID lives.
-func Path(dataDir string, projectID int64, key string) string {
-	return filepath.Join(dataDir, "worktrees", strconv.FormatInt(projectID, 10), key)
-}
-
 // Branch is the branch a work item works on.
 func Branch(key string) string { return "work-item/" + key }
 
@@ -39,25 +32,6 @@ func Branch(key string) string { return "work-item/" + key }
 func ValidBranch(ctx context.Context, name string) bool {
 	return !strings.HasPrefix(name, "-") &&
 		exec.CommandContext(ctx, "git", "check-ref-format", "refs/heads/"+name).Run() == nil
-}
-
-// Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one,
-// after finishing an add that was cut short: its folder was made and registered but the
-// checkout into it never ran. The branch is made from base, the project's base branch, or from
-// the default branch of repo when base is empty (see baseRef), or reused when it exists. A new
-// branch from a base first fetches it from origin; a failed fetch is logged, not fatal. A
-// worktree whose folder is gone is made again. A repo with no commit has no HEAD to make a
-// branch from, and fails, as does a branch that another worktree has checked out. The add itself runs under context.WithoutCancel, so a ctx cancelled while it
-// is in flight does not leave another half-made tree.
-func Ensure(ctx context.Context, repo, dir, branch, base string) error {
-	return ensure(ctx, repo, dir, branch, func() (string, error) {
-		if base != "" {
-			if err := fetch(ctx, repo, base); err != nil {
-				log.Printf("fetch base branch: %v", err)
-			}
-		}
-		return baseRef(ctx, repo, base), nil
-	})
 }
 
 // StartRef is where a new branch starts: Ref is origin/<base> when Source is "origin" (origin was
@@ -72,10 +46,15 @@ type StartRef struct {
 // ErrNoBase is returned by Create when the base branch exists neither at origin nor locally.
 var ErrNoBase = errors.New("base branch not found")
 
-// Create is Ensure that reports where the branch starts, and fails with ErrNoBase instead of
-// starting from some other branch when the project's base branch cannot be found. With an
-// empty base it uses the branch origin/HEAD names, else the local default branch. The StartRef is
-// empty when no new branch was needed: dir or the branch already existed.
+// Create makes dir a worktree of repo on branch. It does nothing when dir already is one, after
+// finishing an add that was cut short: its folder was made and registered but the checkout into
+// it never ran. A new branch starts at the base branch (see ResolveBase), or at the one origin/HEAD
+// names, else the local default branch, when base is empty; an existing branch is reused. A
+// worktree whose folder is gone is made again. It fails with ErrNoBase instead of starting from
+// some other branch when the base branch cannot be found, with ErrNoRepo for a repo with no
+// commit, and when another worktree has the branch checked out. The add runs under
+// context.WithoutCancel, so a ctx cancelled while it is in flight does not leave a half-made
+// tree. The StartRef is empty when no new branch was needed: dir or the branch already existed.
 func Create(ctx context.Context, repo, dir, branch, base string) (StartRef, error) {
 	var b StartRef
 	err := ensure(ctx, repo, dir, branch, func() (string, error) {

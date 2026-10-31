@@ -10,7 +10,7 @@ import (
 func TestDiff_UncommittedAndUntracked(t *testing.T) {
 	repo := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
@@ -49,7 +49,7 @@ func TestDiff_UncommittedAndUntracked(t *testing.T) {
 func TestDiff_EmptyNewFile(t *testing.T) {
 	repo := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "empty.txt"), nil, 0o644); err != nil {
@@ -79,7 +79,7 @@ func TestDiff_EmptyNewFile(t *testing.T) {
 func TestDiff_BinaryFile(t *testing.T) {
 	repo := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "binary.bin"), []byte{0x00, 0x01, 0x02, 0xff}, 0o644); err != nil {
@@ -115,7 +115,7 @@ func TestDiff_RenameAsDeleteAndAdd(t *testing.T) {
 	run(t, repo, "commit", "-m", "add old")
 
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(filepath.Join(dir, "old.txt"), filepath.Join(dir, "new.txt")); err != nil {
@@ -145,7 +145,7 @@ func TestDiff_RenameAsDeleteAndAdd(t *testing.T) {
 func TestDiff_NonASCIIName(t *testing.T) {
 	repo := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	name := "déjà.txt"
@@ -179,7 +179,7 @@ func TestDiff_RemovedCommentLine(t *testing.T) {
 	run(t, repo, "commit", "-m", "add sql")
 
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "sql.txt"), []byte("line1\nline3\n"), 0o644); err != nil {
@@ -232,7 +232,7 @@ func TestDiff_TypeChangeThenEdit(t *testing.T) {
 	run(t, repo, "commit", "-m", "add files")
 
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(dir, "link.txt")); err != nil {
@@ -279,7 +279,7 @@ func TestDiff_TypeChangeThenEdit(t *testing.T) {
 func TestDiff_NoChanges(t *testing.T) {
 	repo := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "demo")
-	if err := Ensure(context.Background(), repo, dir, "feature/demo", ""); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/demo", ""); err != nil {
 		t.Fatal(err)
 	}
 	base, err := Base(context.Background(), repo, dir, "")

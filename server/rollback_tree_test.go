@@ -8,31 +8,28 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
+func TestRollback_OnlyInTheWorkspaceItWasTakenIn(t *testing.T) {
 	ctx := context.Background()
 	env, tree := rollbackEnv(t)
-	p, err := env.st.Project(ctx, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick"}`)
 	const ref = "refs/reef/checkpoints/2"
-	if err := worktree.Checkpoint(ctx, p.Path, ref); err != nil {
+	if err := worktree.Checkpoint(ctx, tree, ref); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: 3, Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
+	if err := env.st.AddTurnCheckpoint(ctx, turn.ID, 1, ref); err != nil {
 		t.Fatal(err)
 	}
 	if status, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); status != 200 || body != "[]" {
-		t.Errorf("rollbackable turns of the quick session = %d %s, want 200 []: it runs outside the project", status, body)
+		t.Errorf("rollbackable turns of the quick session = %d %s, want 200 []: it has no work item", status, body)
 	}
 	search, err := env.st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 2, Title: "Search"})
 	if err != nil {
@@ -41,11 +38,6 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if _, err := env.st.AttachSpace(ctx, 3, search.ID); err != nil {
 		t.Fatal(err)
 	}
-	other := worktree.Path(env.dir, 2, "2")
-	if err := worktree.Ensure(ctx, p.Path, other, worktree.Branch("2"), ""); err != nil {
-		t.Fatal(err)
-	}
-	writeIn(t, other, "work.txt", "w")
 
 	if status, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); status != 200 || body != "[]" {
 		t.Errorf("rollbackable turns after attach = %d %s, want 200 []", status, body)
@@ -54,25 +46,23 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 		t.Errorf("rollbackable without a Space = %d %s, want 400", status, body)
 	}
 	status, body := do(t, http.MethodPost, env.url+"/turns/2/rollback", "")
-	want := `{"error":"turn 2 was checkpointed in ` + p.Path + `, not ` + other + `: conflict"}`
+	want := `{"error":"turn 2 was checkpointed in workspace 1, which work item 2 does not have: conflict"}`
 	if status != 409 || body != want {
 		t.Errorf("rollback after attach = %d %s, want 409 %s", status, body, want)
 	}
-	if got := gitIn(t, other, "status", "--porcelain"); got != "?? work.txt" {
-		t.Errorf("status of the work item worktree = %q, want work.txt left alone", got)
-	}
 	if got := gitIn(t, tree, "status", "--porcelain"); got != "M a.txt\n?? new.txt" {
-		t.Errorf("status of the other worktree = %q, want it untouched", got)
+		t.Errorf("status of the work item 1 worktree = %q, want it untouched", got)
 	}
 }
 
 func TestRollback_RefusedWhileTheTreeIsRead(t *testing.T) {
 	env, tree := rollbackEnv(t)
 	writeIn(t, tree, "a.txt", "a by the turn")
-	done := env.h.s.trees.Read(tree)
+	root := space.WorkRoot(env.dir, "1")
+	done := env.h.s.trees.Read(root)
 
 	status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", "")
-	if want := `{"error":"` + tree + ` has a turn running: conflict"}`; status != 409 || body != want {
+	if want := `{"error":"` + root + ` has a turn running: conflict"}`; status != 409 || body != want {
 		t.Errorf("rollback while a read-only turn runs = %d %s, want 409 %s", status, body, want)
 	}
 	if b, err := os.ReadFile(filepath.Join(tree, "a.txt")); err != nil || string(b) != "a by the turn" {

@@ -304,8 +304,8 @@ func firstPrompt(
 				fmt.Fprintf(&b, "%d. [%s] %s\n", l.Position, tick, l.Text)
 			}
 		}
-		if p.BaseBranch != "" {
-			fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
+		if err := targetLines(ctx, st, &b, f); err != nil {
+			return "", err
 		}
 		if know, err = workItemKnow(ctx, st, ms, f, ch, r); err != nil {
 			return "", err

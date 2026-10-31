@@ -1,6 +1,7 @@
 package space
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -16,14 +17,19 @@ import (
 
 var _notSlug = regexp.MustCompile(`[^a-z0-9]+`)
 
-// WorkspaceDir is where the workspace of the Work item with tree key key for project p lives,
-// inside the one folder the item's agent works from.
+// WorkRoot is the one folder the agents of the Work item with tree key key work from; each
+// target's workspace is a folder inside it.
+func WorkRoot(dataDir, key string) string {
+	return filepath.Join(dataDir, "worktrees", "item-"+key)
+}
+
+// WorkspaceDir is where the workspace of the Work item with tree key key for project p lives.
 func WorkspaceDir(dataDir, key string, p store.Project) string {
 	slug := strings.Trim(_notSlug.ReplaceAllString(strings.ToLower(p.Name), "-"), "-")
 	if slug == "" {
 		slug = "project"
 	}
-	return filepath.Join(dataDir, "worktrees", "item-"+key, strconv.FormatInt(p.ID, 10)+"-"+slug)
+	return filepath.Join(WorkRoot(dataDir, key), strconv.FormatInt(p.ID, 10)+"-"+slug)
 }
 
 // EnsureWorkspaces makes the workspace of every target of item, one per repository, and returns
@@ -63,6 +69,64 @@ func EnsureWorkspaces(ctx context.Context, st *store.Store, trees *Trees, dataDi
 		return nil, err
 	}
 	return rows, errors.Join(errs...)
+}
+
+// targetLines tells an agent where each repository of item f is, relative to its working
+// folder, on which branch and from which base. A pull request you open targets that base.
+func targetLines(ctx context.Context, st *store.Store, b *strings.Builder, f store.WorkItem) error {
+	topID, err := strconv.ParseInt(f.TreeKey(), 10, 64)
+	if err != nil {
+		return err
+	}
+	ws, err := st.WorkItemWorkspaces(ctx, topID)
+	if err != nil {
+		return err
+	}
+	if len(ws) == 0 {
+		return nil
+	}
+	b.WriteString("Repositories you may change, each in its own folder under your working folder; " +
+		"a pull request targets the base branch:\n")
+	for _, w := range ws {
+		p, err := st.Project(ctx, w.ProjectID)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(b, "- %s: %s/ on branch %s", p.Name, filepath.Base(w.Dir), w.Branch)
+		base := cmp.Or(w.Base, w.BaseRef)
+		switch {
+		case w.State == store.WorkspacePaused:
+			fmt.Fprintf(b, ", paused: %s", w.Note)
+		case w.BaseSource != "":
+			fmt.Fprintf(b, ", base %s (%s)", base, w.BaseSource)
+			if w.Note != "" {
+				fmt.Fprintf(b, ": %s", w.Note)
+			}
+		default:
+			fmt.Fprintf(b, ", base %s", base)
+		}
+		b.WriteString("\n")
+	}
+	return nil
+}
+
+// readyWorkspaces lists the workspaces of the item with tree key key that can be worked in.
+func readyWorkspaces(ctx context.Context, st *store.Store, key string) ([]store.Workspace, error) {
+	topID, err := strconv.ParseInt(key, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	all, err := st.WorkItemWorkspaces(ctx, topID)
+	if err != nil {
+		return nil, err
+	}
+	var ready []store.Workspace
+	for _, w := range all {
+		if w.State == store.WorkspaceReady {
+			ready = append(ready, w)
+		}
+	}
+	return ready, nil
 }
 
 func ensureWorkspace(ctx context.Context, st *store.Store, trees *Trees, p store.Project, w store.Workspace, topID int64) error {

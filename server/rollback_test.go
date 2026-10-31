@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -46,10 +47,12 @@ func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Login"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"c"}`)
-	tree = worktree.Path(env.dir, 2, "1")
-	if err := worktree.Ensure(ctx, repo, tree, worktree.Branch("1"), ""); err != nil {
-		t.Fatal(err)
+	do(t, http.MethodPost, env.url+"/work-items/1/workspaces", "")
+	ws, err := env.st.WorkItemWorkspaces(ctx, 1)
+	if err != nil || len(ws) != 1 {
+		t.Fatalf("workspaces = %+v, %v, want one", ws, err)
 	}
+	tree = ws[0].Dir
 	writeIn(t, tree, "a.txt", "a edited")
 	writeIn(t, tree, "new.txt", "n")
 	const ref = "refs/reef/checkpoints/1"
@@ -60,7 +63,7 @@ func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
+	if err := env.st.AddTurnCheckpoint(ctx, turn.ID, ws[0].ID, ref); err != nil {
 		t.Fatal(err)
 	}
 	turn.Status = "done"
@@ -156,7 +159,7 @@ func TestRollback_Refused(t *testing.T) {
 		})
 	}
 
-	unlock, err := env.h.s.trees.Lock(context.Background(), tree)
+	unlock, err := env.h.s.trees.Lock(context.Background(), space.WorkRoot(env.dir, "1"))
 	if err != nil {
 		t.Fatal(err)
 	}

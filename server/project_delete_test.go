@@ -10,14 +10,15 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
 // projectTrees extends rollbackEnv (project 2, work item 1 "login", worktree login, ref
 // checkpoints/1) with work item 2 "signup" and a clean worktree whose turn has ref
-// checkpoints/2, and a quick-session Space whose turn has ref checkpoints/3 taken in the
-// main checkout. It returns the main checkout's .git folder and signup's worktree.
+// checkpoints/2, and a quick-session Space whose quick-fix workspace has a turn with ref checkpoints/3.
+// It returns the main checkout's .git folder and signup's worktree.
 func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string) {
 	t.Helper()
 	ctx := context.Background()
@@ -26,14 +27,28 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Signup"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":2,"name":"s"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick"}`)
-	signup = worktree.Path(env.dir, 2, "2")
-	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("2"), ""); err != nil {
+	do(t, http.MethodPost, env.url+"/work-items/2/workspaces", "")
+	ws, err := env.st.WorkItemWorkspaces(ctx, 2)
+	if err != nil || len(ws) != 1 {
+		t.Fatalf("workspaces = %+v, %v, want one", ws, err)
+	}
+	signup = ws[0].Dir
+	fixID := int64(4)
+	fix, err := env.st.EnsureWorkspace(ctx, store.Workspace{
+		ProjectID: 2, SpaceID: &fixID, Name: "tidy", Dir: filepath.Join(env.dir, "chats", "4", "tidy-app"),
+		Branch: "fix/4-tidy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worktree.Create(ctx, main, fix.Dir, fix.Branch, ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		space int64
-		dir   string
-	}{{3, signup}, {4, main}} {
+		space     int64
+		workspace int64
+		dir       string
+	}{{3, ws[0].ID, signup}, {4, fix.ID, fix.Dir}} {
 		turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: c.space, Role: "lead", Backend: "claude"})
 		if err != nil {
 			t.Fatal(err)
@@ -42,7 +57,7 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 		if err := worktree.Checkpoint(ctx, c.dir, ref); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
+		if err := env.st.AddTurnCheckpoint(ctx, turn.ID, c.workspace, ref); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -127,14 +142,15 @@ func TestDeleteProject_FolderGoneRemovesRowsAndWorktrees(t *testing.T) {
 func TestDeleteProject_RefusedWhileATreeIsLocked(t *testing.T) {
 	env, login := rollbackEnv(t)
 	projectTrees(t, env, login)
-	unlock, err := env.h.s.trees.Lock(context.Background(), login)
+	root := space.WorkRoot(env.dir, "1")
+	unlock, err := env.h.s.trees.Lock(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 
 	status, body := do(t, http.MethodDelete, env.url+"/projects/2", "")
-	if want := `{"error":"` + login + ` has a turn running: conflict"}`; status != 409 || body != want {
+	if want := `{"error":"` + root + ` has a turn running: conflict"}`; status != 409 || body != want {
 		t.Errorf("delete while a tree is locked = %d %s, want 409 %s", status, body, want)
 	}
 	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 200 {

@@ -54,10 +54,10 @@ A=$(cat "$S/serve.addr")
 
 api_call POST /projects '{"name":"app","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"Demo"}'
-api_call POST /work-items/1/worktree ""
+api_call POST /work-items/1/workspaces ""
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"main","team":"full"}'
 api_call POST /work-items '{"projectId":1,"title":"Solo Demo"}'
-api_call POST /work-items/2/worktree ""
+api_call POST /work-items/2/workspaces ""
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"only"}'
 
 ### PR note, and a repeat poll with the same answer
@@ -146,7 +146,7 @@ check solo-note-wakes-lead "$([ "$solo_wait" = 0 ] && [ "$turns_solo" -ge 1 ] &&
 ### Two check runs under the same name: both are noted, not merged into one row
 
 api_call POST /work-items '{"projectId":1,"title":"Two Runs Demo"}'
-api_call POST /work-items/3/worktree ""
+api_call POST /work-items/3/workspaces ""
 api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"both","team":"full"}'
 
 echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
@@ -164,7 +164,7 @@ check two-runs-same-name-both-noted "$([ "$two_runs_wait" = 0 ] && [ "$test_note
 ### busy cause is logged once, and the wake is retried once the space is clear.
 
 api_call POST /work-items '{"projectId":1,"title":"Busy Demo"}'
-api_call POST /work-items/4/worktree ""
+api_call POST /work-items/4/workspaces ""
 api_call POST /spaces '{"projectId":1,"workItemId":4,"name":"busy","team":"full"}'
 "$H" sql --write "update Space set paused = 'verify busy' where id = 4" >/dev/null
 
@@ -207,7 +207,7 @@ check wake-retries-after-busy "$busy_ok" \
 ### space at the cap instead of waking the coordinator again.
 
 api_call POST /work-items '{"projectId":1,"title":"Hopcap Demo"}'
-api_call POST /work-items/5/worktree ""
+api_call POST /work-items/5/workspaces ""
 api_call POST /spaces '{"projectId":1,"workItemId":5,"name":"hops","team":"full"}'
 
 hop_ok=1
@@ -250,7 +250,7 @@ check hop-cap "$hop_ok" \
 ### recorded as posted until a space exists to post it in, then posts once, not twice.
 
 api_call POST /work-items '{"projectId":1,"title":"Lost Note Demo"}'
-api_call POST /work-items/6/worktree ""
+api_call POST /work-items/6/workspaces ""
 
 echo '{"number":77,"url":"https://github.com/x/y/pull/77","state":"OPEN","statusCheckRollup":[]}' >"$GH/resp.json"
 sleep 3
@@ -270,7 +270,7 @@ check lost-note-no-space "$lost_ok" \
 ### Two failed checks in one rollup: one coordinator wake naming both, not one wake each.
 
 api_call POST /work-items '{"projectId":1,"title":"Two Fail Demo"}'
-api_call POST /work-items/7/worktree ""
+api_call POST /work-items/7/workspaces ""
 api_call POST /spaces '{"projectId":1,"workItemId":7,"name":"main","team":"full"}'
 
 printf 'line one\n' >"$GH/log.txt"

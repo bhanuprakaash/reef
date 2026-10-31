@@ -14,6 +14,17 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
+func checkpointIn(t *testing.T, st *store.Store, f store.WorkItem, r *Runner, dir string) {
+	t.Helper()
+	w, err := st.EnsureWorkspace(context.Background(), store.Workspace{
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Dir: dir, Branch: "work-item/1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Workspaces = func(context.Context) ([]store.Workspace, error) { return []store.Workspace{w}, nil }
+}
+
 func TestRunner_TwoDataDirsKeepTheirOwnCheckpoints(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -40,14 +51,14 @@ func TestRunner_TwoDataDirsKeepTheirOwnCheckpoints(t *testing.T) {
 		st, f := openStore(t)
 		ch := sessionSpace(t, st, f, true)
 		r := newTestRunner(t, st, newRecordingAgent(), ch.ID, "architect", "claude", "")
-		r.CheckpointDir = repo
+		checkpointIn(t, st, f, r, repo)
 		r.DataDir = t.TempDir()
 		write(content)
 		if err := r.Run(ctx, "go", nil, discard); err != nil {
 			t.Fatal(err)
 		}
 		turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
-		if err != nil || len(turns) != 1 || turns[0].ID != 1 || turns[0].Checkpoint == nil {
+		if err != nil || len(turns) != 1 || turns[0].ID != 1 || len(turns[0].Checkpoints) == 0 {
 			t.Fatalf("turns = %+v, %v, want turn 1 with a checkpoint", turns, err)
 		}
 		return turns[0]
@@ -55,10 +66,10 @@ func TestRunner_TwoDataDirsKeepTheirOwnCheckpoints(t *testing.T) {
 	a := checkpoint("from a")
 	b := checkpoint("from b")
 
-	if *a.Checkpoint == *b.Checkpoint {
-		t.Fatalf("both data dirs checkpointed turn 1 at %s", *a.Checkpoint)
+	if a.Checkpoints[0].Ref == b.Checkpoints[0].Ref {
+		t.Fatalf("both data dirs checkpointed turn 1 at %s", a.Checkpoints[0].Ref)
 	}
-	if err := worktree.Restore(ctx, repo, *a.Checkpoint); err != nil {
+	if err := worktree.Restore(ctx, repo, a.Checkpoints[0].Ref); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(repo, "a.txt"))
@@ -96,7 +107,11 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 	if err := s.RunAs(ctx, "tester", "look", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	tree := filepath.Join(dir, "worktrees", "1", "1")
+	ws, err := st.WorkItemWorkspaces(ctx, f.ID)
+	if err != nil || len(ws) != 1 {
+		t.Fatalf("workspaces = %+v, %v, want one", ws, err)
+	}
+	tree := ws[0].Dir
 	if err := os.WriteFile(filepath.Join(tree, "note.txt"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -108,12 +123,12 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(turns) != 2 || turns[0].Role != "tester" || turns[0].Checkpoint != nil ||
-		turns[1].Role != "developer" || turns[1].Checkpoint == nil ||
-		!regexp.MustCompile(`^refs/reef/checkpoints/[0-9a-f]{12}/2$`).MatchString(*turns[1].Checkpoint) {
+	if len(turns) != 2 || turns[0].Role != "tester" || len(turns[0].Checkpoints) > 0 ||
+		turns[1].Role != "developer" || len(turns[1].Checkpoints) == 0 ||
+		!regexp.MustCompile(`^refs/reef/checkpoints/[0-9a-f]{12}/2$`).MatchString(turns[1].Checkpoints[0].Ref) {
 		t.Fatalf("turns = %+v, want tester with no checkpoint, developer with refs/reef/checkpoints/<data dir>/2", turns)
 	}
-	out, err := exec.Command("git", "-C", tree, "show", *turns[1].Checkpoint+":note.txt").Output()
+	out, err := exec.Command("git", "-C", tree, "show", turns[1].Checkpoints[0].Ref+":note.txt").Output()
 	if err != nil || string(out) != "draft" {
 		t.Errorf("checkpoint note.txt = %q, %v, want draft", out, err)
 	}
@@ -173,7 +188,7 @@ func TestSession_NoCheckpointWhenProjectIsASubfolderOfARepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(turns) != 1 || turns[0].Status != "done" || turns[0].Checkpoint != nil {
+	if len(turns) != 1 || turns[0].Status != "done" || len(turns[0].Checkpoints) > 0 {
 		t.Errorf("turns = %+v, want one done turn with no checkpoint", turns)
 	}
 }
@@ -184,7 +199,8 @@ func TestRunner_FailsTurnWhenCheckpointFails(t *testing.T) {
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
 	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
-	r.CheckpointDir = t.TempDir()
+	dir := t.TempDir()
+	checkpointIn(t, st, f, r, dir)
 
 	if err := r.Run(ctx, "go", nil, discard); err == nil {
 		t.Fatal("Run in a folder that is not a git checkout succeeded, want an error")
@@ -193,7 +209,7 @@ func TestRunner_FailsTurnWhenCheckpointFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Checkpoint != nil ||
+	if len(turns) != 1 || turns[0].Status != "failed" || len(turns[0].Checkpoints) > 0 ||
 		!strings.Contains(turns[0].Error, "not a git repository") {
 		t.Errorf("turns = %+v, want one failed turn with no checkpoint", turns)
 	}
@@ -208,31 +224,32 @@ func TestRunner_RunsWithoutCheckpointWithUnmergedIndex(t *testing.T) {
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
 	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
-	r.CheckpointDir = t.TempDir()
+	dir := t.TempDir()
+	checkpointIn(t, st, f, r, dir)
 	gitIn := func(args ...string) {
 		t.Helper()
-		full := append([]string{"-C", r.CheckpointDir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)
+		full := append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)
 		if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
 	}
 	gitIn("init", "-b", "main")
-	if err := os.WriteFile(filepath.Join(r.CheckpointDir, "a.txt"), []byte("base"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("base"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitIn("add", ".")
 	gitIn("commit", "-m", "first")
 	gitIn("checkout", "-b", "other")
-	if err := os.WriteFile(filepath.Join(r.CheckpointDir, "a.txt"), []byte("other"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("other"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitIn("commit", "-am", "other change")
 	gitIn("checkout", "main")
-	if err := os.WriteFile(filepath.Join(r.CheckpointDir, "a.txt"), []byte("mine"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("mine"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	gitIn("commit", "-am", "main change")
-	if err := exec.Command("git", "-C", r.CheckpointDir, "merge", "other").Run(); err == nil {
+	if err := exec.Command("git", "-C", dir, "merge", "other").Run(); err == nil {
 		t.Fatal("merge did not conflict")
 	}
 
@@ -243,7 +260,7 @@ func TestRunner_RunsWithoutCheckpointWithUnmergedIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(turns) != 1 || turns[0].Status != "done" || turns[0].Checkpoint != nil {
+	if len(turns) != 1 || turns[0].Status != "done" || len(turns[0].Checkpoints) > 0 {
 		t.Errorf("turns = %+v, want one done turn with no checkpoint", turns)
 	}
 	if len(ag.prompts) != 1 {
@@ -257,8 +274,9 @@ func TestRunner_RunsWithoutCheckpointInRepoWithNoCommit(t *testing.T) {
 	ch := sessionSpace(t, st, f, true)
 	ag := newRecordingAgent()
 	r := newTestRunner(t, st, ag, ch.ID, "architect", "claude", "")
-	r.CheckpointDir = t.TempDir()
-	if out, err := exec.Command("git", "-C", r.CheckpointDir, "init", "-b", "main").CombinedOutput(); err != nil {
+	dir := t.TempDir()
+	checkpointIn(t, st, f, r, dir)
+	if out, err := exec.Command("git", "-C", dir, "init", "-b", "main").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
 
@@ -269,7 +287,7 @@ func TestRunner_RunsWithoutCheckpointInRepoWithNoCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(turns) != 1 || turns[0].Status != "done" || turns[0].Checkpoint != nil {
+	if len(turns) != 1 || turns[0].Status != "done" || len(turns[0].Checkpoints) > 0 {
 		t.Errorf("turns = %+v, want one done turn with no checkpoint", turns)
 	}
 	if len(ag.prompts) != 1 {

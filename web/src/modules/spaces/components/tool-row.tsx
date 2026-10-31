@@ -60,6 +60,11 @@ export function ToolRow({ tool }: { tool: Tool }) {
           <span className="min-w-0 flex-1 truncate text-soft">
             {subagentLabel(tool.name, tool.input) ?? summarizeInput(tool.input)}
           </span>
+          {tool.target && (
+            <span className="shrink-0 rounded-full bg-field px-2 text-muted">
+              {tool.target.projectName}
+            </span>
+          )}
         </summary>
         <div className="mt-1.5 space-y-2 rounded-lg bg-field px-2.5 py-2">
           <Section title="Input">{JSON.stringify(tool.input, null, 2)}</Section>

@@ -15,7 +15,7 @@ const turn: Turn = {
   error: '',
   wakeText: '',
   retried: false,
-  checkpoint: 'refs/c/7',
+  checkpoints: [{ workspaceId: 1, projectId: 1, ref: 'refs/c/7' }],
   startedAt: '2026-10-18T10:02:00Z',
 };
 

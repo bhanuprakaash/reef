@@ -33,9 +33,9 @@ func TestEnsure_BaseBranchIsFetchedFromOrigin(t *testing.T) {
 	newDev := commitFile(t, other, "dev2.txt")
 	run(t, other, "push", "origin", "dev")
 	main := run(t, repo, "rev-parse", "main")
-	dir := Path(t.TempDir(), 1, "login")
+	dir := filepath.Join(t.TempDir(), "login")
 
-	if err := Ensure(context.Background(), repo, dir, "feature/login", "dev"); err != nil {
+	if _, err := Create(context.Background(), repo, dir, "feature/login", "dev"); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, dir, "rev-parse", "HEAD"); got != newDev {
@@ -45,8 +45,8 @@ func TestEnsure_BaseBranchIsFetchedFromOrigin(t *testing.T) {
 		t.Errorf("Base = %q, %v; want origin/dev's %q", got, err, newDev)
 	}
 
-	empty := Path(t.TempDir(), 1, "search")
-	if err := Ensure(context.Background(), repo, empty, "feature/search", ""); err != nil {
+	empty := filepath.Join(t.TempDir(), "search")
+	if _, err := Create(context.Background(), repo, empty, "feature/search", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, empty, "rev-parse", "HEAD"); got != main {
@@ -56,7 +56,6 @@ func TestEnsure_BaseBranchIsFetchedFromOrigin(t *testing.T) {
 
 func TestEnsure_BaseBranchWithoutRemote(t *testing.T) {
 	repo := newRepo(t)
-	main := run(t, repo, "rev-parse", "main")
 	run(t, repo, "checkout", "-b", "dev")
 	dev := commitFile(t, repo, "dev.txt")
 	run(t, repo, "checkout", "main")
@@ -67,13 +66,12 @@ func TestEnsure_BaseBranchWithoutRemote(t *testing.T) {
 		want string
 	}{
 		{"local branch", "dev", dev},
-		{"missing branch", "nope", main},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dir := Path(t.TempDir(), 1, "login")
+			dir := filepath.Join(t.TempDir(), "login")
 			branch := "feature/login" + strconv.Itoa(i)
-			if err := Ensure(context.Background(), repo, dir, branch, tt.give); err != nil {
+			if _, err := Create(context.Background(), repo, dir, branch, tt.give); err != nil {
 				t.Fatal(err)
 			}
 			if got := run(t, dir, "rev-parse", "HEAD"); got != tt.want {

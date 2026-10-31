@@ -321,7 +321,10 @@ Permissions
   had `Write` and an unlisted `Bash` refused (claude 2.1.299).
 
 cwd
-- The process and, for Codex, `thread/start` get `cfg.Cwd`. Codex needs no git repo.
+- The process and, for Codex, `thread/start` get `cfg.Cwd`. Codex needs no git repo. For a Work
+  item's Space Reef sets it to the item's root folder, which is no repository and holds one
+  worktree per target, so the one process reaches each repository by a relative path and no
+  extra directory is passed.
 - Claude reports the real path (`/private/tmp` for `/tmp`). It files sessions per cwd
   (`~/.claude/projects/<cwd with each non-alphanumeric character as ->/`), but `Resume` from
   another `Cwd` still continues the session: on claude 2.1.299 a session started in a project

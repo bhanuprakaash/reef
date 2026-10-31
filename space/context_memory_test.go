@@ -206,11 +206,15 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
 
-	s, err := Open(ctx, st, ms, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	dir := t.TempDir()
+	s, err := Open(ctx, st, ms, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
+	if _, err := EnsureWorkspaces(ctx, st, NewTrees(t.TempDir()), dir, f); err != nil {
+		t.Fatal(err)
+	}
 	want, err := Context(ctx, st, ms, f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)

@@ -115,7 +115,7 @@ wait_item 1 "review:-"
 wait_sql "select count(*) >= 2 from turn where space_id = 1 and role = 'lead' and status = 'done'" 1
 rows=$("$H" sql "select role, status from turn where space_id = 1 and status = 'done' order by id" | tail -n +2 | tr '\n' ' ')
 tools=$("$H" sql "select turn.role, t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = 1 and t.name in ('Write', 'Bash') group by turn.role, t.name" | tail -n +2 | tr '\n' ' ')
-tree="$S/flow/worktrees/1/1"
+tree="$S/flow/worktrees/item-1/1-shop"
 work_ok=1
 case $rows in "lead|done developer|done tester|done lead|done "*) ;; *) work_ok=0 ;; esac
 [ "$tools" = "developer|Write|1 tester|Bash|1 " ] || work_ok=0

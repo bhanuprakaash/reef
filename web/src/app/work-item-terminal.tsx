@@ -1,10 +1,11 @@
 import { TerminalPane } from '@/app/terminal-pane';
-import { useEnsureWorktree } from '@/modules/work-items/api/ensure-worktree';
-import { useWorktree } from '@/modules/work-items/api/get-worktree';
+import { useEnsureWorkspaces } from '@/modules/work-items/api/ensure-workspaces';
+import { useWorkspaces } from '@/modules/work-items/api/get-workspaces';
 import { Button } from '@/components/button';
 
-// WorkItemTerminal opens the shell in the Work item's worktree when there is one. Without one it
-// asks first, so showing the terminal never makes a worktree by itself. Key it by Work item.
+// WorkItemTerminal opens the shell in the Work item's first ready workspace when
+// there is one. Without any it asks first, so showing the terminal never makes a workspace by
+// itself. Key it by Work item.
 export function WorkItemTerminal({
   workItemId,
   onHide,
@@ -12,15 +13,16 @@ export function WorkItemTerminal({
   workItemId: number;
   onHide: () => void;
 }) {
-  const worktree = useWorktree(workItemId);
-  const ensure = useEnsureWorktree(workItemId);
-  if (worktree.data?.path) return <TerminalPane cwd={worktree.data.path} onHide={onHide} />;
-  if (!worktree.data && !worktree.isError) return null;
-  const error = worktree.error ?? ensure.error;
+  const workspaces = useWorkspaces(workItemId);
+  const ensure = useEnsureWorkspaces(workItemId);
+  const first = workspaces.data?.find((w) => w.state === 'ready');
+  if (first) return <TerminalPane cwd={first.dir} onHide={onHide} />;
+  if (!workspaces.data && !workspaces.isError) return null;
+  const error = workspaces.error ?? ensure.error;
   return (
     <section aria-label="Terminal" className="bg-terminal">
       <div className="flex items-center gap-3 px-4 py-3 text-[12.5px] text-muted">
-        <span>{error ? error.message : 'No worktree yet'}</span>
+        <span>{error ? error.message : 'No workspace yet'}</span>
         <Button
           type="button"
           size="sm"

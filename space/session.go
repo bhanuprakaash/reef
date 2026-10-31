@@ -18,7 +18,6 @@ import (
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/skill"
 	"github.com/bhanuprakaash/reef/store"
-	"github.com/bhanuprakaash/reef/worktree"
 )
 
 // Session is a Space with one agent session per bot in use. Each is opened for its
@@ -585,12 +584,18 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && key != "" {
 		var c store.Space
-		var p store.Project
+		var f store.WorkItem
 		if c, err = s.st.Space(wctx, s.ch.ID); err == nil {
-			p, err = s.st.Project(wctx, c.ProjectID)
+			f, err = s.st.WorkItem(wctx, *c.WorkItemID)
 		}
 		if err == nil {
-			err = EnsureWorktree(ctx, s.trees, p, cwd, key)
+			var ws []store.Workspace
+			ws, err = EnsureWorkspaces(ctx, s.st, s.trees, s.dataDir, f)
+			if err == nil && !slices.ContainsFunc(ws, func(w store.Workspace) bool {
+				return w.State == store.WorkspaceReady
+			}) {
+				err = errors.New(ws[0].Note)
+			}
 		}
 	}
 	switch {
@@ -651,8 +656,10 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run.OnPrompt = s.onPrompt
 	m.run.Memory = s.ms
-	if m.write && (key != "" || worktree.IsRepo(wctx, cwd)) {
-		m.run.CheckpointDir = cwd
+	if m.write && key != "" {
+		m.run.Workspaces = func(ctx context.Context) ([]store.Workspace, error) {
+			return readyWorkspaces(ctx, s.st, key)
+		}
 		m.run.DataDir = s.dataDir
 	}
 	m.run.OnNote = s.onNote
@@ -706,11 +713,11 @@ func ChatDir(dataDir string, spaceID int64) string {
 	return filepath.Join(dataDir, "chats", strconv.FormatInt(spaceID, 10))
 }
 
-// WorkDir is where an agent of Space spaceID runs: the worktree of its work item, or else a
-// folder of its own under the data folder, made when it is missing. That folder is no
-// repository, and a project the Space is associated with is not its folder. The work item is
-// read now, as an attach may have given it one since the Space opened. key is the work item's
-// tree key, empty for a Space with no work item.
+// WorkDir is where an agent of Space spaceID runs: the root folder of its work item, which
+// holds one workspace per target, or else a folder of its own under the data folder. Either is
+// made when it is missing and is no repository, and a project the Space is associated with is
+// not its folder. The work item is read now, as an attach may have given it one since the Space
+// opened. key is the work item's tree key, empty for a Space with no work item.
 func WorkDir(
 	ctx context.Context, st *store.Store, dataDir string, spaceID int64,
 ) (dir, key string, err error) {
@@ -722,15 +729,12 @@ func WorkDir(
 		dir = ChatDir(dataDir, spaceID)
 		return dir, "", os.MkdirAll(dir, 0o700)
 	}
-	p, err := st.Project(ctx, ch.ProjectID)
-	if err != nil {
-		return "", "", err
-	}
 	f, err := st.WorkItem(ctx, *ch.WorkItemID)
 	if err != nil {
 		return "", "", err
 	}
-	return worktree.Path(dataDir, p.ID, f.TreeKey()), f.TreeKey(), nil
+	dir = WorkRoot(dataDir, f.TreeKey())
+	return dir, f.TreeKey(), os.MkdirAll(dir, 0o700)
 }
 
 func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {

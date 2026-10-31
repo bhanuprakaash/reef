@@ -77,7 +77,7 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	ts.Close()
 	h1.Close()
@@ -130,7 +130,7 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	t.Cleanup(ts.Close)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	ts.Close()
 	h.Close()
@@ -185,7 +185,7 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	if status, body := do(t, http.MethodPost, ts.URL+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"main"}`); status != 201 {
 		t.Fatalf("create Space = %d %s", status, body)
@@ -269,7 +269,7 @@ func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	// No Space yet: the work item's worktree exists, but noteWorkItem has nowhere to post.
 
 	binDir := t.TempDir()
@@ -323,7 +323,7 @@ func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
@@ -380,7 +380,7 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
@@ -437,7 +437,7 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
@@ -487,7 +487,7 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 			gitIn(t, repo, "commit", "-m", "first")
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-			do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+			do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 			binDir := t.TempDir()
@@ -529,7 +529,7 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -566,7 +566,7 @@ func ghWorkItemSetup(t *testing.T, url, team string) string {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, url+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, url+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, url+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, url+"/work-items/1/workspaces", "")
 	do(t, http.MethodPost, url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"main","team":"`+team+`"}`)
 	return repo

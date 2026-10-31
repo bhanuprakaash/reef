@@ -44,4 +44,12 @@ describe('ToolRow', () => {
     expect(markup).toContain('a.go');
     expect(markup).not.toContain('sub-agent');
   });
+
+  it('shows the project a tool call works in', () => {
+    const target = { projectId: 3, projectName: 'infra', workspaceId: 2 };
+    const markup = renderToStaticMarkup(<ToolRow tool={{ ...read, target }} />);
+
+    expect(markup).toContain('>infra<');
+    expect(renderToStaticMarkup(<ToolRow tool={read} />)).not.toContain('>infra<');
+  });
 });

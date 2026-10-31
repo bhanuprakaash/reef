@@ -36,6 +36,8 @@ type fakeSession struct {
 	onRun func(role, text string, parent *int64)
 	// tools, when set, names the tool each role calls at the start of its message turns.
 	tools map[string]string
+	// toolInput, when set, is the arguments of the tool each role calls.
+	toolInput map[string]string
 
 	// reviewed receives the Bot of each memory review when it starts; reviewHold, when set, is
 	// waited on before it ends, and reviewFail makes it fail. They are guarded by mu, as is reviews.
@@ -113,7 +115,9 @@ func (f *fakeSession) RunAs(
 		f.onRun(role, text, parent)
 	}
 	if tool := f.tools[role]; tool != "" {
-		onEvent(agent.Event{Kind: agent.KindToolCall, ToolID: "t", ToolName: tool})
+		onEvent(agent.Event{
+			Kind: agent.KindToolCall, ToolID: "t", ToolName: tool, Input: json.RawMessage(f.toolInput[role]),
+		})
 	}
 	if strings.HasSuffix(text, "fail") {
 		return errors.New("boom")

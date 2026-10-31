@@ -113,8 +113,9 @@ logged in and on `PATH`.
   adopted settings); the card then says Added. The Bot's next wake starts a new context with it in
   `--allowedTools`. Add is disabled while a turn runs. A read-only role refused an
   edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
-  A checkpoint taken in another tree, such as a free Space's turn after an attach, is not
-  listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
+  A checkpoint taken in a workspace the Space's work item does not have, such as a free Space's
+  turn after an attach, is not listed. A tool row shows the name of the Project it works in when
+  the server names a `target` for it. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
@@ -181,7 +182,7 @@ migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, 
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
-migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
+migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`, replaced by `turn_checkpoint` in migration 105) and
 migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
 migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`space.name_auto`) and
@@ -204,6 +205,7 @@ migration 76 [`076_bot.sql`](../store/migrations/076_bot.sql) (renames `teammate
 migration 77 [`077_member_bot_only.sql`](../store/migrations/077_member_bot_only.sql) (`team_member` and `space_member` keep only the Bot id and `lead`) and
 migration 78 [`078_space_drop_agent_settings.sql`](../store/migrations/078_space_drop_agent_settings.sql) (drops `space.backend` and `space.permission_mode`) and
 migration 103 [`103_assignment.sql`](../store/migrations/103_assignment.sql) (`work_item` loses `team_id` and `suggested_team_id`, gains `owner_bot_id`, `approved_at` and `approval_key`; adds `work_item_participant` and `work_item_target`).
+migration 105 [`105_turn_checkpoint.sql`](../store/migrations/105_turn_checkpoint.sql) (adds `turn_checkpoint`, one ref per turn and workspace; drops `turn.checkpoint`).
 Migrations 4 and 5 add columns to `space` (see [Space](#space)); migration 40
 [`040_space.sql`](../store/migrations/040_space.sql) renames the `channel` table and its columns to `space`.
 Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described with their tables below.
@@ -416,7 +418,7 @@ One agent run in a Space.
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
-| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<data folder>/<turn id>`. `null` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Spaces live](#spaces-live)), for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
+| `checkpoints` | object[] | one `{"workspaceId", "projectId", "ref"}` per workspace snapshotted before the turn, `ref` being `refs/reef/checkpoints/<data folder>/<turn id>` in that workspace's repository. `[]` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Spaces live](#spaces-live)), for a turn of a Space with no work item, and for a workspace whose repository has no commit. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, its largest `costUsd` plus the `costUsd` of the turns stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share |
 | `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
@@ -629,7 +631,7 @@ tool calls.
 | `POST /projects` | `name`, `path`, `purpose` (optional, plain words) | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
-| `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept; a Space with no work item stays without this project | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
+| `DELETE /projects/{id}` | | 204; every workspace of the project and of its work items and the checkpoint refs taken in them are removed, its branches are kept; a Space with no work item stays without this project | 404, 409 a workspace has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
@@ -644,18 +646,16 @@ tool calls.
 | `PUT /work-items/{id}/participants` | `ownerBotId` (number or `null`), `participantBotIds`; the owner is added to the participants when missing. Only a top-level item in `backlog` | 200 the item | 400 unknown Bot, participants with no owner, a sub-item, an item not in backlog; 404 |
 | `GET /work-items/{id}/targets` | | 200 the item's targets (its parent's for a sub-item) | 404 |
 | `POST /work-items/{id}/targets` | `projectId`; the user adds the Project's repository to a top-level item. The row records `authorizedBy` `user` and, when set, `originMessageId`. If the item has an active Space it gets a `reef` message `Added repository <project> to this Work item, authorized by user.` | 201 the target | 400 unknown project, a sub-item; 404; 409 the Project is already a target |
-| `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
+| `DELETE /work-items/{id}` | | 204; the work item's workspaces and the checkpoint refs of its turns are removed, its branches are kept | 404, 409 a workspace has uncommitted changes (nothing is removed) |
 | `GET /work-items/{id}/brief` | | 200 latest version | 404 no work item, or no brief yet |
 | `PUT /work-items/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
 | `GET /work-items/{id}/brief/versions` | | 200 oldest first | 404 |
 | `GET /work-items/{id}/notes/{role}` | | 200. Unused since decision 91 | 404 no work item, or no notes for the role |
 | `PUT /work-items/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no work item |
 | `DELETE /work-items/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no work item, or no notes for the role |
-| `GET /work-items/{id}/worktree` | | 200 `{"path": "...", "branch": "work-item/<id>"}`; the path of the work item's worktree, or `""` when it has none yet, and its branch. A sub-item answers with its parent's. Never makes one | 404 |
-| `POST /work-items/{id}/worktree` | no body needed | 200 `{"path": "...", "branch": "..."}`; makes the work item's worktree (a sub-item's is its parent's) the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
 | `GET /work-items/{id}/workspaces` | | 200 the [workspace](#workspaces) rows of the item's targets, oldest first, `[]` before any is made (a sub-item answers with its parent's). Never makes one | 404 |
 | `POST /work-items/{id}/workspaces` | no body needed | 200 the rows of every target after making each missing workspace: `[{"id", "projectId", "workItemId", "spaceId", "name", "dir", "branch", "base", "baseRef", "baseSource": "origin"\|"local", "state": "creating"\|"ready"\|"paused", "note", "createdAt", "updatedAt"}]`. A ready workspace is left alone; a `creating` or `paused` one is tried again in the same row and folder | 404; 409 a folder taken by another workspace; 500 a git failure not about the repository, after the other targets were made (that row stays `creating` with the error as `note`) |
-| `GET /work-items/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the work item has no worktree yet | 404 |
+| `GET /work-items/{id}/diff` | query `scope=current` for the changes against each workspace's HEAD only | 200 the changes of every ready workspace against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; a path starts with its workspace's folder (`<project id>-<project name>/`), so each repository is a section of its own; `[]` when the work item has no workspace yet | 404 |
 | `GET /work-items/{id}/proof` | | 200 the [proof](#proof): `{"spaceId", "acceptanceLines", "commands", "screenshots", "submittedAt"}` | 404 the item was never submitted for review |
 | `GET /work-items/{id}/proof/screenshots/{n}` | | 200 the image of screenshot `n` (from 0) of the proof | 404 no proof, no such screenshot, or the file is not an image under the data folder |
 | `GET /work-items/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view work-item/<id>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
@@ -700,7 +700,7 @@ tool calls.
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404, 409 the Space is the proof's Space of a work item in review |
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
+| `GET /spaces/{id}/inspector` | | 200 `{roles, turns}`. `roles` has one entry per role (one per Bot id, or per name for a turn with no Bot; `role` is the name on its newest turn): `role`, `botId`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); `turns` has one entry per turn of the Space: `id`, `role`, `botId`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, `target`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level). `target` is `{"projectId", "projectName", "workspaceId"}`, present when the call's `file_path`, `path`, `notebook_path`, `cwd` or `command` points into exactly one workspace of the Space's work item, by its absolute path or its folder relative to the agent's working folder; a call that points into none or into several has none. The live `agent` stream carries the same `target` on `tool_call` events | 404 |
 | `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `state` (a request only: `waiting`, `delivered`, `answered`, `failed`, `stopped` or `cancelled`), `kind`, `originSpaceId?`, `originMessageId?`, `createdAt` | 400 bad id, 404 |
 | `GET /exchanges/{id}` | | 200 `{request, response}`: the exchange request (a direct request with `originSpaceId`; `spaceId` is its destination) and its newest response, `null` until there is one | 404 |
 | `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` or `stopped` exchange back to `waiting` and delivers it again | 404, 409 not `failed` or `stopped` (two retries at once: one wins), or has a `done` response |
@@ -732,7 +732,7 @@ tool calls.
 | `GET /find` | `?q=TEXT` (required), `limit=N` (per kind, default 20, at most 200) | 200 `[{kind, id, title, projectId?}]` of the Bots, chats, Spaces and Work items (`workItem`, with its `projectId`) whose name or title contains `q`, case ignored for ASCII, in that order and each by name, `[]` when none. `kind` and `id` open the original resource | 400 no `q` |
 | `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids). `?limit=N` (at most 200, default 50) and `?before=ID` give a page instead: the newest `limit` messages with an id below `before` (all ids when it is left out), oldest first; the first id of a page is the next `before`, and an empty page is the start of the history | 200, each with `parentId` | 400 no Space, 404 unknown Space |
 | `POST /messages` | `spaceId`, `parentId`, `author`, `body` | 201 | 400 unknown Space, missing field, or a `parentId` that is not a top-level message of that Space |
-| `GET /turns` | `?space=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `space`; only the turns with a `checkpoint` taken in the tree the Space runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a Space, 404 `rollbackable` on an unknown Space |
+| `GET /turns` | `?space=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `space`; only the turns with `checkpoints`, all taken in workspaces of the work item the Space belongs to now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a Space, 404 `rollbackable` on an unknown Space |
 | `POST /turns` | `spaceId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown Space, public message or direct message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
@@ -740,7 +740,7 @@ tool calls.
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /inbox/dismiss` | an item as `GET /inbox` lists it (`kind` and `id`, or for `waiting` `spaceId` and `messageId`) | 204, no body; an FYI item is gone for good, see [Inbox](#inbox) | 400 bad body or an item that names nothing, 404 no such FYI item or a message that is not the Space's, 409 the item is in Needs you or Review |
-| `POST /turns/{id}/rollback` | no body needed | 204, no body; the Space's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the Space has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
+| `POST /turns/{id}/rollback` | no body needed | 204, no body; every workspace the turn checkpointed is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoints`, 404, 409 the Space has a turn running, a `reef chat` has it open, a checkpoint was taken in a workspace its work item does not have, or a turn of any role runs on the work item's root, 503 |
 | `GET /decisions` | `?workItem=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no work item, 404 unknown work item |
 | `POST /decisions` | `workItemId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown work item, a message of another work item, or a `replaces` id that is not a live decision of the work item |
 | `GET /decisions/{id}` | | 200. Unused since decision 91 | 404 |
@@ -802,44 +802,48 @@ a message wakes them.
   `reef` message in the item's active Space. A Project with no base branch uses the branch
   `origin/HEAD` names, else the local default branch, never an assumed `main`. A `creating` row
   found again (a restart cut the creation) is finished in the same folder and keeps the edits
-  already there. No workspace is rolled back because another failed. The agent of a Space still
-  runs in the worktree below until it is connected to these.
-- An agent of a Space under a work item runs in the work item's worktree,
-  `<data folder>/worktrees/<project id>/<work item id>`, on branch `work-item/<work item id>`. A
-  sub-item has none of its own: its worktree, branch and PR are its parent's, so the diff and
-  PR routes of a sub-item answer for the parent, and deleting a sub-item keeps the tree. It is made at
-  the first start of any agent of the work item, from the project's base branch (fetched from
-  `origin` first, a failed fetch is only logged; `origin/<branch>` if it exists, else the local
-  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every Space of the work item shares
-  one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
-  of another project on the same repo) cannot be added: the start fails with `branch
-  work-item/<id> is checked out at <path>; switch that checkout to another branch`. A
-  Space with no work item runs in `<data folder>/chats/<Space id>`, a folder of its own that
-  is made when missing and is no git repo; `DELETE /spaces/{id}` removes it. A project the Space is associated
-  with is context only, never its folder: repository work needs a work item (attach the Space to one).
-  The work item is read at each agent
-  start, so an attached Space moves to the worktree at its next wake. A project that is not
-  a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
-  whose error is `work items need the project folder to be a git repo with a commit: <path>:`
-  and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
-  made again at the next wake: an agent running in the missing folder is closed, and the
-  next one resumes the session in the new worktree.
-- Before each turn of a role with `write` in a git checkout (a work item's worktree; a Space's
-  own folder has none while it is no git repo), the server stores a checkpoint: a commit
-  of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
-  `refs/reef/checkpoints/<data folder>/<turn id>`, where `<data folder>` is the first 12 hex
-  digits of the sha256 of the absolute data folder path, so two Reef copies on one repo never
-  overwrite each other's. Turns from before keep their stored ref. It is built in a temporary index that starts as a copy of
-  the real one, so the index, HEAD and the files do not change. The ref is on the turn's
-  `checkpoint`. If the checkpoint fails, the turn is stored `failed` with git's error and the
-  agent gets no prompt. A repo with no commit has nothing to snapshot: its turns run with
-  `checkpoint` null. A role without `write` gets none, unless it is a writer in all but name
-  (below). The checkpoint commit has two parents:
+  already there. No workspace is rolled back because another failed.
+- An agent of a Space under a work item runs in the work item's root folder,
+  `<data folder>/worktrees/item-<work item id>`, which holds one workspace per target, so one
+  claude or codex process reaches every repository by a relative path. Each workspace is on
+  branch `work-item/<work item id>`. A sub-item has none of its own: its workspaces, branch and PR
+  are its parent's, its Spaces run in the parent's root, so the diff and PR routes of a sub-item
+  answer for the parent, and deleting a sub-item keeps the trees. The workspaces are made (see
+  Workspaces above) before the first start of any agent of the work item and again at each start
+  that finds one missing; every Space of the work item shares them. The first prompt lists each
+  target: Project name, folder, branch, base and where the base came from, or why it is paused.
+  A start with no ready workspace fails as a `failed` turn whose error is the reason, such as
+  `work items need the project folder to be a git repo with a commit: <path>:` and git's error; a
+  paused target beside a ready one does not stop the agent. A branch that is checked out elsewhere
+  (in the main checkout, or in a worktree of another project on the same repo) cannot be added:
+  the start fails with `branch work-item/<id> is checked out at <path>; switch that checkout to
+  another branch`. A Space with no work item runs in `<data folder>/chats/<Space id>`, a folder of
+  its own that is made when missing and is no git repo; `DELETE /spaces/{id}` removes it. It can
+  never be given the root or a workspace of a work item: a workspace folder held by a work item is
+  409 for any other owner. A project the Space is associated with is context only, never its
+  folder: repository work needs a work item (attach the Space to one). The work item is read at
+  each agent start, so an attached Space moves to the work item's root at its next wake. A
+  workspace folder that was deleted is pruned and made again at the next wake: an agent running in
+  a missing root is closed, and the next one resumes the session in the new root.
+- Before each turn of a role with `write` on a work item, the server stores a checkpoint of every
+  ready workspace of the item: a commit of HEAD plus the whole working tree, untracked files
+  included and ignored ones left out, at `refs/reef/checkpoints/<data folder>/<turn id>` in that
+  workspace's repository, where `<data folder>` is the first 12 hex digits of the sha256 of the
+  absolute data folder path, so two Reef copies on one repo never overwrite each other's. One
+  `turn_checkpoint` row per workspace holds the ref; they are the turn's `checkpoints`. A Space
+  with no work item gets none. It is built in a temporary index that starts as a copy of
+  the real one, so the index, HEAD and the files do not change. If a checkpoint fails, the turn
+  is stored `failed` with git's error and the agent gets no prompt. A repo with no commit has
+  nothing to snapshot: it gets no checkpoint. A role without `write` gets none, unless it is a
+  writer in all but name (below). The checkpoint commit has two parents:
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
 - One write turn at a time runs on a tree, across all Spaces and processes on the data
-  folder: the work item's worktree, or the Space's own folder. A wake of a role with `write` waits for
+  folder: the work item's root folder (so every Space of an item and of its sub-items takes
+  turns, while different work items and chats run at once), or the Space's own folder. Nothing
+  else limits how many turns run: no global and no per-Bot maximum, only this lock and the
+  caps. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
   stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
@@ -851,22 +855,23 @@ a message wakes them.
   tools the role keeps count: a plain `Bash` or `Bash(*)` is dropped from a role without `write`,
   so it does not make the role a writer. A role without `write` and with only reading commands is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
-  respects. The first start
-  of a work item's worktree takes a lock of its own, so two Spaces waking at once add it once.
+  respects. Making a workspace takes a lock of its own, so two Spaces waking at once add it once.
   The locks are `flock` files in `<data folder>/locks/`, named from a hash of the tree path
   (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
   A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
   waiting and checks the reader file, so a read-only turn of any process refuses it.
-- `POST /turns/{id}/rollback` puts the Space's tree (the work item's worktree) back as the turn's checkpoint saw it: the branch the checkpoint was
+- `POST /turns/{id}/rollback` puts every workspace the turn checkpointed back, each in its own
+  repository and with no change to the others, as the turn's checkpoint saw it: the branch the checkpoint was
   taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
   switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
   and untracked files get the content they had, the same changes are staged, and files made
   since are removed. Ignored files are left alone. It claims the Space like a send. It is
-  409, never a wait, when the Space's tree is not the directory the checkpoint was taken in
-  (a free Space's turn after an attach), when a `reef chat` holds the Space, or when a
-  turn of any role of any Space runs on the tree (the write lock is held, or a read-only
-  turn is a reader). A reader that starts during the restore is not held back. A turn with
-  no `checkpoint` is 400. Then `reef` posts `Rolled back
+  409, never a wait, when a checkpoint was taken in a workspace the Space's work item does not
+  have (a free Space's turn after an attach), when a `reef chat` holds the Space, or when a
+  turn of any role of any Space runs on the work item's root (the write lock is held, or a
+  read-only turn is a reader). There is no atomic rollback across repositories: if one restore
+  fails, the ones before it stay restored. A reader that starts during the restore is not held
+  back. A turn with no `checkpoints` is 400. Then `reef` posts `Rolled back
   to before turn N.` in the Space. The agent's session is not rewound. When a turn of
   a role that has run before in the Space is sent, its prompt gets the lines `reef wrote: ...`
   that `reef` posted since that role's last turn began, after the header line, so the role
@@ -874,22 +879,26 @@ a message wakes them.
   that never ran gets none. The wake kept as `wakeText` does not have them.
 - `DELETE /work-items/{id}` cleans what Reef made for the work item. It stops the agents of the
   work item's Spaces first (a running turn is stopped, as when a Space is deleted). A
-  worktree with uncommitted changes (untracked files count) is 409 with `work item <id> has
+  workspace with uncommitted changes (untracked files count) is 409 with `work item <id> has
   uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
-  Otherwise the worktree is removed with `git worktree remove`, the work item rows are
-  deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of every turn of its Spaces
-  are deleted. The worktree goes first because it is the step that can refuse or fail, and a
-  later wake of a work item makes it again; the refs go after the rows that name them, so a
+  Otherwise every workspace is removed with `git worktree remove`, then the root folder, the work
+  item rows are deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of
+  every turn of its Spaces are deleted, in the repository of the workspace each was taken in.
+  The workspaces go first because that is the step that can refuse or fail, and a
+  later wake of a work item makes them again; the refs go after the rows that name them, so a
   failure there leaves refs that no turn points to, and the delete is 500. The branch
-  `work-item/<id>` is kept: it is the user's work. A work item with no worktree folder (no agent
-  ever started) only has its rows deleted. Deleting a Space keeps worktrees and refs.
+  `work-item/<id>` is kept in every repository: it is the user's work. A work item with no
+  workspace folder (no agent ever started) only has its rows deleted. Deleting a Space keeps
+  workspaces and refs.
   Right after the rows go, the memory items of the work item's `work_item:<id>` scope are
   closed: pending candidates are rejected and accepted items retired, so nothing of it is left
   in `reef memory pending`. Retired and rejected items are kept and still read.
-- `DELETE /projects/{id}` does the same for every work item of the project, and deletes the
-  checkpoint refs of the turns of every Space of the project. A Space with no work item is not
-  deleted: it only loses the association, and keeps its other projects. It checks every worktree first: one with uncommitted
-  changes is 409 for that work item, and nothing is removed. Then it removes all worktrees,
+- `DELETE /projects/{id}` does the same for every work item of the project and every workspace
+  of the project in any work item or quick fix, and deletes the checkpoint refs taken in its
+  repository and those of the turns of every Space of the project. A Space with no work item is
+  not deleted: it only loses the association, and keeps its other projects. It checks every
+  workspace first: one with uncommitted
+  changes is 409, and nothing is removed. Then it removes all workspaces,
   deletes the project rows, and last deletes the refs, in the same order and with the same
   failure rule as a work item delete. Branches are kept. Its memory items are closed the same
   way, in the project's `project:<id>` scope and in the `work_item:<id>` scope of each of its
@@ -1315,9 +1324,9 @@ The Space must be idle (409 while a turn runs), the project a git repo with a co
 the work item without another active Space (409 `work item 3 already has an active Space`);
 a refused attach changes nothing. The attach sets the Space's `workItemId` and `kind`, moves
 its `space` memory items to the `work_item` scope of the work item, stops the Space's agents,
-so the next wake of each role resumes its session in the work item's worktree, and posts a
+so the next wake of each role resumes its session in the work item's root folder, and posts a
 message from `reef`: `This Space is now attached to work item "<title>" (<id>). It works in
-<worktree path> on work-item/<id>.`, with ` Uncommitted changes stay on the main checkout.`
+<root folder> on work-item/<id>.`, with ` Uncommitted changes stay on the main checkout.`
 after it when the main checkout has uncommitted changes. No agent turn runs.
 
 ## Caps
@@ -1370,7 +1379,7 @@ exist in `reef chat`: it wakes nobody.
 
 ## GitHub poll
 
-`reef serve` polls GitHub for each top-level work item that has a worktree, every `REEF_GH_INTERVAL`
+`reef serve` polls GitHub for each top-level work item that has a workspace of its home Project, every `REEF_GH_INTERVAL`
 (default 60s), once right away and then on that interval until the server closes: `gh pr
 view work-item/<id> --json number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,baseRefName,statusCheckRollup,body,additions,deletions,files`, run in the project's
 folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
@@ -1390,7 +1399,7 @@ is stored one row per `(work item, name, run key)` (migration 42
 `work_item_github` and `work_item_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
-work item for that cause; logged again once the cause changes. A work item with a worktree but no
+work item for that cause; logged again once the cause changes. A work item with a workspace but no
 Space yet has nowhere to post: the note is recorded as sent only once it is actually posted,
 so it is not lost and posts once the first Space exists.
 

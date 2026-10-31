@@ -1958,7 +1958,7 @@ async function pr() {
   const section = await addProject();
   const itemId = await addWorkItem('PR panel');
   const cid = await newSpace(main, 'New Space', 'pr chat');
-  await fetch(`${base}/work-items/${itemId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+  await fetch(`${base}/work-items/${itemId}/workspaces`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
 
   const view = (over) => ({
     number: 12, title: 'Add the login page', url: 'https://github.com/x/y/pull/12', state: 'OPEN',

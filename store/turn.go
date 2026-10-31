@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -29,13 +30,24 @@ const (
 	_restartAdvice = "The worktree may be dirty; retry or roll back."
 )
 
+const _checkpoints = "(SELECT json_group_array(json_object('workspaceId', c.workspace_id, " +
+	"'projectId', w.project_id, 'ref', c.ref)) FROM turn_checkpoint c " +
+	"JOIN workspace w ON w.id = c.workspace_id WHERE c.turn_id = t.id)"
+
 const (
 	_turnCols = "id, space_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
+		"wake_text, wake_parent, retried, " + _checkpoints + ", sent, model, cost_usd, prompt, direct_message_id, reply, " +
 		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
 		"session_cache_write_tokens, scopes, compacted, wake_message_id, bot_id, bot_session_id, context_tokens"
 )
+
+// TurnCheckpoint is a snapshot of one workspace taken before a turn ran.
+type TurnCheckpoint struct {
+	WorkspaceID int64  `json:"workspaceId"`
+	ProjectID   int64  `json:"projectId"`
+	Ref         string `json:"ref"`
+}
 
 // Turn is one agent run in a Space. It starts running and ends once, as
 // done or failed. There is no delete. WakeText and WakeParent are the prompt the turn ran
@@ -63,9 +75,9 @@ type Turn struct {
 	WakeMessageID *int64 `json:"-"`
 	Retried       bool   `json:"retried"`
 	Sent          bool   `json:"sent"`
-	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
-	// turn that has none.
-	Checkpoint *string `json:"checkpoint"`
+	// Checkpoints are the git refs of the snapshots taken before the turn ran, one per
+	// workspace; empty for a turn that has none.
+	Checkpoints []TurnCheckpoint `json:"checkpoints"`
 	// Model is the backend's model name, set from the agent's first event. Empty until then.
 	Model string `json:"model"`
 	// CostUSD is nil until the agent reports one; codex turns never get one.
@@ -152,13 +164,13 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		ID: id, SpaceID: t.SpaceID, Role: t.Role, BotID: t.BotID, Backend: t.Backend,
 		SessionID: t.SessionID, BotSessionID: t.BotSessionID, Status: _turnRunning, StartedAt: now,
 		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
-		WakeMessageID: t.WakeMessageID, Scopes: t.Scopes,
+		WakeMessageID: t.WakeMessageID, Scopes: t.Scopes, Checkpoints: []TurnCheckpoint{},
 	}, nil
 }
 
 // Turn returns the turn with the id, or ErrNotFound.
 func (s *Store) Turn(ctx context.Context, id int64) (Turn, error) {
-	row := s.db.QueryRowContext(ctx, "SELECT "+_turnCols+" FROM turn WHERE id = ?", id)
+	row := s.db.QueryRowContext(ctx, "SELECT "+_turnCols+" FROM turn t WHERE id = ?", id)
 	t, err := scanTurn(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Turn{}, fmt.Errorf("turn %d: %w", id, ErrNotFound)
@@ -425,21 +437,25 @@ func (s *Store) SetTurnUsage(ctx context.Context, id int64, u agent.Usage) error
 	return nil
 }
 
-// SetTurnCheckpoint records the checkpoint ref of the running turn id.
-func (s *Store) SetTurnCheckpoint(ctx context.Context, id int64, ref string) (Turn, error) {
+// AddTurnCheckpoint records the checkpoint ref the running turn id took in workspace
+// workspaceID.
+func (s *Store) AddTurnCheckpoint(ctx context.Context, id, workspaceID int64, ref string) error {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE turn SET checkpoint = ? WHERE id = ? AND status = ?", ref, id, _turnRunning)
+		"INSERT INTO turn_checkpoint (turn_id, workspace_id, ref) "+
+			"SELECT id, ?, ? FROM turn WHERE id = ? AND status = ? "+
+			"ON CONFLICT (turn_id, workspace_id) DO UPDATE SET ref = excluded.ref",
+		workspaceID, ref, id, _turnRunning)
 	if err != nil {
-		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+		return fmt.Errorf("add turn checkpoint: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+		return fmt.Errorf("add turn checkpoint: %w", err)
 	}
 	if n == 0 {
-		return Turn{}, s.notRunning(ctx, id)
+		return s.notRunning(ctx, id)
 	}
-	return s.Turn(ctx, id)
+	return nil
 }
 
 // FailRunningTurns marks every running turn failed, for turns the last server
@@ -453,7 +469,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 	defer func() { _ = tx.Rollback() }()
 
 	rows, err := tx.QueryContext(ctx,
-		"SELECT "+_turnCols+" FROM turn WHERE status = ? ORDER BY space_id, id", _turnRunning)
+		"SELECT "+_turnCols+" FROM turn t WHERE status = ? ORDER BY space_id, id", _turnRunning)
 	if err != nil {
 		return nil, fmt.Errorf("list running turns: %w", err)
 	}
@@ -622,12 +638,13 @@ func isBackend(s string) bool {
 func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
 	var started string
-	var ended, wake, checkpoint sql.NullString
+	var ended, wake sql.NullString
+	var checkpoints string
 	var session struct{ input, output, cacheRead, cacheWrite *int64 }
 	if err := r.Scan(&t.ID, &t.SpaceID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
-		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
+		&checkpoints, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
 		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
 		&t.Scopes, &t.Compacted, &t.WakeMessageID, &t.BotID, &t.BotSessionID, &t.ContextTokens); err != nil {
 		return Turn{}, err
@@ -650,8 +667,8 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		}
 		t.EndedAt = &e
 	}
-	if checkpoint.Valid {
-		t.Checkpoint = &checkpoint.String
+	if err := json.Unmarshal([]byte(checkpoints), &t.Checkpoints); err != nil {
+		return Turn{}, fmt.Errorf("turn %d: bad checkpoints: %w", t.ID, err)
 	}
 	return t, nil
 }

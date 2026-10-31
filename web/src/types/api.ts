@@ -214,7 +214,7 @@ export type Turn = {
   wakeText: string;
   directMessageId?: number | null;
   retried: boolean;
-  checkpoint: string | null;
+  checkpoints: { workspaceId: number; projectId: number; ref: string }[];
   startedAt: string;
 };
 
@@ -389,10 +389,13 @@ export type Usage = {
   cacheWriteTokens: number;
 };
 
+export type ToolTarget = { projectId: number; projectName: string; workspaceId: number };
+
 export type InspectorToolCall = {
   name: string;
   input: string;
   result: string;
+  target?: ToolTarget;
   children?: InspectorToolCall[];
 };
 

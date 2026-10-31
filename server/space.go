@@ -380,7 +380,7 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 		}
 	}
 	body := fmt.Sprintf("This Space is now attached to work item %q (%d). It works in %s on %s.",
-		f.Title, f.ID, worktree.Path(s.dataDir, p.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
+		f.Title, f.ID, space.WorkRoot(s.dataDir, f.TreeKey()), worktree.Branch(f.TreeKey()))
 	if dirty, err := worktree.Dirty(ctx, p.Path); err != nil {
 		log.Printf("check %s for changes: %v", p.Path, err)
 	} else if dirty {

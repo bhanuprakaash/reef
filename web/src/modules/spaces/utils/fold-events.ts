@@ -1,3 +1,5 @@
+import type { ToolTarget } from '@/types/api';
+
 export type AgentEvent = {
   kind: 'session' | 'text' | 'tool_call' | 'tool_result' | 'usage' | 'turn_end' | 'error';
   text?: string;
@@ -5,6 +7,7 @@ export type AgentEvent = {
   toolName?: string;
   parentToolId?: string;
   input?: unknown;
+  target?: ToolTarget;
   output?: string;
   isError?: boolean;
 };
@@ -25,6 +28,7 @@ export type Tool = {
   id: string;
   name: string;
   input: unknown;
+  target?: ToolTarget;
   done: boolean;
   output: string;
   isError: boolean;
@@ -80,6 +84,7 @@ function foldAgent(turn: LiveTurn, ev: AgentEvent): LiveTurn {
         id: ev.toolId ?? '',
         name: ev.toolName ?? '',
         input: ev.input,
+        target: ev.target,
         done: false,
         output: '',
         isError: false,

@@ -10,7 +10,7 @@ const turn = (id: number, role = 'developer'): Turn => ({
   error: '',
   wakeText: '',
   retried: false,
-  checkpoint: `refs/c/${id}`,
+  checkpoints: [{ workspaceId: 1, projectId: 1, ref: `refs/c/${id}` }],
   startedAt: new Date(2026, 9, 15, 17, 42).toISOString(),
 });
 
