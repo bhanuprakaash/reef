@@ -110,7 +110,6 @@ func TestRemember_WritesItemAndLinks(t *testing.T) {
 
 func TestRemember_Status(t *testing.T) {
 	project := Ref{Kind: ScopeProject, ID: "1"}
-	team := Ref{Kind: ScopeTeam, ID: "1"}
 	tests := []struct {
 		name  string
 		give  Writer
@@ -125,7 +124,6 @@ func TestRemember_Status(t *testing.T) {
 		{"decision by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindDecision, false, "accepted"},
 		{"decision by tester", Writer{Author: "cy", Role: "tester", Scope: project}, KindDecision, false, "accepted"},
 		{"finding by tester", Writer{Author: "cy", Role: "tester", Scope: project}, KindFinding, false, "accepted"},
-		{"lesson in team scope by lead", Writer{Author: "di", Role: "lead", Scope: team}, KindLesson, false, "candidate"},
 		{"lesson in project scope by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindLesson, false, "accepted"},
 		{"convention by architect asking approval", Writer{Author: "bo", Role: "architect", Scope: project}, KindConvention, true, "candidate"},
 		{"decision by developer asking approval", Writer{Author: "ada", Role: "developer", Scope: project}, KindDecision, true, "candidate"},
@@ -553,8 +551,10 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 		string(first),
 		`INSERT INTO memory (kind, body, scope_kind, scope_id, status, created_at)
 		 VALUES ('fact', 'use sqlite', 'project', '1', 'accepted', '2026-10-01T00:00:00Z'),
-		        ('fact', 'use postgres', 'project', '1', 'candidate', '2026-10-02T00:00:00Z')`,
-		`INSERT INTO memory_link (from_id, rel, to_kind, to_id) VALUES (2, 'replaces', 'memory', '1')`,
+		        ('fact', 'use postgres', 'project', '1', 'candidate', '2026-10-02T00:00:00Z'),
+		        ('lesson', 'team habit', 'team', 'core', 'accepted', '2026-10-03T00:00:00Z')`,
+		`INSERT INTO memory_link (from_id, rel, to_kind, to_id)
+		 VALUES (2, 'replaces', 'memory', '1'), (3, 'about', 'team', 'core')`,
 	} {
 		if _, err := db.Exec(q); err != nil {
 			t.Fatal(err)
@@ -568,6 +568,9 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 	ctx := context.Background()
 	if n := count(t, db, `SELECT count(*) FROM memory`); n != 2 {
 		t.Fatalf("items = %d, want 2", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM memory_link`); n != 1 {
+		t.Fatalf("links = %d, want 1: the team item's link goes with it", n)
 	}
 	got, err := s.Read(ctx, 2)
 	if err != nil || got.Body != "use postgres" || !reflect.DeepEqual(got.Links,
@@ -591,19 +594,19 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 	if _, err := Open(db, nil); err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
-	if n := count(t, db, `SELECT version FROM memory_version`); n != 5 {
-		t.Fatalf("version = %d, want 5", n)
+	if n := count(t, db, `SELECT version FROM memory_version`); n != 6 {
+		t.Fatalf("version = %d, want 6", n)
 	}
 	if n := count(t, db, `SELECT count(*) FROM memory_version`); n != 1 {
 		t.Fatalf("version rows = %d, want 1", n)
 	}
 	id := put(t, s, Ref{Kind: ScopeProject, ID: "1"}, Note{Body: "use redis"})
-	if id != 3 {
-		t.Fatalf("next id = %d, want 3", id)
+	if id != 4 {
+		t.Fatalf("next id = %d, want 4", id)
 	}
 	hits, err = s.Search(ctx, "redis", Filter{Scopes: []Ref{{Kind: ScopeProject, ID: "1"}}})
-	if err != nil || !reflect.DeepEqual(ids(hits), []int64{3}) {
-		t.Fatalf("search after write = %v, %v; want [3]", ids(hits), err)
+	if err != nil || !reflect.DeepEqual(ids(hits), []int64{4}) {
+		t.Fatalf("search after write = %v, %v; want [4]", ids(hits), err)
 	}
 }
 
@@ -641,7 +644,7 @@ func TestOpen_RefusesNewerMemorySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Open(db, nil)
-	want := "memory tables are newer than this reef (version 99, this reef knows 5)"
+	want := "memory tables are newer than this reef (version 99, this reef knows 6)"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Open err = %v, want it to contain %q", err, want)
 	}

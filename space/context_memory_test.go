@@ -110,35 +110,6 @@ func TestContext_FindingsAndEmptyParts(t *testing.T) {
 	}
 }
 
-func TestFirstPrompt_TeamItemsOnlyForATeam(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	ms := testMemory(t, st)
-	w := memory.Writer{
-		Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeTeam, ID: "core"},
-	}
-	if _, err := ms.Remember(ctx, w, memory.Note{Kind: memory.KindConvention, Body: "review before merge"}); err != nil {
-		t.Fatal(err)
-	}
-	lead := store.Role{Name: "lead", Lead: true}
-	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "developer"}}}
-
-	got, err := firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, team, lead)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "### Team\nconvention 1: review before merge ("; !strings.Contains(got, want) {
-		t.Errorf("team prompt =\n%s\nwant it to contain %q", got, want)
-	}
-	got, err = firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, store.Team{}, lead)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(got, "### Team") {
-		t.Errorf("prompt with no team =\n%s\nwant no Team part", got)
-	}
-}
-
 func TestFirstPrompt_QuickSessionHasNoFeatureParts(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -185,7 +156,6 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	remember(t, ms, ref(memory.ScopeSpace, other), memory.KindFact, "lead", "other space fact")
 	remember(t, ms, ref(memory.ScopeConversation, chat), memory.KindFact, "lead", "conversation fact")
 	remember(t, ms, projectScope(f), memory.KindFact, "user", "a project fact")
-	remember(t, ms, memory.Ref{Kind: memory.ScopeTeam, ID: "core"}, memory.KindLesson, "user", "a team lesson")
 	remember(t, ms, memory.Ref{Kind: memory.ScopeBot, ID: "1"}, memory.KindLesson, "lead", "a lead lesson")
 
 	prompt := func(c store.Space) string {
@@ -197,7 +167,7 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	}
 	got := prompt(free)
 	for _, want := range []string{"### Space\nfact 1: free space fact (", "### Project\nfact 4: a project fact (",
-		"### Your items\nlesson 6: a lead lesson ("} {
+		"### Your items\nlesson 5: a lead lesson ("} {
 		if !strings.Contains(got, want) {
 			t.Errorf("free Space =\n%s\nwant it to contain %q", got, want)
 		}
@@ -209,7 +179,7 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	}
 	for _, c := range []store.Space{chat, nextChat} {
 		got = prompt(c)
-		if !strings.Contains(got, "### Your items\nlesson 6: a lead lesson (") {
+		if !strings.Contains(got, "### Your items\nlesson 5: a lead lesson (") {
 			t.Errorf("conversation %d =\n%s\nwant the Bot's items", c.ID, got)
 		}
 		for _, want := range []string{"This is a direct conversation with the user", "saves to this conversation by default"} {
@@ -321,7 +291,7 @@ func TestScopes(t *testing.T) {
 			},
 			want: []memory.Ref{
 				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"},
-				{Kind: "team", ID: "core"}, {Kind: "bot", ID: "1"},
+				{Kind: "bot", ID: "1"},
 			},
 		},
 		{
@@ -340,7 +310,7 @@ func TestScopes(t *testing.T) {
 				return save(t, store.Space{Team: "core"}), ""
 			},
 			want: []memory.Ref{
-				{Kind: "space", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "team", ID: "core"},
+				{Kind: "space", ID: "S"}, {Kind: "project", ID: "1"},
 				{Kind: "bot", ID: "1"},
 			},
 		},
@@ -392,16 +362,11 @@ func TestScopes(t *testing.T) {
 	}
 }
 
-func TestFirstPrompt_SoloSpaceHasNoTeamPartAndMatchesReefContext(t *testing.T) {
+func TestFirstPrompt_SoloSpaceMatchesReefContext(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ms := testMemory(t, st)
 	remember(t, ms, projectScope(f), memory.KindFact, "user", "Go 1.24")
-	if _, err := ms.Remember(ctx, memory.Writer{
-		Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeTeam, ID: store.SoloTeam},
-	}, memory.Note{Kind: memory.KindLesson, Body: "kept on the solo shelf"}); err != nil {
-		t.Fatal(err)
-	}
 	lead := store.Role{Name: "lead", Lead: true}
 	solo := store.Team{Name: store.SoloTeam, Roles: []store.Role{lead}}
 
@@ -409,7 +374,7 @@ func TestFirstPrompt_SoloSpaceHasNoTeamPartAndMatchesReefContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, "### Team") || strings.Contains(got, "kept on the solo shelf") {
+	if strings.Contains(got, "### Team") {
 		t.Errorf("solo prompt =\n%s\nwant no Team part", got)
 	}
 	want, err := Context(ctx, st, ms, f.ID, "lead")

@@ -22,7 +22,6 @@ const (
 	_findingsLimit  = 5
 	_projectLimit   = 10
 	_spaceLimit     = 5
-	_teamLimit      = 5
 	_yourLimit      = 5
 	_toolsLine      = "Details are on demand through the reef MCP tools recall, read_memory, " +
 		"read_thread and search_sessions. Record decisions with remember. When the " +
@@ -69,7 +68,6 @@ var _shelfParts = map[string][]shelfPart{
 	},
 	memory.ScopeSpace:   {{label: "Space", limit: _spaceLimit}},
 	memory.ScopeProject: {{label: "Project", limit: _projectLimit}},
-	memory.ScopeTeam:    {{label: "Team", limit: _teamLimit}},
 	memory.ScopeBot:     {{label: "Your items", limit: _yourLimit}},
 }
 
@@ -86,8 +84,8 @@ func Context(
 }
 
 // Scopes are the shelves of memory a role reads and writes in ch. The first is the Space's own:
-// the work item's, the Space's for a free Space, or the conversation's. Then the project's, the
-// team's unless it is the solo team, and the Bot's own, named by its id. A role the Space
+// the work item's, the Space's for a free Space, or the conversation's. Then the project's
+// and the Bot's own, named by its id. A role the Space
 // does not have, such as an agent attached by hand with reef token, has no Bot: its shelf
 // is named by the role.
 func Scopes(
@@ -122,9 +120,6 @@ func botScopes(ch store.Space, bot string) []memory.Ref {
 	if ch.ProjectID != 0 {
 		scopes = append(scopes,
 			memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
-	}
-	if ch.Team != "" && ch.Team != store.SoloTeam {
-		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
 	return append(scopes, memory.Ref{Kind: memory.ScopeBot, ID: bot})
 }

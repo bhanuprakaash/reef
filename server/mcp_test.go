@@ -735,45 +735,6 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	}
 }
 
-func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
-	ctx := context.Background()
-	st, _ := mcpFixture(t)
-	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Backend: "claude"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	one := int64(1)
-	closeSpace(t, st, 1)
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lead, err := testToken(t, st, ctx, ch.ID, "lead")
-	if err != nil {
-		t.Fatal(err)
-	}
-	developer, err := testToken(t, st, ctx, ch.ID, "developer")
-	if err != nil {
-		t.Fatal(err)
-	}
-	give := map[string]any{"brief": "v2", "items": []any{
-		map[string]any{"kind": "lesson", "body": "review before merge", "scope": "team"},
-	}}
-
-	got, isErr := callTool(t, st, developer)("propose_wrap", give)
-	if want := `invalid: only the lead of team "core" can propose team items`; got != want || !isErr {
-		t.Errorf("developer propose_wrap = %q (error %v), want %q", got, isErr, want)
-	}
-	got, isErr = callTool(t, st, lead)("propose_wrap", give)
-	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
-		t.Errorf("lead propose_wrap = %q (error %v), want %q", got, isErr, want)
-	}
-}
-
 // leadAndDeveloper adds team core (lead and developer) and a Space of work item 1 for it, and
 // returns the tokens of the two.
 func leadAndDeveloper(t *testing.T, st *store.Store) (lead, developer store.Token) {

@@ -45,7 +45,6 @@ func TestSearch_OnlyAllowedScopes(t *testing.T) {
 	b := Ref{Kind: ScopeProject, ID: "2"}
 	seedFact(t, s, a, "cache the token")
 	seedFact(t, s, b, "cache the session")
-	seedFact(t, s, Ref{Kind: ScopeTeam, ID: "1"}, "cache the page")
 	seedFact(t, s, Ref{Kind: ScopeProject}, "cache the row")
 
 	for _, tc := range []struct {
@@ -55,7 +54,7 @@ func TestSearch_OnlyAllowedScopes(t *testing.T) {
 	}{
 		{"one shelf", []Ref{a}, []int64{1}},
 		{"two shelves", []Ref{a, b}, []int64{1, 2}},
-		{"empty id is not a wildcard", []Ref{{Kind: ScopeProject}}, []int64{4}},
+		{"empty id is not a wildcard", []Ref{{Kind: ScopeProject}}, []int64{3}},
 		{"no shelves", nil, []int64{}},
 	} {
 		hits, err := s.Search(context.Background(), "cache", Filter{Scopes: tc.scopes})

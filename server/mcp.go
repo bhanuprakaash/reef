@@ -41,12 +41,12 @@ type (
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
 		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or bot (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
-		ProjectID     int64    `json:"projectId,omitempty" jsonschema:"with scope project, which associated Project to keep it with; default the first"`
+		ProjectID     int64    `json:"projectId,omitempty" jsonschema:"with scope project, which associated Project to keep it with; required when the Space has several"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
-		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or bot; omit for all you can read"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project or bot; omit for all you can read"`
 	}
 	readMemoryIn struct {
 		ID int64 `json:"id" jsonschema:"memory id"`
@@ -121,7 +121,7 @@ type (
 	}
 	wrapIn struct {
 		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, bot, or team for a team lead), replaces (ids of live items it replaces)"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project or bot), replaces (ids of live items it replaces)"`
 		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
@@ -426,6 +426,19 @@ func (m *mcpServer) remember(
 		return nil, rememberOut{}, fmt.Errorf(
 			"%w: scope %q is not work_item, space, conversation, project or bot",
 			store.ErrInvalid, in.Scope)
+	}
+	if in.Scope == memory.ScopeProject && in.ProjectID == 0 {
+		var ids []string
+		for _, r := range scopes {
+			if r.Kind == memory.ScopeProject {
+				ids = append(ids, r.ID)
+			}
+		}
+		if len(ids) > 1 {
+			return nil, rememberOut{}, fmt.Errorf(
+				"%w: this Space has several Projects (%s); say which with projectId",
+				store.ErrInvalid, strings.Join(ids, ", "))
+		}
 	}
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool {
 		return r.Kind == in.Scope && (in.Scope != memory.ScopeProject || in.ProjectID == 0 ||
@@ -748,11 +761,6 @@ func (m *mcpServer) proposeWrap(
 			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not one of %s",
 				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
 		}
-		if it.Scope == memory.ScopeTeam {
-			if err := m.requireLead(ctx, c); err != nil {
-				return nil, wrapOut{}, err
-			}
-		}
 		if err := requireLive(ctx, m.ms, scopes[at:at+1], it.Replaces); err != nil {
 			return nil, wrapOut{}, err
 		}
@@ -767,17 +775,6 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
-}
-
-func (m *mcpServer) requireLead(ctx context.Context, c store.Space) error {
-	lead, err := m.isLead(ctx)
-	if err != nil {
-		return err
-	}
-	if !lead {
-		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, c.Team)
-	}
-	return nil
 }
 
 func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
