@@ -8,7 +8,7 @@ import { Card } from '@/components/card';
 import { TextArea } from '@/components/text-area';
 
 // ReviewPanel is where the user decides on a top-level item in review: Done approves the
-// lead's wrap-up proposal, Send back returns the item to the queue with a note for the lead.
+// owner's wrap-up proposal, Send back returns the item to the queue with a note for the owner.
 // The user can decide whether or not the item has a proof.
 export function ReviewPanel({ workItemId }: { workItemId: number }) {
   const proof = useProof(workItemId);
@@ -54,7 +54,7 @@ function Decision({ workItemId, children }: { workItemId: number; children: Reac
       <div className="flex flex-col gap-3">
         {children}
         <label className="flex flex-col gap-1.5 text-[13px] text-muted">
-          Note for the lead
+          Note for the owner
           <TextArea
             rows={3}
             placeholder="What must change before this is done"

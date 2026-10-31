@@ -75,12 +75,25 @@ export type WorkItem = {
   targets: Target[];
 };
 
-export type ProofCommand = { command: string; output: string };
+export type ProofCommand = { command: string; output: string; project?: string };
+
+export type ProofRepository = {
+  workspaceId: number;
+  projectId: number;
+  projectName: string;
+  branch: string;
+  head: string;
+  baseRef: string;
+  dir: string;
+  dirty: boolean;
+  checks: ProofCommand[];
+};
 
 export type Proof = {
   spaceId: number;
   acceptanceLines: AcceptanceLine[];
   commands: ProofCommand[];
+  repositories: ProofRepository[];
   screenshots: string[];
   submittedAt: string;
 };

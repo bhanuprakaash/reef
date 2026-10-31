@@ -55,7 +55,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 		if status == "" {
 			continue
 		}
-		if _, err := st.MoveWorkItem(ctx, w.ID, status, store.ByLead); err != nil {
+		if _, err := st.MoveWorkItem(ctx, w.ID, status, store.ByOwner); err != nil {
 			t.Fatal(err)
 		}
 	}

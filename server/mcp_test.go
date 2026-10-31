@@ -874,7 +874,7 @@ func TestMCPSubmitForReview(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
 	lead, developer := leadAndDeveloper(t, st)
-	if _, err := st.UpdateWorkItem(ctx, store.WorkItem{ID: 1, Title: "Auth", AcceptanceLines: []store.AcceptanceLine{
+	if _, err := st.UpdateWorkItem(ctx, store.WorkItem{ID: 1, Title: "Auth", OwnerBotID: lead.BotID, AcceptanceLines: []store.AcceptanceLine{
 		{Text: "wrong password is refused"}, {Text: "session lasts a day"}, {Text: "logout clears it"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -902,7 +902,7 @@ func TestMCPSubmitForReview(t *testing.T) {
 	}
 
 	got, isErr := devCall("submit_for_review", args)
-	if want := "invalid: only the lead submits a work item for review"; got != want || !isErr {
+	if want := "invalid: only the owner submits a work item for review"; got != want || !isErr {
 		t.Errorf("developer submit = %q (error %v), want %q", got, isErr, want)
 	}
 	got, isErr = leadCall("submit_for_review", args)
@@ -918,6 +918,34 @@ func TestMCPSubmitForReview(t *testing.T) {
 		t.Errorf("submit with a screenshot outside the data folder = %q (error %v), want %q", got, isErr, want)
 	}
 	args["screenshots"] = []string{shot}
+	args["commands"] = []map[string]any{
+		{"command": "go test ./...", "output": "ok  reef/server 1.2s", "project": "reef"},
+		{"command": "make lint", "output": "clean", "project": "docs"},
+	}
+	if _, err := st.CreateProject(ctx, store.Project{Name: "docs", Path: "/tmp/docs"}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	var heads [2]string
+	trees := [2]string{t.TempDir(), t.TempDir()}
+	for i, tree := range trees {
+		gitIn(t, tree, "init", "-b", "main")
+		writeIn(t, tree, "a.txt", "a")
+		gitIn(t, tree, "add", ".")
+		gitIn(t, tree, "commit", "-m", "first "+strconv.Itoa(i))
+		heads[i] = gitIn(t, tree, "rev-parse", "--short", "HEAD")
+		wk, err := st.EnsureWorkspace(ctx, store.Workspace{
+			ProjectID: int64(i + 1), WorkItemID: &one, Dir: tree, Branch: "work-item/1", Base: "main",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wk.BaseRef, wk.BaseSource, wk.State = "refs/remotes/origin/main", "origin", store.WorkspaceReady
+		if err := st.SetWorkspace(ctx, wk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeIn(t, trees[1], "b.txt", "uncommitted")
 	got, isErr = leadCall("submit_for_review", args)
 	if !strings.Contains(got, `"status":"review"`) || isErr {
 		t.Fatalf("lead submit = %q (error %v), want review", got, isErr)
@@ -932,7 +960,13 @@ func TestMCPSubmitForReview(t *testing.T) {
 		`{"position":1,"text":"wrong password is refused","checked":true,"note":"401 on a bad password"},` +
 		`{"position":2,"text":"session lasts a day","checked":true,"note":""},` +
 		`{"position":3,"text":"logout clears it","checked":false,"note":""}],` +
-		`"commands":[{"command":"go test ./...","output":"ok  reef/server 1.2s"}],` +
+		`"commands":[],"repositories":[` +
+		`{"workspaceId":1,"projectId":1,"projectName":"reef","branch":"work-item/1","head":"` + heads[0] + `",` +
+		`"baseRef":"refs/remotes/origin/main","dir":"` + trees[0] + `","dirty":false,` +
+		`"checks":[{"command":"go test ./...","output":"ok  reef/server 1.2s","project":"reef"}]},` +
+		`{"workspaceId":2,"projectId":2,"projectName":"docs","branch":"work-item/1","head":"` + heads[1] + `",` +
+		`"baseRef":"refs/remotes/origin/main","dir":"` + trees[1] + `","dirty":true,` +
+		`"checks":[{"command":"make lint","output":"clean","project":"docs"}]}],` +
 		`"screenshots":["` + shot + `"],"submittedAt":"0001-01-01T00:00:00Z"}`
 	if string(b) != want {
 		t.Errorf("proof = %s, want %s", b, want)
@@ -942,6 +976,9 @@ func TestMCPSubmitForReview(t *testing.T) {
 func TestMCPSubItems(t *testing.T) {
 	st, _ := mcpFixture(t)
 	lead, developer := leadAndDeveloper(t, st)
+	if _, err := st.UpdateWorkItem(context.Background(), store.WorkItem{ID: 1, Title: "Auth", OwnerBotID: lead.BotID}); err != nil {
+		t.Fatal(err)
+	}
 	leadCall, devCall := callTool(t, st, lead), callTool(t, st, developer)
 
 	for _, title := range []string{"Schema", "Handlers"} {
@@ -957,7 +994,7 @@ func TestMCPSubItems(t *testing.T) {
 	}
 
 	got, isErr = devCall("set_sub_item_status", map[string]any{"id": 3, "status": "done"})
-	if want := "invalid: only the lead sets a sub-item's status"; got != want || !isErr {
+	if want := "invalid: only the owner sets a sub-item's status"; got != want || !isErr {
 		t.Errorf("developer set_sub_item_status = %q (error %v), want %q", got, isErr, want)
 	}
 	got, isErr = leadCall("set_sub_item_status", map[string]any{"id": 3, "status": "done"})

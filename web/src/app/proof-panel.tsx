@@ -4,7 +4,7 @@ import { useProof } from '@/modules/work-items/api/get-proof';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import { StageChip } from '@/components/stage-chip';
-import type { WorkItemPR } from '@/types/api';
+import type { ProofCommand, ProofRepository, WorkItemPR } from '@/types/api';
 
 const PR_COLOR: Record<WorkItemPR['state'], string> = {
   OPEN: 'var(--color-done)',
@@ -37,7 +37,7 @@ export function ProofPanel({ workItemId }: { workItemId: number }) {
       {proof.data === null && (
         <EmptyState
           title="Not submitted yet"
-          body="The lead's commands and screenshots land here when it submits for review."
+          body="The owner's commands and screenshots land here when it submits for review."
           face="shark"
           compact
         />
@@ -45,23 +45,15 @@ export function ProofPanel({ workItemId }: { workItemId: number }) {
       {p && (
         <div className="space-y-4">
           <ProofPullRequest workItemId={workItemId} />
-          {p.commands.length === 0 && p.screenshots.length === 0 && (
-            <p className="text-sm text-muted">Submitted with no commands or screenshots.</p>
-          )}
-          {p.commands.length > 0 && (
-            <ul className="space-y-3">
-              {p.commands.map((c, i) => (
-                <li key={i}>
-                  <code className="block font-mono text-[13px] break-all text-soft">
-                    $ {c.command}
-                  </code>
-                  <pre className="mt-1 max-h-48 overflow-auto rounded-field bg-main p-3 font-mono text-xs whitespace-pre-wrap text-muted">
-                    {c.output}
-                  </pre>
-                </li>
-              ))}
-            </ul>
-          )}
+          {p.repositories.map((r) => (
+            <Repository key={r.workspaceId} r={r} />
+          ))}
+          {p.commands.length === 0 &&
+            p.repositories.every((r) => r.checks.length === 0) &&
+            p.screenshots.length === 0 && (
+              <p className="text-sm text-muted">Submitted with no commands or screenshots.</p>
+            )}
+          <Commands commands={p.commands} />
           {p.screenshots.length > 0 && (
             <ul className="space-y-3">
               {p.screenshots.map((s, i) => (
@@ -78,6 +70,46 @@ export function ProofPanel({ workItemId }: { workItemId: number }) {
         </div>
       )}
     </Card>
+  );
+}
+
+function Commands({ commands }: { commands: ProofCommand[] }) {
+  if (commands.length === 0) return null;
+  return (
+    <ul className="space-y-3">
+      {commands.map((c, i) => (
+        <li key={i}>
+          <code className="block font-mono text-[13px] break-all text-soft">$ {c.command}</code>
+          <pre className="mt-1 max-h-48 overflow-auto rounded-field bg-main p-3 font-mono text-xs whitespace-pre-wrap text-muted">
+            {c.output}
+          </pre>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Repository({ r }: { r: ProofRepository }) {
+  return (
+    <section className="space-y-2 rounded-field border border-line p-3">
+      <h3 className="text-sm font-medium">{r.projectName}</h3>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[13px] text-muted">
+        <dt>Branch</dt>
+        <dd className="font-mono break-all text-soft">{r.branch}</dd>
+        <dt>Commit</dt>
+        <dd className="font-mono text-soft">
+          {r.head || 'none'}
+          {r.dirty && ' (uncommitted changes)'}
+        </dd>
+        <dt>Base</dt>
+        <dd className="font-mono break-all text-soft">{r.baseRef || 'none'}</dd>
+        <dt>Workspace</dt>
+        <dd className="font-mono break-all text-soft">{r.dir}</dd>
+        <dt>Pull request</dt>
+        <dd>Not opened yet</dd>
+      </dl>
+      <Commands commands={r.checks} />
+    </section>
   );
 }
 

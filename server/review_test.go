@@ -70,7 +70,7 @@ func TestSendBackReachesTheLeadWithTheNote(t *testing.T) {
 	env := submittedEnv(t)
 
 	status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	if status != 400 || !strings.Contains(body, "a note for the lead is required") {
+	if status != 400 || !strings.Contains(body, "a note for the owner is required") {
 		t.Errorf("send back without a note = %d %s, want 400 asking for a note", status, body)
 	}
 	status, body = do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued","note":"401 not 403"}`)

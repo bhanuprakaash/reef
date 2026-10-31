@@ -10,7 +10,7 @@ import (
 const (
 	ByUser   = "user"
 	ByQueue  = "queue"
-	ByLead   = "lead"
+	ByOwner  = "owner"
 	BySpace  = "space"
 	BySubmit = "submit"
 )
@@ -27,7 +27,7 @@ const (
 
 func validMover(by string) bool {
 	switch by {
-	case ByUser, ByQueue, ByLead, BySpace, BySubmit:
+	case ByUser, ByQueue, ByOwner, BySpace, BySubmit:
 		return true
 	}
 	return false
@@ -46,7 +46,7 @@ func validMover(by string) bool {
 //     its Spaces.
 //   - a top-level item joining the queue goes last, and one sent back from review goes first;
 //     a queued item with an owner then moves to in_progress at once.
-//   - a sub-item: the lead moves it to any other status while it is not done or dropped, and
+//   - a sub-item: the owner moves it to any other status while it is not done or dropped, and
 //     is the one that sets it done.
 func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (WorkItem, error) {
 	w, err := s.WorkItem(ctx, id)
@@ -142,7 +142,7 @@ func checkMove(from, to, by string, sub bool) error {
 			from == _review && to == _done && !sub:
 			return nil
 		case from == _review && to == _done:
-			return errors.New("only the lead sets a sub-item done")
+			return errors.New("only the owner sets a sub-item done")
 		}
 	case ByQueue:
 		if from == _queued && to == _inProgress {
@@ -156,9 +156,9 @@ func checkMove(from, to, by string, sub bool) error {
 		if from == _inProgress && to == _review {
 			return nil
 		}
-	case ByLead:
+	case ByOwner:
 		if !sub {
-			return errors.New("the lead moves sub-items only; the user sets a top-level item done")
+			return errors.New("the owner moves sub-items only; the user sets a top-level item done")
 		}
 		if from != _done && from != _dropped {
 			return nil

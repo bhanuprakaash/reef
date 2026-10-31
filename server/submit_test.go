@@ -60,7 +60,7 @@ func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 		t.Errorf("item 2 = %s, want in_progress", body)
 	}
 	status, body := do(t, http.MethodGet, env.url+"/work-items/1/proof", "")
-	want := `"acceptanceLines":[{"position":1,"text":"wrong password is refused","checked":true,"note":"401"}],"commands":[],"screenshots":[]`
+	want := `"acceptanceLines":[{"position":1,"text":"wrong password is refused","checked":true,"note":"401"}],"commands":[],"repositories":[],"screenshots":[]`
 	if status != 200 || !strings.Contains(body, want) {
 		t.Errorf("proof of item 1 = %d %s, want 200 with %s", status, body, want)
 	}
