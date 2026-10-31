@@ -75,7 +75,7 @@ func TestCLI_MemoryItems(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{"memory", "approve", "2"}, "invalid: memory 2 is not a candidate"},
+		{[]string{"memory", "approve", "5"}, "invalid: memory 5 is not a candidate"},
 		{[]string{"memory", "retire", "3"}, "invalid: memory 3 is already retired"},
 		{[]string{"memory", "retire", "4"}, "invalid: memory 4 is a candidate"},
 		{[]string{"memory", "retire", "5"}, "invalid: memory 5 is rejected"},

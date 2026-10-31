@@ -679,8 +679,8 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	}
 	callTool(t, st, billing)("remember", map[string]any{"kind": "fact", "body": "billing item"})
 	call := callTool(t, st, tok)
-	call("remember", map[string]any{"kind": "fact", "body": "live item"})
-	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}})
+	call("remember", map[string]any{"kind": "fact", "body": "live item", "scope": "bot"})
+	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}, "scope": "bot"})
 	call("remember", map[string]any{"kind": "fact", "body": "project item", "scope": "project"})
 
 	const (

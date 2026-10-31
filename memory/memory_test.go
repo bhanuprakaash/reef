@@ -195,11 +195,13 @@ func TestRemember_ReplacesTwice(t *testing.T) {
 func TestRemember_ReplacesRetiresOld(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
-	old, err := s.Remember(ctx, writer(), Note{Kind: KindDecision, Body: "use postgres"})
+	w := writer()
+	w.Approved = true
+	old, err := s.Remember(ctx, w, Note{Kind: KindDecision, Body: "use postgres"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := s.Remember(ctx, writer(), Note{
+	res, err := s.Remember(ctx, w, Note{
 		Kind: KindDecision, Body: "use sqlite", Replaces: []int64{old.Item.ID},
 	})
 	if err != nil {
@@ -324,8 +326,8 @@ func TestAccept_CandidateBecomesAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Accept(ctx, res.Item.ID); err == nil {
-		t.Fatal("accept of accepted item: want error")
+	if err := s.Accept(ctx, res.Item.ID); err != nil {
+		t.Fatalf("accept of accepted item: %v, want no-op", err)
 	}
 	if _, err := db.Exec(`UPDATE memory SET status = 'candidate' WHERE id = ?`, res.Item.ID); err != nil {
 		t.Fatal(err)

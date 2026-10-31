@@ -25,7 +25,7 @@ func wakeWork(e *wakeEnv) memory.Ref {
 func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) memory.Item {
 	t.Helper()
 	r, err := e.s.ms.Remember(context.Background(),
-		memory.Writer{Author: author, Role: author, Scope: wakeWork(e)},
+		memory.Writer{Author: author, Role: author, Scope: wakeWork(e), Approved: true},
 		memory.Note{Kind: memory.KindDecision, Body: body, Replaces: replaces})
 	if err != nil {
 		t.Fatal(err)

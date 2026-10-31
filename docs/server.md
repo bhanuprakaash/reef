@@ -711,6 +711,9 @@ tool calls.
 | `GET /decisions/{id}` | | 200. Unused since decision 91 | 404 |
 | `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, the most recently accepted first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `botId`, `status`, `retiredAt`, `replacedBy`, `createdAt`; no `links`). `botId` is the id of the Bot that wrote the item, `null` for the user; `author` stays the name recorded then; `[]` when none | 400 no scope or one that is not `kind:id` |
 | `POST /memory` | `kind`, `body`, `why`, `scope` (`KIND:ID`) | 201 the item as for `GET /memory`, written with author and role `user`, so always accepted, plus `similar` (`[{id, body}]`, stored items that look like it) and `embedError` (why no vector was stored), each left out when empty | 400 unknown kind or scope kind, empty body, bad scope |
+| `GET /memory/pending` | | 200 the candidates waiting for the user, oldest first, as for `GET /memory` | |
+| `POST /memory/{id}/approve` | no body needed | 200 the item, `accepted`; the items it replaces are retired with `replacedBy` set, in one transaction. Approving an accepted item changes nothing | 400 not a candidate, 404 |
+| `POST /memory/{id}/reject` | no body needed | 200 the item, `rejected`; what it would have replaced stays accepted | 400 not a candidate, 404 |
 | `POST /memory/{id}/retire` | no body needed | 204, no body; sets `retiredAt` | 400 not an accepted item (already retired, a candidate), 404 |
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs

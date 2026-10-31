@@ -281,7 +281,7 @@ func (s *Store) Rescope(ctx context.Context, from, to Ref) (int64, error) {
 }
 
 // Accept moves a candidate to accepted and retires the items it replaces, skipping any
-// already retired.
+// already retired. Accepting an item that is already accepted does nothing.
 func (s *Store) Accept(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -295,6 +295,11 @@ func (s *Store) Accept(ctx context.Context, id int64) error {
 		StatusAccepted, now, id, StatusCandidate)
 	if err != nil {
 		return fmt.Errorf("accept %d: %w", id, err)
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		if it, err := read(ctx, tx, id); err == nil && it.Status == StatusAccepted {
+			return nil
+		}
 	}
 	if err := checkChanged(ctx, tx, res, id, "not a candidate"); err != nil {
 		return err
@@ -497,10 +502,14 @@ func statusFor(w Writer, n Note) string {
 	if w.Approved {
 		return StatusAccepted
 	}
-	if n.Kind == KindConvention && w.Scope.Kind != ScopeBot {
+	if w.Scope.Kind != ScopeBot && (n.Kind == KindConvention || replaces(w, n)) {
 		return StatusCandidate
 	}
 	return StatusAccepted
+}
+
+func replaces(w Writer, n Note) bool {
+	return len(n.Replaces) > 0 || slices.ContainsFunc(w.Links, func(l Link) bool { return l.Rel == RelReplaces })
 }
 
 func validate(w Writer, n Note) error {

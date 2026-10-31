@@ -12,7 +12,7 @@ import (
 
 func put(t *testing.T, s *Store, scope Ref, n Note) int64 {
 	t.Helper()
-	w := Writer{Author: "ada", Role: "developer", Scope: scope}
+	w := Writer{Author: "ada", Role: "developer", Scope: scope, Approved: true}
 	res, err := s.Remember(context.Background(), w, Note{
 		Kind: KindFinding, Body: n.Body, About: n.About, Replaces: n.Replaces,
 	})
