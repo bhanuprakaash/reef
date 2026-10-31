@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/bhanuprakaash/reef/skill"
@@ -37,7 +36,7 @@ const _skillDraftCols = "id, space_id, bot_id, name, files, status, skill_id, cr
 func (s *Store) CreateSkillDraft(ctx context.Context, spaceID, botID int64, p skill.Package) (SkillDraft, error) {
 	files := make([]SkillDraftFile, 0, len(p.Files))
 	for _, f := range p.Files {
-		files = append(files, SkillDraftFile{f.Path, string(f.Body)})
+		files = append(files, SkillDraftFile{Path: f.Path, Body: string(f.Body)})
 	}
 	encoded, err := json.Marshal(files)
 	if err != nil {
@@ -79,15 +78,21 @@ func (s *Store) PendingSkillDrafts(ctx context.Context, spaceID int64) ([]SkillD
 
 // SaveSkillDraft puts a pending draft in the library: as a new skill, or as the next version
 // of a skill written in Reef when update is true and the name is taken. A name that is taken
-// while update is false, or by an imported skill, is ErrConflict. Only this skill changes; no
-// Bot's skills do.
+// while update is false, or by an imported skill, is ErrConflict, and so is a draft already
+// decided. The draft is claimed and the library written in one transaction, so a second save
+// of the same draft writes nothing. Only this skill changes; no Bot's skills do.
 func (s *Store) SaveSkillDraft(ctx context.Context, id int64, update bool) (Skill, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Skill{}, fmt.Errorf("begin save skill draft: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := s.decideSkillDraft(ctx, tx, id, "saved"); err != nil {
+		return Skill{}, err
+	}
 	d, err := s.SkillDraft(ctx, id)
 	if err != nil {
 		return Skill{}, err
-	}
-	if d.Status != "pending" {
-		return Skill{}, fmt.Errorf("%w: skill draft %d is already %s", ErrConflict, id, d.Status)
 	}
 	files := make([]skill.File, 0, len(d.Files))
 	for _, f := range d.Files {
@@ -97,43 +102,49 @@ func (s *Store) SaveSkillDraft(ctx context.Context, id int64, update bool) (Skil
 	if err != nil {
 		return Skill{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	library, err := s.Skills(ctx)
-	if err != nil {
-		return Skill{}, err
+	var existingID int64
+	var kind string
+	err = tx.QueryRowContext(ctx, "SELECT id, source_kind FROM skill WHERE name = ?", d.Name).Scan(&existingID, &kind)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Skill{}, fmt.Errorf("read skill: %w", err)
 	}
-	var existing Skill
-	if i := slices.IndexFunc(library, func(k Skill) bool { return k.Name == d.Name }); i >= 0 {
-		existing = library[i]
-	}
-	var saved Skill
+	var skillID int64
 	switch {
-	case existing.ID == 0:
-		saved, err = s.ImportSkill(ctx, "reef", "", "", "", p)
+	case existingID == 0:
+		skillID, err = importSkill(ctx, tx, "reef", "", "", "", p)
 	case !update:
 		return Skill{}, fmt.Errorf("%w: a skill named %q is already in the library; save it as a new version instead", ErrConflict, d.Name)
-	case existing.SourceKind != "reef":
+	case kind != "reef":
 		return Skill{}, fmt.Errorf("%w: %q was imported; update it from its source", ErrConflict, d.Name)
 	default:
-		saved, err = s.UpdateSkill(ctx, existing.ID, p)
+		skillID = existingID
+		err = updateSkill(ctx, tx, skillID, p)
 	}
 	if err != nil {
 		return Skill{}, err
 	}
-	if err := s.decideSkillDraft(ctx, id, "saved", &saved.ID); err != nil {
-		return Skill{}, err
+	if _, err := tx.ExecContext(ctx, "UPDATE skill_draft SET skill_id = ? WHERE id = ?", skillID, id); err != nil {
+		return Skill{}, fmt.Errorf("record saved skill: %w", err)
 	}
-	return saved, nil
+	if err := tx.Commit(); err != nil {
+		return Skill{}, fmt.Errorf("commit save skill draft: %w", err)
+	}
+	return s.Skill(ctx, skillID)
 }
 
 // RejectSkillDraft marks a pending draft rejected. Nothing is saved.
 func (s *Store) RejectSkillDraft(ctx context.Context, id int64) error {
-	return s.decideSkillDraft(ctx, id, "rejected", nil)
+	return s.decideSkillDraft(ctx, s.db, id, "rejected")
 }
 
-func (s *Store) decideSkillDraft(ctx context.Context, id int64, status string, skillID *int64) error {
-	res, err := s.db.ExecContext(ctx,
-		"UPDATE skill_draft SET status = ?, skill_id = ?, decided_at = ? WHERE id = ? AND status = 'pending'",
-		status, skillID, time.Now().UTC().Format(time.RFC3339Nano), id)
+func (s *Store) decideSkillDraft(
+	ctx context.Context, db interface {
+		ExecContext(context.Context, string, ...any) (sql.Result, error)
+	}, id int64, status string,
+) error {
+	res, err := db.ExecContext(ctx,
+		"UPDATE skill_draft SET status = ?, decided_at = ? WHERE id = ? AND status = 'pending'",
+		status, time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return fmt.Errorf("decide skill draft: %w", err)
 	}

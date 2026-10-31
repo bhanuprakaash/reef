@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SkillPicker } from './skill-picker';
 
-const hint = 'Pick a project to see its skills.';
+const hint = 'Pick a project to also see its skills.';
 const onlyHint = 'Only these skills are available.';
 
 describe('SkillPicker', () => {

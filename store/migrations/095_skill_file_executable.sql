@@ -1,0 +1,1 @@
+ALTER TABLE skill_file ADD COLUMN executable INTEGER NOT NULL DEFAULT 0;

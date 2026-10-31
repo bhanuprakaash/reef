@@ -78,6 +78,15 @@ func (s *Store) ActiveBotSession(ctx context.Context, spaceID, botID int64) (Bot
 // AdoptBotSession records the Bot's current settings as its active BotSession in the Space. A
 // BotSession that was active becomes replaced.
 func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotSession, error) {
+	return s.AdoptBotSessionWith(ctx, spaceID, botID, nil)
+}
+
+// AdoptBotSessionWith is AdoptBotSession, and when the Bot picked skills it calls adopt with the
+// new BotSession before committing and saves the skills it returns in place of the bare picks. If
+// adopt fails, nothing is saved: the BotSession that was active stays active.
+func (s *Store) AdoptBotSessionWith(
+	ctx context.Context, spaceID, botID int64, adopt func(BotSession) ([]AdoptedSkill, error),
+) (BotSession, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return BotSession{}, fmt.Errorf("begin adopt bot session: %w", err)
@@ -134,22 +143,26 @@ func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotS
 	if err != nil {
 		return BotSession{}, fmt.Errorf("insert bot session: %w", err)
 	}
+	if adopt != nil && len(picks) > 0 {
+		bs, err := scanBotSession(tx.QueryRowContext(ctx,
+			"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))
+		if err != nil {
+			return BotSession{}, err
+		}
+		adopted, err := adopt(bs)
+		if err != nil {
+			return BotSession{}, err
+		}
+		body, err := json.Marshal(adopted)
+		if err != nil {
+			return BotSession{}, fmt.Errorf("encode skills: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE bot_session SET skills = ? WHERE id = ?", string(body), id); err != nil {
+			return BotSession{}, fmt.Errorf("set bot session skills: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return BotSession{}, fmt.Errorf("commit adopt bot session: %w", err)
-	}
-	return scanBotSession(s.db.QueryRowContext(ctx,
-		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))
-}
-
-// SetBotSessionSkills records the skills the BotSession adopted, with their copies, in place of
-// the bare picks AdoptBotSession saved.
-func (s *Store) SetBotSessionSkills(ctx context.Context, id int64, skills []AdoptedSkill) (BotSession, error) {
-	body, err := json.Marshal(skills)
-	if err != nil {
-		return BotSession{}, fmt.Errorf("encode skills: %w", err)
-	}
-	if _, err := s.db.ExecContext(ctx, "UPDATE bot_session SET skills = ? WHERE id = ?", string(body), id); err != nil {
-		return BotSession{}, fmt.Errorf("set bot session skills: %w", err)
 	}
 	return scanBotSession(s.db.QueryRowContext(ctx,
 		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))

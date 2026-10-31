@@ -5,7 +5,7 @@ export const pendingMemoryKey = [...memoryRootKey, 'pending'];
 export const memoryKey = (scope: string) => [...memoryRootKey, scope];
 export const inspectorKey = (spaceId: number) => ['inspector', spaceId];
 export const skillsRootKey = ['skills'];
-export const skillsKey = (projectId: number) => [...skillsRootKey, projectId];
+export const skillsKey = (projectId?: number) => [...skillsRootKey, projectId ?? 'all'];
 export const skillLibraryKey = [...skillsRootKey, 'library'];
 export const skillDraftsKey = [...skillsRootKey, 'drafts'];
 export const workItemPrKey = (workItemId: number) => ['work-item-pr', workItemId];

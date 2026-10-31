@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 
 	"github.com/bhanuprakaash/reef/skill"
 	"github.com/bhanuprakaash/reef/store"
@@ -49,17 +50,18 @@ type skillView struct {
 
 func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {
 	id, err := queryID(r, "project")
-	if err == nil && id == nil {
-		err = fmt.Errorf("%w: project is required", store.ErrInvalid)
-	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	p, err := s.st.Project(r.Context(), *id)
-	if err != nil {
-		writeError(w, err)
-		return
+	var projectPath string
+	if id != nil {
+		p, err := s.st.Project(r.Context(), *id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		projectPath = p.Path
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -78,13 +80,13 @@ func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		entries = append(entries, skillEntry{"reef:" + k.Name, k.Name, k.Description, "reef", k.Version, skill.Package{Files: files}.Compat()})
+		entries = append(entries, skillEntry{Ref: "reef:" + k.Name, Name: k.Name, Description: k.Description, Source: "reef", Version: k.Version, Compat: skill.Package{Files: files}.Compat()})
 	}
-	for _, k := range skill.Claude(home, p.Path) {
-		entries = append(entries, skillEntry{"claude:" + k.Name, k.Name, k.Description, "claude", 0, diskCompat(k.Dir)})
+	for _, k := range skill.Claude(home, projectPath) {
+		entries = append(entries, skillEntry{Ref: "claude:" + k.Name, Name: k.Name, Description: k.Description, Source: "claude", Compat: diskCompat(k.Dir)})
 	}
-	for _, k := range skill.Codex(home, p.Path) {
-		entries = append(entries, skillEntry{"codex:" + k.Name, k.Name, k.Description, "codex", 0, diskCompat(k.Dir)})
+	for _, k := range skill.Codex(home, projectPath) {
+		entries = append(entries, skillEntry{Ref: "codex:" + k.Name, Name: k.Name, Description: k.Description, Source: "codex", Compat: diskCompat(k.Dir)})
 	}
 	writeJSON(w, http.StatusOK, entries)
 }
@@ -163,7 +165,7 @@ func (s *server) getSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	view := skillView{Skill: k, Files: make([]skillFileView, 0, len(files))}
 	for _, f := range files {
-		view.Files = append(view.Files, skillFileView{f.Path, string(f.Body)})
+		view.Files = append(view.Files, skillFileView{Path: f.Path, Body: string(f.Body)})
 	}
 	writeJSON(w, http.StatusOK, view)
 }
@@ -230,6 +232,14 @@ func (s *server) editSkill(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	current, err := s.st.SkillFiles(r.Context(), id, k.Version)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	for i, f := range p.Files {
+		p.Files[i].Executable = slices.ContainsFunc(current, func(c skill.File) bool { return c.Path == f.Path && c.Executable })
 	}
 	k, err = s.st.UpdateSkill(r.Context(), id, p)
 	if err != nil {

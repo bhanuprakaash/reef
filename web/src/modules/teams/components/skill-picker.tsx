@@ -70,7 +70,9 @@ export function SkillPicker({
       {limits && picked.length > 0 && (
         <p className="mt-2 text-xs text-muted">Only these skills are available.</p>
       )}
-      {noProject && <p className="mt-2 text-xs text-muted">Pick a project to see its skills.</p>}
+      {noProject && (
+        <p className="mt-2 text-xs text-muted">Pick a project to also see its skills.</p>
+      )}
     </div>
   );
 }

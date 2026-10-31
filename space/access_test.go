@@ -126,8 +126,8 @@ func TestSession_RunAsDeniesUnpickedSkills(t *testing.T) {
 
 	for role, want := range map[string]struct{ tools, deny []string }{
 		"tester": {
-			[]string{"Read", "Skill(how)", "mcp__reef__*"},
-			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill(why)"},
+			[]string{"Read", "mcp__reef__*"},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill(how)", "Skill(why)"},
 		},
 		"lead": {
 			[]string{"mcp__reef__*"},
@@ -186,26 +186,26 @@ func TestAccess(t *testing.T) {
 			"acceptEdits", []string{"Read", "Edit", "Task"}, nil,
 		},
 		{
-			"claude without write allows its picked skills and denies the other skills on disk",
+			"claude denies native Skill for every skill on disk, picked or not",
 			store.Role{Backend: "claude", Tools: []string{"Read"}, Skills: []string{"claude:how"}},
 			[]string{"how", "why", "slack:standup"},
-			"default", []string{"Read", "Skill(how)"},
-			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill(why)", "Skill(slack:standup)"},
+			"default", []string{"Read"},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill(how)", "Skill(why)", "Skill(slack:standup)"},
 		},
 		{
-			"claude with write allows its picked skills after Task",
+			"claude with write denies picked skills too and keeps Task",
 			store.Role{Backend: "claude", Write: true, Tools: []string{"Read"}, Skills: []string{"claude:how", "claude:why"}},
 			[]string{"how", "why", "teach"},
-			"", []string{"Read", "Task", "Skill(how)", "Skill(why)"}, []string{"Skill(teach)"},
+			"", []string{"Read", "Task"}, []string{"Skill(how)", "Skill(why)", "Skill(teach)"},
 		},
 		{
-			"claude denies no skill by name when every skill on disk is picked",
+			"claude denies a picked skill that is on disk",
 			store.Role{Backend: "claude", Write: true, Skills: []string{"claude:how"}},
 			[]string{"how"},
-			"", []string{"Task", "Skill(how)"}, nil,
+			"", []string{"Task"}, []string{"Skill(how)"},
 		},
 		{
-			"claude allows no rule for a skill picked from reef or codex",
+			"claude denies a skill on disk picked from reef or codex",
 			store.Role{Backend: "claude", Write: true, Skills: []string{"reef:how", "codex:why"}},
 			[]string{"how", "why"},
 			"", []string{"Task"}, []string{"Skill(how)", "Skill(why)"},

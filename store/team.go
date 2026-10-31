@@ -241,7 +241,7 @@ func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role,
 	}
 	picks, err := scanAll(rows, func(r interface{ Scan(...any) error }) (pick, error) {
 		ro, ids, err := scanRole(r)
-		return pick{ro, ids}, err
+		return pick{role: ro, ids: ids}, err
 	})
 	if err != nil {
 		return nil, err

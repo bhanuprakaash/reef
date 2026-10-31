@@ -290,8 +290,12 @@ writes, not reads (not run against a real Codex here). A skill that uses `CLAUDE
 variables, such as `${CLAUDE_PLUGIN_ROOT}`, is incompatible with Codex: it is not listed to the
 session, and `GET /skills` and the Bot editor show why. Reef never edits a package to make it fit.
 
-Enforced by Reef: for a Claude Bot that picks skills, `--allowedTools` gets `Skill(name)` for each
-`claude:` pick and `--disallowedTools` gets `Skill(name)` for every other Claude skill on disk.
+Enforced by Reef: for a Claude Bot that picks skills, `--disallowedTools` gets `Skill(name)` for
+every Claude skill on disk, picked or not. Claude's own `Skill` tool would load the live file at each
+process start, while the session instructions point at the frozen copy; denying it makes the copy
+the only one the Bot uses. A copy keeps the execute bit of the files it came from (`0700`, else `0600`).
+Adoption is one transaction: the copy is written, then the BotSession is saved with its final skills,
+and if the copy fails the BotSession that was active stays active.
 
 Inherited from the backend, not enforced: Codex finds `~/.agents/skills` and the project's
 `.agents/skills` on its own, and Reef has no switch to stop that. A Codex Bot can therefore use a

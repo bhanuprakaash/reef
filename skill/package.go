@@ -18,9 +18,11 @@ import (
 )
 
 // File is one file of a package: its path relative to the package folder, with "/" separators.
+// Executable records the owner, group or other execute bit of a file read from disk.
 type File struct {
-	Path string
-	Body []byte
+	Path       string
+	Body       []byte
+	Executable bool
 }
 
 // Package is a skill folder read into memory.
@@ -64,24 +66,28 @@ func ReadFolder(dir string) (Package, error) {
 		case !d.Type().IsRegular():
 			return fmt.Errorf("%s is not a regular file", filepath.ToSlash(rel))
 		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
 		body, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
-		p.Files = append(p.Files, File{Path: filepath.ToSlash(rel), Body: body})
+		p.Files = append(p.Files, File{Path: filepath.ToSlash(rel), Body: body, Executable: info.Mode()&0o111 != 0})
 		return nil
 	})
 	if err != nil {
 		return Package{}, fmt.Errorf("read skill folder %q: %w", dir, err)
 	}
 	p, err = withManifest(p)
-	if errors.Is(err, errNoManifest) {
+	if errors.Is(err, _errNoManifest) {
 		return Package{}, fmt.Errorf("skill folder %q has no SKILL.md", dir)
 	}
 	return p, err
 }
 
-var errNoManifest = errors.New("no SKILL.md")
+var _errNoManifest = errors.New("no SKILL.md")
 
 // withManifest fills p's Name and Description from its SKILL.md frontmatter.
 func withManifest(p Package) (Package, error) {
@@ -96,7 +102,7 @@ func withManifest(p Package) (Package, error) {
 		p.Name, p.Description = name, description
 		return p, nil
 	}
-	return Package{}, errNoManifest
+	return Package{}, _errNoManifest
 }
 
 // Build makes a package from files written in Reef. It needs a SKILL.md whose frontmatter name
@@ -184,11 +190,11 @@ func (p Package) Compat() map[string]string {
 	return compat
 }
 
-// Hash identifies the content of p: its paths and bodies.
+// Hash identifies the content of p: its paths, bodies and execute bits.
 func (p Package) Hash() string {
 	h := sha256.New()
 	for _, f := range slices.SortedFunc(slices.Values(p.Files), func(a, b File) int { return strings.Compare(a.Path, b.Path) }) {
-		fmt.Fprintf(h, "%s\x00%d\x00", f.Path, len(f.Body))
+		fmt.Fprintf(h, "%s\x00%t\x00%d\x00", f.Path, f.Executable, len(f.Body))
 		h.Write(f.Body)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:12]

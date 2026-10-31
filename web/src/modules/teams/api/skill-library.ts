@@ -37,10 +37,14 @@ export function useImportSkill() {
   });
 }
 
+export function updateSkill(id: number) {
+  return api<LibrarySkill>(`/skills/${id}/update`, { method: 'POST', body: JSON.stringify({}) });
+}
+
 export function useUpdateSkill() {
   const refresh = useRefreshLibrary();
   return useMutation({
-    mutationFn: (id: number) => api<LibrarySkill>(`/skills/${id}/update`, { method: 'POST' }),
+    mutationFn: updateSkill,
     onSuccess: refresh,
   });
 }

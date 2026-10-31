@@ -479,7 +479,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
-	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep", "Skill(sketch)", "mcp__reef__*"}) ||
+	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep", "mcp__reef__*"}) ||
 		ags[0].cfg.MCPServers["web"].URL != "http://x" {
 		t.Errorf("config = %+v, want the role's tools and mcp server", ags[0].cfg)
 	}

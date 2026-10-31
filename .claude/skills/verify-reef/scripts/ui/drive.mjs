@@ -1794,6 +1794,28 @@ async function skills() {
   await page.getByText('Saved').waitFor();
   await shot('picked');
   check(JSON.stringify((await getJson(`/bots/${lead.id}`)).skills) === '["reef:triage"]', 'the saved skill is picked for a Bot through the picker', JSON.stringify((await getJson(`/bots/${lead.id}`)).skills));
+
+  const imported = path.join(projectDir, 'imported-skill');
+  mkdirSync(path.join(imported, 'scripts'), { recursive: true });
+  writeFileSync(path.join(imported, 'SKILL.md'), '---\nname: imported-skill\ndescription: Imported from a folder.\n---\n');
+  writeFileSync(path.join(imported, 'scripts/run.sh'), 'echo run\n', { mode: 0o755 });
+  const post = (route, body) => fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const imp = await (await post('/skills/import', { path: imported })).json();
+  const runSh = (await getJson(`/skills/${imp.id}`)).files.find((f) => f.path === 'scripts/run.sh');
+  check(runSh && (await (await post(`/skills/${imp.id}/update`, {})).json()).version === 2, 'importing a folder keeps the execute bit and the REST update works', JSON.stringify(runSh));
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await lib.getByRole('button', { name: 'Update imported-skill' }).click();
+  await page.waitForFunction(async (id) => (await (await fetch(`/skills/library`)).json()).find((s) => s.id === id).version === 3, imp.id);
+  check(true, 'the Update button in the window saves the next version (no 415)');
+
+  await aside.getByRole('button', { name: 'Switch project' }).click();
+  await page.getByRole('menuitem', { name: 'All projects', exact: true }).click();
+  await aside.getByRole('region', { name: 'All projects' }).waitFor();
+  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await main.getByRole('combobox', { name: / add skill$/ }).click();
+  const offered = await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option').allInnerTexts();
+  await shot('picker-all-projects');
+  check(offered.some((o) => o.startsWith('imported-skill · Reef')), 'under All projects the picker lists library skills', offered.join(' | '));
 }
 async function workshop() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {

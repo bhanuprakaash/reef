@@ -69,7 +69,12 @@ func TestGetSkills(t *testing.T) {
 				`"compat":{"claude":"","codex":"SKILL.md uses ${CLAUDE_PLUGIN_ROOT}, which only Claude sets"}},` +
 				`{"ref":"claude:repo-skill","name":"repo-skill","description":"In the repo.","source":"claude","compat":{"claude":"","codex":""}},` +
 				`{"ref":"codex:probe","name":"probe","description":"For codex.","source":"codex","compat":{"claude":"","codex":""}}]`},
-		{"no project", "", http.StatusBadRequest, ""},
+		{"no project", "", http.StatusOK,
+			`[{"ref":"reef:how","name":"how","description":"Same name in the library.","source":"reef","version":1,"compat":{"claude":"","codex":""}},` +
+				`{"ref":"claude:how","name":"how","description":"Explain flow.","source":"claude","compat":{"claude":"","codex":""}},` +
+				`{"ref":"claude:plugged","name":"plugged","description":"Needs Claude.","source":"claude",` +
+				`"compat":{"claude":"","codex":"SKILL.md uses ${CLAUDE_PLUGIN_ROOT}, which only Claude sets"}},` +
+				`{"ref":"codex:probe","name":"probe","description":"For codex.","source":"codex","compat":{"claude":"","codex":""}}]`},
 		{"not a number", "?project=x", http.StatusBadRequest, ""},
 		{"unknown project", "?project=999", http.StatusNotFound, ""},
 	}

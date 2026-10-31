@@ -193,3 +193,46 @@ func TestSession_ClaudeGetsSkillsFolder(t *testing.T) {
 		t.Errorf("AddDirs = %q, want %q", got, want)
 	}
 }
+
+func TestAdoptBotSession_CopiesExecuteBitAndFailsWholly(t *testing.T) {
+	ctx := context.Background()
+	source := filepath.Join(t.TempDir(), "deploy")
+	writeSkillFile(t, filepath.Join(source, "SKILL.md"), "---\nname: deploy\ndescription: Ship it.\n---\n")
+	writeSkillFile(t, filepath.Join(source, "scripts/ship.sh"), "echo ship")
+	if err := os.Chmod(filepath.Join(source, "scripts/ship.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st, f := openStore(t)
+	pkg, err := skill.ReadFolder(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ImportSkill(ctx, "folder", source, "", "", pkg); err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionSpace(t, st, f, false)
+	editBot(t, st, "architect", func(b *store.Bot) { b.Skills = []string{"reef:deploy"} })
+	architect := *testBotID(t, st, "architect")
+
+	dataDir := t.TempDir()
+	bs, err := AdoptBotSession(ctx, st, dataDir, ch.ID, architect)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for file, want := range map[string]os.FileMode{"scripts/ship.sh": 0o700, "SKILL.md": 0o600} {
+		info, err := os.Stat(filepath.Join(BotSkillsDir(dataDir, bs.ID), "reef/deploy", file))
+		if err != nil || info.Mode().Perm() != want {
+			t.Errorf("copied %s = %v, %v, want mode %o", file, info, err, want)
+		}
+	}
+
+	blocked := t.TempDir()
+	writeSkillFile(t, filepath.Join(blocked, "bot-sessions"), "a file where the folder goes")
+	if _, err := AdoptBotSession(ctx, st, blocked, ch.ID, architect); err == nil {
+		t.Fatal("adopt into an unwritable data folder succeeded, want an error")
+	}
+	active, err := st.ActiveBotSession(ctx, ch.ID, architect)
+	if err != nil || active.ID != bs.ID {
+		t.Errorf("active session after a failed adopt = %+v, %v, want session %d", active, err, bs.ID)
+	}
+}

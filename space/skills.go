@@ -25,21 +25,18 @@ func BotSkillsDir(dataDir string, id int64) string {
 func AdoptBotSession(
 	ctx context.Context, st *store.Store, dataDir string, spaceID, botID int64,
 ) (store.BotSession, error) {
-	bs, err := st.AdoptBotSession(ctx, spaceID, botID)
-	if err != nil {
-		return store.BotSession{}, err
-	}
-	if len(bs.Skills) == 0 {
-		return bs, nil
-	}
-	skills, err := copySkills(ctx, st, dataDir, spaceID, bs)
-	if err == nil {
-		return st.SetBotSessionSkills(ctx, bs.ID, skills)
-	}
-	if endErr := st.EndBotSession(ctx, bs.ID, store.BotSessionReplaced); endErr != nil {
-		err = fmt.Errorf("%w; end bot session: %v", err, endErr)
-	}
-	return store.BotSession{}, fmt.Errorf("adopt skills: %w", err)
+	return st.AdoptBotSessionWith(ctx, spaceID, botID, func(bs store.BotSession) ([]store.AdoptedSkill, error) {
+		root := filepath.Dir(BotSkillsDir(dataDir, bs.ID))
+		if err := os.RemoveAll(root); err != nil {
+			return nil, fmt.Errorf("adopt skills: clear %s: %w", root, err)
+		}
+		skills, err := copySkills(ctx, st, dataDir, spaceID, bs)
+		if err != nil {
+			_ = os.RemoveAll(root)
+			return nil, fmt.Errorf("adopt skills: %w", err)
+		}
+		return skills, nil
+	})
 }
 
 func copySkills(
@@ -138,7 +135,11 @@ func writePackage(dir string, pkg skill.Package) error {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return fmt.Errorf("make %s: %w", filepath.Dir(path), err)
 		}
-		if err := os.WriteFile(path, f.Body, 0o600); err != nil {
+		mode := os.FileMode(0o600)
+		if f.Executable {
+			mode = 0o700
+		}
+		if err := os.WriteFile(path, f.Body, mode); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
 		}
 	}
