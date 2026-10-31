@@ -391,8 +391,9 @@ func (s *Store) nameStep(ctx context.Context, query string, args ...any) (bool, 
 	return n > 0, nil
 }
 
-// AttachSpace gives free Space id the work item, which must be in its project and have no
-// other active Space. Its kind becomes KindWorkItem.
+// AttachSpace gives free Space id the work item, which must have no other active Space. The
+// Space moves to the work item's project, whatever it was associated with. Its kind becomes
+// KindWorkItem.
 func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, error) {
 	c, err := s.Space(ctx, id)
 	if err != nil {
@@ -405,14 +406,33 @@ func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, e
 		return Space{}, fmt.Errorf("%w: only a free Space attaches to a work item, Space %d is a %s",
 			ErrInvalid, id, c.Kind)
 	}
-	if err := s.checkWorkItemInProject(ctx, &workItemID, c.ProjectID); err != nil {
+	f, err := s.WorkItem(ctx, workItemID)
+	if errors.Is(err, ErrNotFound) {
+		return Space{}, fmt.Errorf("%w: unknown work item %d", ErrInvalid, workItemID)
+	}
+	if err != nil {
+		return Space{}, fmt.Errorf("check work item: %w", err)
+	}
+	if err := s.checkWorkItemInProject(ctx, &workItemID, f.ProjectID); err != nil {
 		return Space{}, err
 	}
-	_, err = s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Space{}, fmt.Errorf("begin attach Space: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx,
 		"UPDATE space SET work_item_id = ?, kind = ?, project_id = ? WHERE id = ? AND work_item_id IS NULL",
-		workItemID, KindWorkItem, c.ProjectID, id)
+		workItemID, KindWorkItem, f.ProjectID, id)
 	if err != nil {
 		return Space{}, s.spaceWriteErr(ctx, "attach Space", err, &workItemID)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, f.ProjectID); err != nil {
+		return Space{}, fmt.Errorf("associate Space with project: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Space{}, fmt.Errorf("commit attach Space: %w", err)
 	}
 	return s.Space(ctx, id)
 }

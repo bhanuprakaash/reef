@@ -15,7 +15,7 @@ export function AttachForm({
 }) {
   const [workItemId, setWorkItemId] = useState('');
   const attach = useAttachSpace(space.id);
-  const choices = workItems.filter((w) => w.projectId === space.projectId);
+  const choices = workItems.filter((w) => w.parentId === null);
 
   return (
     <form

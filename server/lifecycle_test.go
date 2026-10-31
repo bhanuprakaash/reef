@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -353,6 +355,21 @@ func TestDelete_StopsLiveSpace(t *testing.T) {
 	env.h.s.mu.Unlock()
 	if marks != 0 {
 		t.Errorf("deleting marks = %d, want 0 after delete", marks)
+	}
+}
+
+func TestDelete_RemovesTheNeutralFolder(t *testing.T) {
+	env := newLiveEnv(t)
+	dir := filepath.Join(env.h.s.dataDir, "chats", "1")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, _ := do(t, http.MethodDelete, env.url+"/spaces/1", ""); status != 204 {
+		t.Fatalf("delete = %d, want 204", status)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat %s = %v, want not exist", dir, err)
 	}
 }
 

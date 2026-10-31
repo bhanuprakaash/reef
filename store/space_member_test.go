@@ -221,6 +221,32 @@ func TestAttachSpace(t *testing.T) {
 	}
 }
 
+func TestAttachSpace_NoProjectOrAnotherProject(t *testing.T) {
+	ctx := context.Background()
+	s := spaceMemberStore(t)
+	other, err := s.CreateProject(ctx, Project{Name: "blog", Path: "/tmp/blog"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: other.ID, Title: "Post"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	free, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "free", Team: "core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.AttachSpace(ctx, free.ID, w.ID)
+	if err != nil || got.ProjectID != other.ID || got.WorkItemID == nil || *got.WorkItemID != w.ID {
+		t.Fatalf("AttachSpace = %+v, %v, want work item %d in project %d", got, err, w.ID, other.ID)
+	}
+	projects, err := s.SpaceProjects(ctx, free.ID)
+	if err != nil || len(projects) != 2 || projects[0].ID != 1 || projects[1].ID != other.ID {
+		t.Errorf("SpaceProjects = %+v, %v, want projects 1 and %d", projects, err, other.ID)
+	}
+}
+
 func TestMoveConversation_FreeSpaceWithBothBotsAndTheConversationMarked(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)

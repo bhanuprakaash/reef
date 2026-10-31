@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -326,6 +328,9 @@ func (s *server) deleteSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := os.RemoveAll(space.ChatDir(s.dataDir, id)); err != nil {
+		log.Printf("remove folder of Space %d: %v", id, err)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -366,11 +371,14 @@ func (s *server) attachSpace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (store.Space, error) {
-	if ch.ProjectID == 0 {
-		return store.Space{}, fmt.Errorf("%w: Space %d has no project, associate one before attaching",
-			store.ErrInvalid, ch.ID)
+	f, err := s.st.WorkItem(ctx, workItemID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.Space{}, fmt.Errorf("%w: unknown work item %d", store.ErrInvalid, workItemID)
 	}
-	p, err := s.st.Project(ctx, ch.ProjectID)
+	if err != nil {
+		return store.Space{}, err
+	}
+	p, err := s.st.Project(ctx, f.ProjectID)
 	if err != nil {
 		return store.Space{}, err
 	}
@@ -384,10 +392,6 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 	from := memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)}
 	to := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(workItemID, 10)}
 	if _, err := s.ms.Rescope(ctx, from, to); err != nil {
-		return store.Space{}, err
-	}
-	f, err := s.st.WorkItem(ctx, workItemID)
-	if err != nil {
 		return store.Space{}, err
 	}
 	body := fmt.Sprintf("This Space is now attached to work item %q (%d). It works in %s on %s.",

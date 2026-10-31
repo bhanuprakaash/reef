@@ -617,6 +617,11 @@ func sameAccess(a, b agent.Config) bool {
 		slices.Equal(a.Tools, b.Tools) && slices.Equal(a.DisallowedTools, b.DisallowedTools)
 }
 
+// ChatDir is the neutral folder of Space spaceID, which has no work item.
+func ChatDir(dataDir string, spaceID int64) string {
+	return filepath.Join(dataDir, "chats", strconv.FormatInt(spaceID, 10))
+}
+
 // WorkDir is where an agent of Space spaceID runs: the worktree of its work item, or else a
 // folder of its own under the data folder, made when it is missing. That folder is no
 // repository, and a project the Space is associated with is not its folder. The work item is
@@ -630,7 +635,7 @@ func WorkDir(
 		return "", "", err
 	}
 	if ch.WorkItemID == nil {
-		dir = filepath.Join(dataDir, "chats", strconv.FormatInt(spaceID, 10))
+		dir = ChatDir(dataDir, spaceID)
 		return dir, "", os.MkdirAll(dir, 0o700)
 	}
 	p, err := st.Project(ctx, ch.ProjectID)

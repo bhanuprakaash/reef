@@ -130,8 +130,6 @@ func TestAttach_Errors(t *testing.T) {
 			`{"error":"invalid: workItemId is required"}`},
 		{"unknown field", "/spaces/1/attach", `{"feature":1}`, 400,
 			`{"error":"invalid: bad JSON: json: unknown field \"feature\""}`},
-		{"work item of another project", "/spaces/1/attach", `{"workItemId":1}`, 400,
-			`{"error":"invalid: work item 1 is not in project 1"}`},
 		{"unknown work item", "/spaces/1/attach", `{"workItemId":9}`, 400,
 			`{"error":"invalid: unknown work item 9"}`},
 		{"unknown space", "/spaces/9/attach", `{"workItemId":1}`, 404,
@@ -148,6 +146,30 @@ func TestAttach_Errors(t *testing.T) {
 	_, body := do(t, http.MethodGet, env.url+"/spaces/1", "")
 	if !strings.Contains(body, `"workItemId":null`) {
 		t.Errorf("space after errors = %s, want workItemId null", body)
+	}
+}
+
+func TestAttach_SpaceWithNoProjectOrAnotherProject(t *testing.T) {
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"other","path":"`+t.TempDir()+`"}`)
+	gitProject(t, env, 2)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Billing"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Invoices"}`)
+	if status, body := do(t, http.MethodPost, env.url+"/spaces", `{"name":"loose"}`); status != 201 {
+		t.Fatalf("create Space with no project = %d %s, want 201", status, body)
+	}
+
+	for _, id := range []int{1, 2} {
+		status, body := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/attach", env.url, id),
+			fmt.Sprintf(`{"workItemId":%d}`, id))
+		if status != 200 || !strings.Contains(body, `"projectId":2,`) ||
+			!strings.Contains(body, fmt.Sprintf(`"workItemId":%d`, id)) {
+			t.Errorf("attach Space %d = %d %s, want 200 in project 2 with work item %d", id, status, body, id)
+		}
+	}
+	_, body := do(t, http.MethodGet, env.url+"/spaces?project=2", "")
+	if !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"id":2,`) {
+		t.Errorf("Spaces of project 2 = %s, want Spaces 1 and 2", body)
 	}
 }
 
