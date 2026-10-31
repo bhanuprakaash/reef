@@ -136,7 +136,8 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	h.Close()
 
 	binDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\nsleep 5\n"+
+	gate := filepath.Join(binDir, "gate")
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\nwhile [ ! -e "+gate+" ]; do sleep 0.01; done\n"+
 		"echo '{\"number\":12,\"url\":\"https://github.com/x/y/pull/12\",\"state\":\"OPEN\",\"statusCheckRollup\":[]}'\n"),
 		0o755); err != nil {
 		t.Fatal(err)
@@ -148,6 +149,9 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	t.Cleanup(h2.Close)
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("New() took %v, want under 1s: it must not wait on the slow gh", elapsed)
+	}
+	if err := os.WriteFile(gate, nil, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	var msgs []store.Message
