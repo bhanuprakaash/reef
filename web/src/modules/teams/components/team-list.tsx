@@ -9,7 +9,7 @@ export function TeamList({ teams, selected, onSelect }: Props) {
   return (
     <section
       aria-label="All crews"
-      className="flex w-full flex-col gap-1.5 md:group-has-[[aria-label=Role]]:hidden lg:w-60"
+      className="flex w-full flex-col gap-1.5 md:group-has-[[aria-label=Bot]]:hidden lg:w-60"
     >
       {teams.map((t) => {
         const current = t.name === selected;
