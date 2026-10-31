@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,7 @@ type session interface {
 	RunDirectBot(ctx context.Context, botID int64, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
+	Refresh(ctx context.Context, botID int64) error
 	SetOnNote(f func())
 	Close() error
 }
@@ -110,6 +112,8 @@ type live struct {
 	// shed is the part of held that a stopped or failed chain left unrun; the next chain notes
 	// it, unless continue runs it.
 	shed []wake
+	// refresh is the Bots whose refresh waits for the turn that is running to end.
+	refresh []int64
 	// queued is the wakes that arrived while a chain starts or runs; the chain runs them after
 	// its current turn, or gives them back when it ends first.
 	queued []wake
@@ -179,6 +183,8 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/spaces/{id}/stop", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/continue", s.continueSpace)
 	mux.HandleFunc("/spaces/{id}/continue", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/bots/{botId}/refresh", s.refreshBot)
+	mux.HandleFunc("/spaces/{id}/bots/{botId}/refresh", methodNotAllowed)
 }
 
 // subscribe returns the Space's entry, creating it, and counts a subscriber on it. The
@@ -337,7 +343,7 @@ func (s *server) dropIdle(id int64, l *live, deleted bool) {
 	if s.lives[id] != l || l.state != _idle || l.sess != nil {
 		return
 	}
-	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil) {
+	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil && len(l.refresh) == 0) {
 		delete(s.lives, id)
 	}
 }
@@ -489,6 +495,9 @@ func (s *server) runOne(
 		if err == nil {
 			w.role = bot.Name
 		}
+	}
+	if err == nil {
+		err = s.applyRefreshes(ctx, l, sess)
 	}
 	if err == nil {
 		switch kind {
@@ -796,6 +805,102 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 		s.stopLive(l)
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// refreshBot has a Bot of the Space adopt its current settings and start a new backend context at
+// its next turn. A model or backend in the body is written to the Bot first. A turn that is running
+// finishes first: the refresh is kept and applied before the next turn starts, and the reply says
+// pending.
+func (s *server) refreshBot(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	botID, err := strconv.ParseInt(r.PathValue("botId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: bot id %q is not a number", store.ErrInvalid, r.PathValue("botId")))
+		return
+	}
+	var in struct {
+		Model   string `json:"model"`
+		Backend string `json:"backend"`
+	}
+	if r.ContentLength != 0 {
+		if err := readJSON(r, &in); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	team, err := s.st.SpaceTeam(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !slices.ContainsFunc(team.Roles, func(m store.Role) bool { return m.BotID == botID }) {
+		writeError(w, fmt.Errorf("%w: Bot %d is not a member of Space %d", store.ErrNotFound, botID, id))
+		return
+	}
+	if in.Model != "" || in.Backend != "" {
+		bot, err := s.st.Bot(r.Context(), botID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if in.Model != "" {
+			bot.Model = in.Model
+		}
+		if in.Backend != "" {
+			bot.Backend = in.Backend
+		}
+		if _, err := s.st.UpdateBot(r.Context(), bot); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	c, _, err := s.claim(r.Context(), id, _noTurn)
+	if errors.Is(err, store.ErrConflict) {
+		l := s.subscribe(id)
+		l.mu.Lock()
+		if !slices.Contains(l.refresh, botID) {
+			l.refresh = append(l.refresh, botID)
+		}
+		l.mu.Unlock()
+		s.unsubscribe(l)
+		writeJSON(w, http.StatusAccepted, map[string]bool{"pending": true})
+		return
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	c.l.mu.Lock()
+	sess := c.l.sess
+	c.l.mu.Unlock()
+	if sess != nil {
+		err = sess.Refresh(r.Context(), botID)
+	} else {
+		_, err = s.st.AdoptBotSession(r.Context(), id, botID)
+	}
+	if err = c.release(err); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"pending": false})
+}
+
+// applyRefreshes refreshes the Bots whose refresh waited for the turn that ended.
+func (s *server) applyRefreshes(ctx context.Context, l *live, sess session) error {
+	l.mu.Lock()
+	bots := l.refresh
+	l.refresh = nil
+	l.mu.Unlock()
+	for _, botID := range bots {
+		if err := sess.Refresh(ctx, botID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // stopLive cancels the Space's turn and waits for it to end, then closes the agent.

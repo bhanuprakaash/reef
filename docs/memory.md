@@ -463,6 +463,21 @@ its first turn: a first message that goes to a specialist starts no lead.
   first message, in the same prompt: the three sections above, for a Space on a work item
   and for a quick session alike. It is built after the turn's start is stamped, from the team
   and the role as they are then, so a retry of a failed first send has any edit made since.
+  When the Bot already has finished turns in the Space, a `## Handover` follows the context
+  prompt: the goal (the work item's title, description and brief, or the Space's name), the
+  settled decisions, the completed and unfinished sub-items, the workspace folder and branch,
+  the pull request, and the last five messages as one-line excerpts, then a line that points to
+  `read_thread` and `search_sessions` for the rest. It is built from stored records only, never
+  by asking the old session, so an old model that is gone does not matter, and it is sent
+  with the first prompt only. A new backend context starts like this in three cases. A
+  refresh (`POST /spaces/{id}/bots/{botId}/refresh`) ends the Bot's active adopted settings
+  and adopts the Bot's current ones; the next turn then has no session to resume, as only
+  turns of the active settings count, so the old backend session is never resumed. A
+  session the backend no longer has starts a new context under the same adopted settings. So
+  does a session whose last turn reports `renewAt` input tokens or more (800,000). A context
+  whose start fails leaves a failed turn and no notice; the next turn starts it again with
+  the handover. Once the new backend reports its session, the Space gets the notice
+  `<Bot> refreshed: <backend>, <model>`, only after a refresh.
 - When the backend compacts the role's session (a `compacted` event, see
   [agents.md](agents.md)), by itself as its context fills or on `/compact`, the session no longer
   holds the first prompt it was sent. A compaction inside a turn is stored on that turn

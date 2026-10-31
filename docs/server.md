@@ -501,7 +501,7 @@ setting of its own.
 
 Every member of a Space, its lead included, runs with the backend and permission mode of its bot.
 
-A Bot adopts its settings in a Space at the Bot's first turn there: table `bot_session` keeps one row per adoption, with the Bot's `backend`, `provider`, `model`, `description`, `skills`, `tools`, `mcpServers`, `write` and `permissionMode` as they were, a `status` (`active`, `replaced` or `revoked`) and `createdAt` and `endedAt`. A Space has at most one `active` row per Bot, and each turn stores its row as `botSessionId`. A turn runs with the active row, not with the Bot: editing the Bot, a restart of the server, an automatic renewal of a lost backend session and a running agent change nothing, and the agent is not restarted. Resume looks only at turns of the active row. A Space that adopts the Bot later, such as a new conversation, gets the Bot's settings as they are then.
+A Bot adopts its settings in a Space at the Bot's first turn there: table `bot_session` keeps one row per adoption, with the Bot's `backend`, `provider`, `model`, `description`, `skills`, `tools`, `mcpServers`, `write` and `permissionMode` as they were, a `status` (`active`, `replaced` or `revoked`) and `createdAt` and `endedAt`. A Space has at most one `active` row per Bot, and each turn stores its row as `botSessionId`. A turn runs with the active row, not with the Bot: editing the Bot, a restart of the server, an automatic renewal of a lost backend session and a running agent change nothing, and the agent is not restarted. Resume looks only at turns of the active row. A Space that adopts the Bot later, such as a new conversation, gets the Bot's settings as they are then. `POST /spaces/{id}/bots/{botId}/refresh` is what replaces the active row with the Bot's current settings.
 
 ### provider
 
@@ -671,6 +671,7 @@ tool calls.
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
+| `POST /spaces/{id}/bots/{botId}/refresh` | optional `model` and `backend`, written to the Bot first | 200 `{"pending":false}`: the Bot's active adopted settings are replaced by its current ones and its agent is closed, so its next turn starts a new backend context with a handover (see [memory](memory.md)). 202 `{"pending":true}` when a turn is running: the refresh is applied at the end of that turn, before the next one starts | 400 unknown backend; 404 not a member |
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
 | `GET /spaces/{id}/projects` | | 200 the projects the Space is associated with, by id, `[]` when none | 404 |

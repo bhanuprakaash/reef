@@ -188,6 +188,13 @@ func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.
 	return store.Proposal{}, nil
 }
 
+func (f *fakeSession) Refresh(context.Context, int64) error {
+	f.mu.Lock()
+	f.ran = append(f.ran, "refresh")
+	f.mu.Unlock()
+	return nil
+}
+
 func (f *fakeSession) SetOnNote(fn func()) {
 	f.mu.Lock()
 	f.onNote = fn

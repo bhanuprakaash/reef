@@ -485,10 +485,15 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	r = bs.Apply(r)
 	backend = r.Backend
+	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.BotID, bs.ID)
+	if err != nil {
+		return nil, err
+	}
+	renew := !in.fork && renewed(last)
 	if m, ok := s.members[r.BotID]; ok && !in.fork {
 		m.run.endWatch()
 		_, err := os.Stat(m.dir)
-		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone {
+		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone && !renew {
 			m.run.role = role
 			return m, nil
 		}
@@ -508,12 +513,17 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 	}()
 
-	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.BotID, bs.ID)
-	if err != nil {
-		return nil, err
-	}
 	if in.fork && r.Backend != "claude" {
 		last = store.Turn{} // only claude can resume a copy of a session
+	}
+	if renew {
+		last = store.Turn{}
+	}
+	var history, refreshed bool
+	if last.SessionID == "" && !in.fork {
+		if history, refreshed, err = replacement(wctx, s.st, s.ch.ID, r.BotID, bs.ID); err != nil {
+			return nil, err
+		}
 	}
 	tok, err := s.st.CreateToken(wctx, s.ch.ID, r.BotID)
 	if err != nil {
@@ -590,6 +600,18 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, bs.Apply(r))
 	}
+	if history {
+		m.run.Handover = func(ctx context.Context) (string, error) {
+			ch, err := s.st.Space(ctx, s.ch.ID)
+			if err != nil {
+				return "", err
+			}
+			return handover(ctx, s.st, s.ms, ch, r.BotID, cwd)
+		}
+	}
+	if refreshed {
+		m.run.refreshNote = refreshNote(r)
+	}
 	m.run.OnPrompt = s.onPrompt
 	m.run.Memory = s.ms
 	if m.write && (key != "" || worktree.IsRepo(wctx, cwd)) {
@@ -601,6 +623,28 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		s.members[r.BotID] = m
 	}
 	return m, nil
+}
+
+// Refresh ends the Bot's BotSession in the Space and adopts the Bot's current settings. Its agent
+// is closed, so its next turn starts a new backend context, with a handover, and never resumes the
+// earlier one. Call it only between turns.
+func (s *Session) Refresh(ctx context.Context, botID int64) error {
+	if _, err := s.st.AdoptBotSession(ctx, s.ch.ID, botID); err != nil {
+		return err
+	}
+	if m, ok := s.members[botID]; ok {
+		delete(s.members, botID)
+		return m.close(s.st)
+	}
+	return nil
+}
+
+func refreshNote(r store.Role) string {
+	settings := r.Backend
+	if r.Model != "" {
+		settings += ", " + r.Model
+	}
+	return r.Name + " refreshed: " + settings
 }
 
 func roleConfig(r store.Role, cwd string) agent.Config {

@@ -44,6 +44,9 @@ type Runner struct {
 	// session. It is built after the turn's start is stamped, so what is written after it is
 	// in the prompt or the next delta.
 	FirstPrompt func(ctx context.Context) (string, error)
+	// Handover, when set, builds the summary that follows the first prompt of a new backend
+	// context that replaces an earlier one. It is dropped once a prompt is sent.
+	Handover func(ctx context.Context) (string, error)
 	// Memory is read for the delta of a Space.
 	Memory *memory.Store
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
@@ -63,6 +66,9 @@ type Runner struct {
 
 	sessionGone     bool
 	firstPromptSent bool
+	// refreshNote is posted to the Space once the backend reports its first session: a
+	// replacement that has not started has not been adopted.
+	refreshNote string
 
 	// watching is closed to stop the watch that Watch started; watched is closed when it has.
 	// The rest is what the watch read that the next turn needs: endWatch applies the session,
@@ -138,6 +144,12 @@ func (r *Runner) Run(
 	preamble, delta := r.preamble, ""
 	if r.FirstPrompt != nil && !r.firstPromptSent {
 		preamble, err = r.FirstPrompt(wctx)
+		if err == nil && r.Handover != nil {
+			var hand string
+			if hand, err = r.Handover(wctx); err == nil {
+				preamble += "\n\n" + hand
+			}
+		}
 	} else {
 		delta, err = r.delta(wctx)
 	}
@@ -161,7 +173,7 @@ func (r *Runner) Run(
 		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
-	r.preamble, r.firstPromptSent = "", true
+	r.preamble, r.firstPromptSent, r.Handover = "", true, nil
 	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
@@ -186,6 +198,13 @@ func (r *Runner) Run(
 				turn.SessionID, turn.Model = r.sessionID, r.model
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+				}
+				if r.refreshNote != "" {
+					note := store.Message{SpaceID: r.spaceID, Author: store.ReefAuthor, Body: r.refreshNote}
+					if _, err := r.st.CreateMessage(wctx, note); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+					}
+					r.refreshNote = ""
 				}
 			case agent.KindCompacted:
 				turn.Compacted, r.firstPromptSent = true, false
