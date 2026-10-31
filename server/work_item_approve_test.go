@@ -86,7 +86,7 @@ func TestApproveQueuesOnceAndNothingRunsBefore(t *testing.T) {
 	approve := fmt.Sprintf(`{"ownerBotId":%d,"participantBotIds":[%d],"key":"first"}`, ann.ID, sam.ID)
 	status, body := do(t, http.MethodPost, env.url+"/work-items/1/approve", approve)
 	if status != 200 || !strings.Contains(body, `"status":"in_progress"`) || !strings.Contains(body, `"approvalKey":"first"`) ||
-		!strings.Contains(body, fmt.Sprintf(`"ownerBotId":%d,"participantBotIds":[%d,%d]`, ann.ID, ann.ID, sam.ID)) {
+		!strings.Contains(body, fmt.Sprintf(`"ownerBotId":%d,"pendingOwnerBotId":null,"participantBotIds":[%d,%d]`, ann.ID, ann.ID, sam.ID)) {
 		t.Fatalf("approve = %d %s, want in_progress, owner ann, participants [ann sam]", status, body)
 	}
 	env.waitIdle(t, 2)

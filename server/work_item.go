@@ -32,6 +32,8 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}/approve", methodNotAllowed)
 	mux.HandleFunc("PUT /work-items/{id}/participants", s.putParticipants)
 	mux.HandleFunc("/work-items/{id}/participants", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/owner", s.transferOwner)
+	mux.HandleFunc("/work-items/{id}/owner", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/targets", s.listTargets)
 	mux.HandleFunc("POST /work-items/{id}/targets", s.addTarget)
 	mux.HandleFunc("/work-items/{id}/targets", methodNotAllowed)

@@ -21,6 +21,7 @@ import { MemoryList } from '@/modules/work-items/components/memory-list';
 import { WorkItemForm } from '@/modules/work-items/components/work-item-form';
 import { SubItems } from '@/modules/work-items/components/sub-items';
 import { TargetsCard } from '@/modules/work-items/components/targets-card';
+import { TransferOwnerCard } from '@/modules/work-items/components/transfer-owner-card';
 import { diffCounts } from '@/modules/work-items/utils/diff-counts';
 import { statusLabel } from '@/modules/work-items/utils/status-label';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -155,6 +156,10 @@ export function WorkItemPage() {
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
           {f.parentId === null && f.status === 'backlog' && <ApproveCard item={f} />}
+          {f.parentId === null &&
+            f.ownerBotId !== null &&
+            f.status !== 'done' &&
+            f.status !== 'dropped' && <TransferOwnerCard item={f} />}
           {f.parentId === null && <TargetsCard item={f} projects={projects.data ?? []} />}
           <Card title="Spaces">
             {spaces.isError ? (

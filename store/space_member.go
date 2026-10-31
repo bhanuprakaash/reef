@@ -78,15 +78,24 @@ func (s *Store) SetSpaceCoordinator(ctx context.Context, id, botID int64) ([]Rol
 	if _, err := s.Space(ctx, id); err != nil {
 		return nil, err
 	}
-	res, err := s.db.ExecContext(ctx,
-		"UPDATE space_member SET lead = (bot_id = ?) WHERE space_id = ? "+
-			"AND EXISTS (SELECT 1 FROM space_member WHERE space_id = ? AND bot_id = ?)",
-		botID, id, id, botID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return nil, fmt.Errorf("begin set coordinator: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var member int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM space_member WHERE space_id = ? AND bot_id = ?", id, botID).Scan(&member); err != nil {
 		return nil, fmt.Errorf("set coordinator: %w", err)
 	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
+	if member == 0 {
 		return nil, fmt.Errorf("%w: bot %d is not a member of Space %d", ErrInvalid, botID, id)
+	}
+	if err := setLead(ctx, tx, id, botID); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit set coordinator: %w", err)
 	}
 	return s.roles(ctx, "space_member", "space_id", id)
 }

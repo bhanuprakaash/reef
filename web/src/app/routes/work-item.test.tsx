@@ -45,6 +45,7 @@ describe('WorkItemPage header', () => {
         projectId: 1,
         parentId: null,
         ownerBotId: null,
+        pendingOwnerBotId: null,
         participantBotIds: [],
         targets: [],
         acceptanceLines: [],

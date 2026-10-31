@@ -20,6 +20,7 @@ const item = (over: Partial<WorkItem>): WorkItem => ({
   sentBack: false,
   acceptanceLines: [],
   ownerBotId: 1,
+  pendingOwnerBotId: null,
   participantBotIds: [1],
   targets: [],
   ...over,

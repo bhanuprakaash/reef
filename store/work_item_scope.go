@@ -36,8 +36,8 @@ func (w WorkItem) scopeID() int64 {
 // withScope fills the owner, participants and targets of w from its top-level item.
 func withScope(ctx context.Context, q reader, w WorkItem) (WorkItem, error) {
 	id := w.scopeID()
-	if err := q.QueryRowContext(ctx, "SELECT owner_bot_id FROM work_item WHERE id = ?", id).
-		Scan(&w.OwnerBotID); err != nil {
+	if err := q.QueryRowContext(ctx, "SELECT owner_bot_id, pending_owner_bot_id FROM work_item WHERE id = ?", id).
+		Scan(&w.OwnerBotID, &w.PendingOwnerBotID); err != nil {
 		return WorkItem{}, fmt.Errorf("read owner of work item %d: %w", id, err)
 	}
 	rows, err := q.QueryContext(ctx,

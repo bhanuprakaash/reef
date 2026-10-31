@@ -53,6 +53,7 @@ const workItem: WorkItem = {
   sentBack: false,
   acceptanceLines: [],
   ownerBotId: null,
+  pendingOwnerBotId: null,
   participantBotIds: [],
   targets: [],
 };

@@ -154,6 +154,15 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 			logger.Printf("remove Bot %d from Space %d: %v", p.BotID, p.SpaceID, err)
 		}
 	}
+	transfers, err := st.PendingOwnerTransfers(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("list pending transfers: %w", err)
+	}
+	for _, id := range transfers {
+		if _, _, err := st.ApplyOwnerTransfer(ctx, id); err != nil {
+			logger.Printf("transfer work item %d: %v", id, err)
+		}
+	}
 	if err := st.PauseWaitingExchangeSpaces(ctx); err != nil {
 		return fmt.Errorf("pause Spaces with waiting exchanges: %w", err)
 	}

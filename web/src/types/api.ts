@@ -71,6 +71,7 @@ export type WorkItem = {
   sentBack: boolean;
   acceptanceLines: AcceptanceLine[];
   ownerBotId: number | null;
+  pendingOwnerBotId: number | null;
   participantBotIds: number[];
   targets: Target[];
 };

@@ -65,7 +65,9 @@ type WorkItem struct {
 	AcceptanceLines []AcceptanceLine `json:"acceptanceLines"`
 	// OwnerBotID, ParticipantBotIDs (the owner among them) and Targets belong to the top-level
 	// item: a sub-item reads its parent's and cannot set its own.
-	OwnerBotID        *int64   `json:"ownerBotId"`
+	OwnerBotID *int64 `json:"ownerBotId"`
+	// PendingOwnerBotID is the Bot a requested transfer waits to make the owner.
+	PendingOwnerBotID *int64   `json:"pendingOwnerBotId"`
 	ParticipantBotIDs []int64  `json:"participantBotIds"`
 	Targets           []Target `json:"targets"`
 }
