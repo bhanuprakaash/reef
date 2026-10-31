@@ -423,7 +423,7 @@ func (s *server) removeSpaceProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) editSpaceProject(
-	w http.ResponseWriter, r *http.Request, edit func(ctx context.Context, id, projectID int64) error,
+	w http.ResponseWriter, r *http.Request, edit func(ctx context.Context, id, projectID int64, by *int64) error,
 ) {
 	id, err := pathID(r)
 	if err != nil {
@@ -435,7 +435,7 @@ func (s *server) editSpaceProject(
 		writeError(w, fmt.Errorf("%w: project id %q is not a number", store.ErrInvalid, r.PathValue("projectId")))
 		return
 	}
-	if err := edit(r.Context(), id, projectID); err != nil {
+	if err := edit(r.Context(), id, projectID, nil); err != nil {
 		writeError(w, err)
 		return
 	}

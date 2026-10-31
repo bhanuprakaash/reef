@@ -443,7 +443,7 @@ func (s *Store) SpaceProjects(ctx context.Context, id int64) ([]Project, error) 
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT project.id, project.name, project.path, project.base_branch, project.created_at "+
+		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.created_at "+
 			"FROM space_project JOIN project ON project.id = space_project.project_id "+
 			"WHERE space_project.space_id = ? ORDER BY project.id", id)
 	if err != nil {
@@ -452,31 +452,61 @@ func (s *Store) SpaceProjects(ctx context.Context, id int64) ([]Project, error) 
 	return scanAll(rows, scanProject)
 }
 
-// AddSpaceProject associates Space id with the project; doing it twice changes nothing.
-func (s *Store) AddSpaceProject(ctx context.Context, id, projectID int64) error {
+// AddSpaceProject associates Space id with the project; doing it twice changes nothing. A
+// change leaves a note in the Space's history, by the Bot with id by, or by the user when
+// by is nil.
+func (s *Store) AddSpaceProject(ctx context.Context, id, projectID int64, by *int64) error {
 	if err := s.requireProjectEdit(ctx, id); err != nil {
 		return err
 	}
-	_, err := s.db.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		"INSERT OR IGNORE INTO space_project (space_id, project_id) VALUES (?, ?)", id, projectID)
 	if err != nil {
 		return s.writeErr(ctx, "add Space project", err, ErrNotFound,
 			parent{table: "project", id: &projectID})
 	}
-	return nil
+	return s.noteSpaceProject(ctx, res, id, projectID, by, "%s associated Project %s with this conversation.")
 }
 
 // RemoveSpaceProject drops the association of Space id with the project, which the Space
-// need not have. The Space, its history and its other projects stay.
-func (s *Store) RemoveSpaceProject(ctx context.Context, id, projectID int64) error {
+// need not have, and notes it as AddSpaceProject does. The Space, its history and its other
+// projects stay.
+func (s *Store) RemoveSpaceProject(ctx context.Context, id, projectID int64, by *int64) error {
 	if err := s.requireProjectEdit(ctx, id); err != nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx,
-		"DELETE FROM space_project WHERE space_id = ? AND project_id = ?", id, projectID); err != nil {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM space_project WHERE space_id = ? AND project_id = ?", id, projectID)
+	if err != nil {
 		return fmt.Errorf("remove Space project: %w", err)
 	}
-	return nil
+	return s.noteSpaceProject(ctx, res, id, projectID, by, "%s removed Project %s from this conversation.")
+}
+
+// noteSpaceProject writes the note format, filled with who and the project's name, as a Reef
+// message when res changed a row.
+func (s *Store) noteSpaceProject(
+	ctx context.Context, res sql.Result, id, projectID int64, by *int64, format string,
+) error {
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return err
+	}
+	var project string
+	if err := s.db.QueryRowContext(ctx, "SELECT name FROM project WHERE id = ?", projectID).
+		Scan(&project); err != nil {
+		return fmt.Errorf("read project %d: %w", projectID, err)
+	}
+	who := "You"
+	if by != nil {
+		if err := s.db.QueryRowContext(ctx, "SELECT name FROM bot WHERE id = ?", *by).
+			Scan(&who); err != nil {
+			return fmt.Errorf("read bot %d: %w", *by, err)
+		}
+	}
+	_, err := s.CreateMessage(ctx, Message{
+		SpaceID: id, Author: ReefAuthor, BotID: by, Body: fmt.Sprintf(format, who, project),
+	})
+	return err
 }
 
 // requireProjectEdit is ErrInvalid when Space id belongs to a work item, whose Space stays in

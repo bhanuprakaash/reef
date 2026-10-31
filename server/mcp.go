@@ -41,6 +41,7 @@ type (
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
 		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or bot (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
+		ProjectID     int64    `json:"projectId,omitempty" jsonschema:"with scope project, which associated Project to keep it with; default the first"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
@@ -345,6 +346,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "List the browser pane's network requests since the last navigation, " +
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
+	m.registerProjectTools(srv)
 	return srv
 }
 
@@ -400,7 +402,10 @@ func (m *mcpServer) remember(
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
-	scopes := space.BotScopes(c, *m.tok.BotID)
+	scopes, err := m.withProjects(ctx, space.BotScopes(c, *m.tok.BotID))
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
 	switch in.Scope {
 	case "":
 		in.Scope = scopes[0].Kind
@@ -411,7 +416,10 @@ func (m *mcpServer) remember(
 			"%w: scope %q is not work_item, space, conversation, project or bot",
 			store.ErrInvalid, in.Scope)
 	}
-	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
+	i := slices.IndexFunc(scopes, func(r memory.Ref) bool {
+		return r.Kind == in.Scope && (in.Scope != memory.ScopeProject || in.ProjectID == 0 ||
+			r.ID == strconv.FormatInt(in.ProjectID, 10))
+	})
 	if i < 0 && in.Scope == memory.ScopeWorkItem {
 		return nil, rememberOut{}, errors.New("this Space has no work item")
 	}
@@ -465,6 +473,9 @@ func (m *mcpServer) recall(
 		return nil, recallOut{}, err
 	}
 	scopes, err := space.ReadBotScopes(ctx, m.st, c, *m.tok.BotID)
+	if err == nil {
+		scopes, err = m.withProjects(ctx, scopes)
+	}
 	if err != nil {
 		return nil, recallOut{}, err
 	}
@@ -500,6 +511,9 @@ func (m *mcpServer) readMemory(
 		return nil, itemOut{}, err
 	}
 	scopes, err := space.ReadBotScopes(ctx, m.st, c, *m.tok.BotID)
+	if err == nil {
+		scopes, err = m.withProjects(ctx, scopes)
+	}
 	if err != nil {
 		return nil, itemOut{}, err
 	}

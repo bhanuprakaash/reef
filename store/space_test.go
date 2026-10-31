@@ -31,7 +31,7 @@ func TestSpace_NilTeamIsNoTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSpaceProject(ctx, id, project.ID); err != nil {
+	if err := s.AddSpaceProject(ctx, id, project.ID, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -407,10 +407,10 @@ func TestSpace_FilterByProjectUsesAssociation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := s.AddSpaceProject(ctx, 1, 2); err != nil {
+	if err := s.AddSpaceProject(ctx, 1, 2, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AddSpaceProject(ctx, 1, 2); err != nil {
+	if err := s.AddSpaceProject(ctx, 1, 2, nil); err != nil {
 		t.Fatalf("adding the same project twice: %v", err)
 	}
 
@@ -432,7 +432,7 @@ func TestSpace_FilterByProjectUsesAssociation(t *testing.T) {
 		t.Errorf("Spaces of project 2 = %v, want %v", got, want)
 	}
 
-	if err := s.RemoveSpaceProject(ctx, 1, 2); err != nil {
+	if err := s.RemoveSpaceProject(ctx, 1, 2, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := projectNames(2); !reflect.DeepEqual(got, []string{"in blog"}) {
@@ -465,7 +465,7 @@ func TestSpace_WorkItemSpaceKeepsItsProject(t *testing.T) {
 	if err != nil || c.ProjectID != 1 {
 		t.Fatalf("CreateSpace = %+v, %v, want project 1", c, err)
 	}
-	if err := s.RemoveSpaceProject(ctx, c.ID, 1); !errors.Is(err, ErrInvalid) {
+	if err := s.RemoveSpaceProject(ctx, c.ID, 1, nil); !errors.Is(err, ErrInvalid) {
 		t.Errorf("RemoveSpaceProject on a work item Space: err = %v, want ErrInvalid", err)
 	}
 }

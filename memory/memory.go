@@ -364,6 +364,38 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// About returns the accepted items with an about link to ref, oldest first, with their links.
+func (s *Store) About(ctx context.Context, ref Ref) ([]Item, error) {
+	rows, err := s.db.QueryContext(ctx,
+		_selectItem+` WHERE status = ? AND id IN (SELECT from_id FROM memory_link
+		 WHERE rel = ? AND to_kind = ? AND to_id = ?) ORDER BY id`,
+		StatusAccepted, RelAbout, ref.Kind, ref.ID)
+	if err != nil {
+		return nil, fmt.Errorf("query items about %s:%s: %w", ref.Kind, ref.ID, err)
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("scan items about %s:%s: %w", ref.Kind, ref.ID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close items about %s:%s: %w", ref.Kind, ref.ID, err)
+	}
+	for i := range items {
+		if items[i].Links, err = links(ctx, s.db, items[i].ID); err != nil {
+			return nil, err
+		}
+	}
+	return items, nil
+}
+
 // _acceptedOrder sorts accepted_at newest first. The stored text drops trailing zeros of the
 // fraction, so the fraction is padded to nine digits; julianday would round it to milliseconds.
 const _acceptedOrder = `substr(accepted_at, 1, 19) DESC,
