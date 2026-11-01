@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -38,6 +39,9 @@ type recordingAgent struct {
 	exitText string
 	// usage is sent as one usage event per model call of each turn.
 	usage []agent.Usage
+	// cost and totals are the running cost and usage of the session, sent with each turn end.
+	cost   *float64
+	totals *agent.Usage
 
 	cfg     agent.Config
 	started bool
@@ -105,7 +109,7 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	for _, u := range a.usage {
 		a.events <- agent.Event{Kind: agent.KindUsage, Usage: &u}
 	}
-	a.events <- agent.Event{Kind: agent.KindTurnEnd}
+	a.events <- agent.Event{Kind: agent.KindTurnEnd, CostUSD: a.cost, SessionUsage: a.totals}
 	return nil
 }
 
@@ -1275,6 +1279,57 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, *testBotSessionID(t, st, ch.ID, &s.leadID))
 	if err != nil || last.SessionID != "sess-lead" {
 		t.Errorf("session to resume = %q, %v, want sess-lead, not the wrap-up's sess-copy", last.SessionID, err)
+	}
+}
+
+func TestSession_WrapStoresOnlyItsOwnCostAndUsage(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	lead := testBotID(t, st, "architect")
+	turn, err := st.CreateTurn(ctx, store.Turn{
+		SpaceID: ch.ID, Role: "architect", BotID: lead, BotSessionID: testBotSessionID(t, st, ch.ID, lead),
+		Backend: "claude", SessionID: "sess-lead", WakeText: "go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentCost, parentUsage := 0.1920494, agent.Usage{CacheReadTokens: 192274}
+	turn.Status, turn.CostUSD, turn.SessionCostUSD = "done", &parentCost, &parentCost
+	turn.Usage, turn.SessionUsage = parentUsage, &parentUsage
+	if _, err := st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	forkCost, forkUsage := 0.1999677, agent.Usage{CacheReadTokens: 235337}
+	ag := newRecordingAgent()
+	ag.st, ag.spaceID, ag.propose, ag.session = st, ch.ID, true, "sess-copy"
+	ag.cost, ag.totals = &forkCost, &forkUsage
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.Wrap(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum float64
+	var cacheRead int64
+	for _, tn := range turns {
+		sum += *tn.CostUSD
+		cacheRead += tn.Usage.CacheReadTokens
+	}
+	own := turns[len(turns)-1]
+	if math.Abs(*own.CostUSD-0.0079183) > 1e-9 || own.Usage.CacheReadTokens != 43063 {
+		t.Errorf("wrap-up turn cost = %v, cache read = %d, want 0.0079183 and 43063",
+			*own.CostUSD, own.Usage.CacheReadTokens)
+	}
+	if math.Abs(sum-0.1999677) > 1e-9 || cacheRead != 235337 {
+		t.Errorf("Space cost = %v, cache read = %d, want 0.1999677 and 235337", sum, cacheRead)
 	}
 }
 

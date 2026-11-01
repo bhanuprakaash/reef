@@ -65,6 +65,8 @@ type Runner struct {
 	sessionID string
 	model     string
 	direct    *store.DirectMessage
+	// forkedFrom is the session this runner's session was copied from, until the copy has a turn.
+	forkedFrom string
 
 	sessionGone     bool
 	firstPromptSent bool
@@ -348,8 +350,13 @@ func (r *Runner) RunDirect(
 // totals of the turn's whole session, so the turn's own cost and usage are each total minus the
 // one the session's earlier turns had. The totals are stored with the turn for the next one.
 func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event) error {
+	// A forked session's totals start at its parent's.
+	sessionID := turn.SessionID
+	if r.forkedFrom != "" {
+		sessionID, r.forkedFrom = r.forkedFrom, ""
+	}
 	if ev.CostUSD != nil {
-		before, err := r.st.SessionCostBefore(ctx, turn.SessionID, turn.ID)
+		before, err := r.st.SessionCostBefore(ctx, sessionID, turn.ID)
 		if err != nil {
 			return err
 		}
@@ -357,7 +364,7 @@ func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event
 		turn.CostUSD, turn.SessionCostUSD = &own, ev.CostUSD
 	}
 	if ev.SessionUsage != nil {
-		before, err := r.st.SessionUsageBefore(ctx, turn.SessionID, turn.ID)
+		before, err := r.st.SessionUsageBefore(ctx, sessionID, turn.ID)
 		if err != nil {
 			return err
 		}
