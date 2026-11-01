@@ -75,26 +75,25 @@ cat >"$E/pong.json" <<'EOF'
 EOF
 
 section_flow() {
-### Two work items queued on a Team (data folder flow)
+### Two work items owned by the lead of the crew, one queued (data folder flow)
 
 start_server flow
 "$H" team-apply "$E/crew.json" >/dev/null
-api_call GET /teams/crew
-crew=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+lead=$(sql1 "select id from bot where name = 'lead'")
+dev=$(sql1 "select id from bot where name = 'developer'")
+tester=$(sql1 "select id from bot where name = 'tester'")
 api_call POST /projects '{"name":"shop","path":"'"$S"'/cwd"}'
-api_call POST /work-items '{"projectId":1,"title":"Checkout form","description":"a form that takes an email and a password","teamId":'"$crew"',"acceptanceLines":[{"text":"the form has an email and a password field"}]}'
-api_call POST /work-items '{"projectId":1,"title":"Order history","teamId":'"$crew"'}'
-api_call PATCH /work-items/1 '{"status":"queued"}'
-patch1=$STATUS
-api_call PATCH /work-items/2 '{"status":"queued"}'
+api_call POST /work-items '{"projectId":1,"title":"Checkout form","description":"a form that takes an email and a password","ownerBotId":'"$lead"',"participantBotIds":['"$dev,$tester"'],"acceptanceLines":[{"text":"the form has an email and a password field"}]}'
+api_call POST /work-items '{"projectId":1,"title":"Order history","ownerBotId":'"$lead"',"participantBotIds":['"$dev,$tester"']}'
+api_call POST /work-items/1/approve '{"key":"k1"}'
 
 queue_ok=1
-[ "$patch1" = 200 ] || queue_ok=0
 [ "$STATUS" = 200 ] || queue_ok=0
 [ "$(item 1)" = "in_progress:-" ] || queue_ok=0
-[ "$(item 2)" = "queued:1" ] || queue_ok=0
+[ "$(item 2)" = "backlog:-" ] || queue_ok=0
 [ "$(spaces 1)" = 1 ] || queue_ok=0
 [ "$(spaces 2)" = 0 ] || queue_ok=0
+[ "$(sql1 "select group_concat(bot_id || ':' || lead) from (select bot_id, lead from space_member where space_id = 1 order by id)")" = "$lead:1,$dev:0,$tester:0" ] || queue_ok=0
 first=$("$H" sql "select body from message where space_id = 1 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
 [ "$first" = "Work item 1: Checkout form" ] || queue_ok=0
 check flow-queue-starts "$queue_ok" "item 1 $(item 1), item 2 $(item 2), Spaces of item 1: $(spaces 1) and of item 2: $(spaces 2); first prompt: $first"
@@ -116,7 +115,7 @@ wait_item 1 "review:-"
 wait_sql "select count(*) >= 2 from turn where space_id = 1 and role = 'lead' and status = 'done'" 1
 rows=$("$H" sql "select role, status from turn where space_id = 1 and status = 'done' order by id" | tail -n +2 | tr '\n' ' ')
 tools=$("$H" sql "select turn.role, t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = 1 and t.name in ('Write', 'Bash') group by turn.role, t.name" | tail -n +2 | tr '\n' ' ')
-tree="$S/flow/worktrees/1/1"
+tree="$S/flow/worktrees/item-1/1-shop"
 work_ok=1
 case $rows in "lead|done developer|done tester|done lead|done "*) ;; *) work_ok=0 ;; esac
 [ "$tools" = "developer|Write|1 tester|Bash|1 " ] || work_ok=0
@@ -134,10 +133,12 @@ wait_for "/spaces/1/proposal" '"kind":"wrap"' || submit_ok=0
 [ "$(sql1 "select status from proposal where space_id = 1 order by id desc limit 1")" = pending ] || submit_ok=0
 check flow-submit-review "$submit_ok" "item 1 $(item 1), sub-items $(sql1 "select group_concat(status) from work_item where parent_id = 1"); proof: $STATUS $(echo "$proof" | cut -c1-200); wrap-up of Space 1: $(sql1 "select status from proposal where space_id = 1 order by id desc limit 1")"
 
-### Review freed the Team: the second item started by itself
+### The second item, queued while the first is in review, starts at once
 
+api_call POST /work-items/2/approve '{"key":"k2"}'
 wait_item 2 "in_progress:-"
 wait_for "/spaces?workItem=2" '"workItemId":2'
+wait_for "/messages?space=2" 'Work item 2: Order history'
 first2=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
 next_ok=1
 [ "$(spaces 2)" = 1 ] || next_ok=0
@@ -145,18 +146,18 @@ next_ok=1
 [ "$(fyi started 2)" = 1 ] || next_ok=0
 check flow-next-starts "$next_ok" "item 2 $(item 2), Spaces of item 2: $(spaces 2), first prompt: $first2, started FYI items: $(fyi started 2)"
 
-### Send item 1 back: it waits at position 1 while item 2 holds the Team
+### Send item 1 back: it restarts at once, next to item 2
 
 review_patch 1 '{"status":"queued","note":"ADD A PHONE FIELD"}'
 back_ok=1
 [ "$STATUS" = 200 ] || back_ok=0
-[ "$(item 1)" = "queued:1" ] || back_ok=0
+[ "$(sql1 "select status in ('in_progress', 'review') and queue_position is null from work_item where id = 1")" = 1 ] || back_ok=0
 [ "$(item 2)" = "in_progress:-" ] || back_ok=0
 [ "$(sql1 "select status from proposal where space_id = 1 order by id desc limit 1")" = rejected ] || back_ok=0
 [ "$(spaces 1)" = 1 ] || back_ok=0
 check flow-send-back "$back_ok" "PATCH queued with a note: $STATUS; item 1 $(item 1), item 2 $(item 2), wrap-up of Space 1: $(sql1 "select status from proposal where space_id = 1 order by id desc limit 1"), Spaces of item 1: $(spaces 1)"
 
-### Item 2 is dropped: item 1 starts in its own Space, hears the note and submits again
+### Item 2 is dropped; item 1 heard the note in its own Space and submits again
 
 api_call PATCH /work-items/2 '{"status":"dropped"}'
 resubmit_ok=1
@@ -217,19 +218,16 @@ check flow-add-bot "$add_ok" "POST members: $add_status; Space 1 moved to Space 
 
 api_call POST /spaces/2/send '{"text":"@kit PROPOSE THE SLOW SEARCH: call propose_work_item once with type bug, title \"Search results load slowly\", description \"The search page takes ten seconds to show results.\" and the one acceptance line \"Results show within two seconds\", then answer Proposed."}'
 wait_sql "select count(*) from work_item" 1
-api_call GET /teams/crew
-crew=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 api_call GET /work-items/1
 propose_ok=1
 echo "$BODY" | grep -q '"type":"bug","title":"Search results load slowly"' || propose_ok=0
 echo "$BODY" | grep -q '"status":"backlog"' || propose_ok=0
 echo "$BODY" | grep -q '"proposedBy":"kit"' || propose_ok=0
-echo "$BODY" | grep -q '"teamId":null' || propose_ok=0
-echo "$BODY" | grep -q '"suggestedTeamId":'"$crew"',' || propose_ok=0
+echo "$BODY" | grep -q '"ownerBotId":null' || propose_ok=0
 echo "$BODY" | grep -q '"text":"Results show within two seconds"' || propose_ok=0
 [ "$(fyi proposed 1)" = 1 ] || propose_ok=0
 [ "$(replays flow-propose-kit)" = 1 ] || propose_ok=0
-check flow-propose "$propose_ok" "item 1: $(echo "$BODY" | cut -c1-300); crew team id $crew; proposed FYI items: $(fyi proposed 1); flow-propose-kit replays: $(replays flow-propose-kit)"
+check flow-propose "$propose_ok" "item 1: $(echo "$BODY" | cut -c1-300); proposed FYI items: $(fyi proposed 1); flow-propose-kit replays: $(replays flow-propose-kit)"
 }
 
 section_caps() {
@@ -238,39 +236,49 @@ section_caps() {
 start_server caps
 "$H" team-apply "$E/pong.json" >/dev/null
 api_call POST /projects '{"name":"hop","path":"'"$S"'/cwd"}'
-api_call POST /work-items '{"projectId":1,"title":"workpong"}'
-api_call POST /work-items '{"projectId":1,"title":"talkpong"}'
-"$H" sql --write "update work_item set status = 'in_progress' where id in (1, 2)" >/dev/null
-api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"s1","team":"pong"}'
-api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"s2","team":"pong"}'
+api_call GET /teams/pong
+roster=$(printf '%s' "$BODY" | python3 -c 'import json,sys; r=json.load(sys.stdin)["roles"]; print(json.dumps({"ownerBotId": next(x["botId"] for x in r if x["lead"]), "participantBotIds": [x["botId"] for x in r]}))')
+for title in workpong talkpong; do
+	item=$(printf '%s' "$roster" | python3 -c 'import json,sys; v=json.load(sys.stdin); v.update(projectId=1,title=sys.argv[1]); print(json.dumps(v))' "$title")
+	api_call POST /work-items "$item"
+	id=$(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+	api_call POST "/work-items/$id/approve" '{"key":"hop-'"$id"'"}'
+	[ "$STATUS" = 200 ] || { echo "approval failed for $id: $STATUS $BODY" >&2; return 1; }
+	wait_for "/spaces?workItem=$id" '"workItemId"'
+	starter=$(curl -s "http://$A/spaces?workItem=$id" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+	wait_sql "select count(*) from turn where space_id = $starter and status != 'running'" 1
+	new_space=$starter
+	baseline=$(sql1 "select max(id) from turn where space_id = $new_space")
+	if [ "$id" = 1 ]; then work_space=$new_space; work_baseline=$baseline; else talk_space=$new_space; talk_baseline=$baseline; fi
+done
 
-api_call POST /spaces/1/send '{"text":"workpong"}'
-api_call POST /spaces/2/send '{"text":"talkpong"}'
+api_call POST "/spaces/$work_space/send" '{"text":"workpong"}'
+api_call POST "/spaces/$talk_space/send" '{"text":"talkpong"}'
 
-wait_sql "select count(*) from turn where space_id = 1 and status = 'done'" 13
-api_call POST /spaces/1/stop
+wait_sql "select count(*) from turn where space_id = $work_space and id > $work_baseline and status = 'done'" 13
+api_call POST "/spaces/$work_space/stop"
 work_ok=1
 [ "$STATUS" = 204 ] || work_ok=0
-first13="select id from turn where space_id = 1 and status = 'done' order by id limit 13"
+first13="select id from turn where space_id = $work_space and id > $work_baseline and status = 'done' order by id limit 13"
 seq=$("$H" sql "select role from ($first13) join turn using (id) order by id" | tail -n +2 | tr '\n' ' ')
 [ "$seq" = "lead developer tester developer tester developer tester developer tester developer tester developer tester " ] || work_ok=0
-[ -z "$(paused 1)" ] || work_ok=0
+[ -z "$(paused "$work_space")" ] || work_ok=0
 calls=$("$H" sql "select turn.role, t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.id in ($first13) group by turn.role, t.name order by 1" | tail -n +2 | tr '\n' ' ')
 [ "$calls" = "developer|Bash|6 tester|Bash|6 " ] || work_ok=0
-check hop-work-resets "$work_ok" "done turns of Space 1: $seq; paused: '$(paused 1)'; tool calls: $calls"
+check hop-work-resets "$work_ok" "done turns of Space 1: $seq; paused: '$(paused "$work_space")'; tool calls: $calls"
 
-wait_for "/spaces/2" '"paused":"hop cap'
+wait_for "/spaces/$talk_space" '"paused":"hop cap'
 sleep 1
 talk_ok=1
-seq=$("$H" sql "select role from turn where space_id = 2 order by id" | tail -n +2 | tr '\n' ' ')
+seq=$("$H" sql "select role from turn where space_id = $talk_space and id > $talk_baseline order by id" | tail -n +2 | tr '\n' ' ')
 [ "$seq" = "lead developer lead developer lead developer lead " ] || talk_ok=0
-[ "$("$H" sql "select distinct status from turn where space_id = 2" | tail -n +2 | tr '\n' ' ')" = "done " ] || talk_ok=0
-talk_calls=$("$H" sql "select t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = 2 and t.name != 'ToolSearch' group by t.name" | tail -n +2 | tr '\n' ' ')
+[ "$("$H" sql "select distinct status from turn where space_id = $talk_space and id > $talk_baseline" | tail -n +2 | tr '\n' ' ')" = "done " ] || talk_ok=0
+talk_calls=$("$H" sql "select t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = $talk_space and turn.id > $talk_baseline and t.name != 'ToolSearch' group by t.name" | tail -n +2 | tr '\n' ' ')
 [ "$talk_calls" = "mcp__reef__post_to_space|7 " ] || talk_ok=0
 [ "$(item 2)" = "needs_you:-" ] || talk_ok=0
 inbox=$(curl -s "http://$A/inbox")
-echo "$inbox" | grep -q '"kind":"held","group":"needs_you","spaceId":2,"workItemId":2,"text":"hop cap: 6 agent hops without a user message (1 wake held)"' || talk_ok=0
-check hop-talk-pauses "$talk_ok" "turns of Space 2: $seq; tool calls besides ToolSearch: $talk_calls; item 2 $(item 2); paused: $(paused 2); inbox: $(echo "$inbox" | cut -c1-240)"
+echo "$inbox" | grep -q '"kind":"held","group":"needs_you","spaceId":'"$talk_space"',"workItemId":2,"text":"hop cap: 6 agent hops without a user message (1 wake held)"' || talk_ok=0
+check hop-talk-pauses "$talk_ok" "turns of Space 2: $seq; tool calls besides ToolSearch: $talk_calls; item 2 $(item 2); paused: $(paused "$talk_space"); inbox: $(echo "$inbox" | cut -c1-240)"
 }
 
 # section NAME: run section_NAME under the run id $REEF_VERIFY_RUN/NAME, so it has its own

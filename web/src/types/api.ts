@@ -45,6 +45,14 @@ export type AcceptanceLine = {
   note: string;
 };
 
+export type Target = {
+  projectId: number;
+  projectName: string;
+  proposedBy: string;
+  authorizedBy: string;
+  createdAt: string;
+};
+
 export type WorkItem = {
   id: number;
   projectId: number;
@@ -53,22 +61,40 @@ export type WorkItem = {
   title: string;
   description: string;
   status: WorkItemStatus;
-  teamId: number | null;
   proposedBy: string;
-  suggestedTeamId: number | null;
   queuePosition: number | null;
   tokenBudget: number;
   createdAt: string;
   closedAt: string | null;
+  approvedAt: string | null;
+  approvalKey: string | null;
+  sentBack: boolean;
   acceptanceLines: AcceptanceLine[];
+  ownerBotId: number | null;
+  pendingOwnerBotId: number | null;
+  participantBotIds: number[];
+  targets: Target[];
 };
 
-export type ProofCommand = { command: string; output: string };
+export type ProofCommand = { command: string; output: string; project?: string };
+
+export type ProofRepository = {
+  workspaceId: number;
+  projectId: number;
+  projectName: string;
+  branch: string;
+  head: string;
+  baseRef: string;
+  dir: string;
+  dirty: boolean;
+  checks: ProofCommand[];
+};
 
 export type Proof = {
   spaceId: number;
   acceptanceLines: AcceptanceLine[];
   commands: ProofCommand[];
+  repositories: ProofRepository[];
   screenshots: string[];
   submittedAt: string;
 };
@@ -203,7 +229,7 @@ export type Turn = {
   wakeText: string;
   directMessageId?: number | null;
   retried: boolean;
-  checkpoint: string | null;
+  checkpoints: { workspaceId: number; projectId: number; ref: string }[];
   startedAt: string;
 };
 
@@ -378,10 +404,13 @@ export type Usage = {
   cacheWriteTokens: number;
 };
 
+export type ToolTarget = { projectId: number; projectName: string; workspaceId: number };
+
 export type InspectorToolCall = {
   name: string;
   input: string;
   result: string;
+  targets?: ToolTarget[];
   children?: InspectorToolCall[];
 };
 

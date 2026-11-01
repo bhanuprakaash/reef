@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -38,6 +39,7 @@ type inspectorToolCall struct {
 	Name     string               `json:"name"`
 	Input    string               `json:"input"`
 	Result   string               `json:"result"`
+	Targets  []eventTarget        `json:"targets,omitempty"`
 	Children []*inspectorToolCall `json:"children,omitempty"`
 }
 
@@ -57,6 +59,11 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	turns, err := s.st.Turns(r.Context(), store.TurnFilter{SpaceID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	dirs, err := s.spaceTargets(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -94,7 +101,7 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 		byID := make(map[int64]*inspectorToolCall, len(calls))
 		tcs := make([]*inspectorToolCall, 0, len(calls))
 		for _, c := range calls {
-			tc := &inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result}
+			tc := &inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result, Targets: targetOf(dirs, json.RawMessage(c.Input))}
 			byID[c.ID] = tc
 			if p, ok := byID[c.ParentID]; ok {
 				p.Children = append(p.Children, tc)

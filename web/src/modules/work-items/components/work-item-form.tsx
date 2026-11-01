@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useUpdateWorkItem } from '@/modules/work-items/api/update-work-item';
 import type { WorkItem } from '@/types/api';
-import { useTeams } from '@/lib/api/get-teams';
+import { useBots } from '@/lib/api/get-bots';
 import { Button } from '@/components/button';
 import { Select } from '@/components/select';
 import { TextArea } from '@/components/text-area';
@@ -10,8 +10,9 @@ import { TextField } from '@/components/text-field';
 export function WorkItemForm({ item, onDone }: { item: WorkItem; onDone: () => void }) {
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState(item.description);
-  const [teamId, setTeamId] = useState(item.teamId ?? item.suggestedTeamId);
-  const teams = useTeams();
+  const [ownerBotId, setOwnerBotId] = useState(item.ownerBotId);
+  const [participantBotIds, setParticipantBotIds] = useState(item.participantBotIds);
+  const bots = useBots();
   const update = useUpdateWorkItem(item.id);
 
   return (
@@ -20,7 +21,14 @@ export function WorkItemForm({ item, onDone }: { item: WorkItem; onDone: () => v
       onSubmit={(e) => {
         e.preventDefault();
         update.mutate(
-          { ...item, acceptanceLines: undefined, title, description, teamId },
+          {
+            ...item,
+            acceptanceLines: undefined,
+            title,
+            description,
+            ownerBotId,
+            participantBotIds,
+          },
           { onSuccess: onDone },
         );
       }}
@@ -43,20 +51,44 @@ export function WorkItemForm({ item, onDone }: { item: WorkItem; onDone: () => v
           onChange={(e) => setDescription(e.target.value)}
         />
       </label>
-      {item.parentId === null && (
-        <div className="space-y-1">
-          <span className="text-sm text-muted">Crew</span>
-          <Select
-            className="w-full"
-            aria-label="Crew"
-            value={teamId === null ? '' : String(teamId)}
-            onChange={(v) => setTeamId(v === '' ? null : Number(v))}
-            options={[
-              { value: '', label: 'No Crew' },
-              ...(teams.data ?? []).map((t) => ({ value: String(t.id), label: t.name })),
-            ]}
-          />
-        </div>
+      {item.parentId === null && item.status === 'backlog' && (
+        <>
+          <div className="space-y-1">
+            <span className="text-sm text-muted">Owner</span>
+            <Select
+              className="w-full"
+              aria-label="Owner"
+              value={ownerBotId === null ? '' : String(ownerBotId)}
+              onChange={(v) => setOwnerBotId(v === '' ? null : Number(v))}
+              options={[
+                { value: '', label: 'No owner' },
+                ...(bots.data ?? []).map((b) => ({ value: String(b.id), label: b.name })),
+              ]}
+            />
+          </div>
+          <div className="space-y-1">
+            <span className="text-sm text-muted">Participants</span>
+            <ul className="space-y-1">
+              {(bots.data ?? []).map((b) => (
+                <li key={b.id} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    aria-label={`Include ${b.name}`}
+                    checked={participantBotIds.includes(b.id)}
+                    onChange={(e) =>
+                      setParticipantBotIds(
+                        e.target.checked
+                          ? [...participantBotIds, b.id]
+                          : participantBotIds.filter((id) => id !== b.id),
+                      )
+                    }
+                  />
+                  {b.name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
       )}
       {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
       <div className="flex justify-end gap-2">

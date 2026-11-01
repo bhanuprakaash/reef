@@ -11,7 +11,7 @@ import (
 func TestCheckMove(t *testing.T) {
 	allowed := map[string][]string{
 		"user top": {
-			"backlog>queued", "queued>backlog", "review>queued", "review>done",
+			"queued>backlog", "review>queued", "review>done",
 			"backlog>dropped", "queued>dropped", "in_progress>dropped", "needs_you>dropped",
 			"review>dropped", "done>dropped",
 		},
@@ -26,8 +26,8 @@ func TestCheckMove(t *testing.T) {
 		"space sub":  {"in_progress>needs_you", "needs_you>in_progress"},
 		"submit top": {"in_progress>review"},
 		"submit sub": {"in_progress>review"},
-		"lead top":   {},
-		"lead sub": {
+		"owner top":  {},
+		"owner sub": {
 			"backlog>queued", "backlog>in_progress", "backlog>needs_you", "backlog>review", "backlog>done", "backlog>dropped",
 			"queued>backlog", "queued>in_progress", "queued>needs_you", "queued>review", "queued>done", "queued>dropped",
 			"in_progress>backlog", "in_progress>queued", "in_progress>needs_you", "in_progress>review", "in_progress>done", "in_progress>dropped",
@@ -35,7 +35,7 @@ func TestCheckMove(t *testing.T) {
 			"review>backlog", "review>queued", "review>in_progress", "review>needs_you", "review>done", "review>dropped",
 		},
 	}
-	movers := []string{ByUser, ByQueue, ByLead, BySpace, BySubmit}
+	movers := []string{ByUser, ByQueue, ByOwner, BySpace, BySubmit}
 	statuses := []string{_backlog, _queued, _inProgress, _needsYou, _review, _done, _dropped}
 	for _, by := range movers {
 		for _, kind := range []string{"top", "sub"} {
@@ -76,14 +76,14 @@ func TestMoveWorkItem(t *testing.T) {
 		err.Error() != `invalid: work item 1 cannot go to review while sub-item 2 "Form" is in_progress` {
 		t.Errorf("review with an open sub-item = %v, want ErrInvalid naming sub-item 2", err)
 	}
-	if got, err := s.MoveWorkItem(ctx, 2, _done, ByLead); err != nil || got.Status != _done {
+	if got, err := s.MoveWorkItem(ctx, 2, _done, ByOwner); err != nil || got.Status != _done {
 		t.Fatalf("lead done on the sub-item = %+v, %v, want done", got, err)
 	}
 	if got, err := s.MoveWorkItem(ctx, 1, _review, BySubmit); err != nil || got.Status != _review {
 		t.Errorf("review once the sub-item is done = %+v, %v, want review", got, err)
 	}
-	_, err = s.MoveWorkItem(ctx, 1, _done, ByLead)
-	if err == nil || !strings.HasPrefix(err.Error(), "invalid: work item 1: the lead moves sub-items only") {
+	_, err = s.MoveWorkItem(ctx, 1, _done, ByOwner)
+	if err == nil || !strings.HasPrefix(err.Error(), "invalid: work item 1: the owner moves sub-items only") {
 		t.Errorf("lead done on a top-level item = %v, want the rule named", err)
 	}
 	if got, err := s.MoveWorkItem(ctx, 1, _done, ByUser); err != nil || got.Status != _done {

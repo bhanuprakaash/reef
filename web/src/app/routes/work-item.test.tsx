@@ -19,7 +19,7 @@ vi.mock('@/modules/work-items/api/move-work-item', () => ({
 }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects: hooks.none }));
 vi.mock('@/lib/api/get-spaces', () => ({ useSpaces: hooks.none }));
-vi.mock('@/lib/api/get-teams', () => ({ useTeams: hooks.none }));
+vi.mock('@/lib/api/get-bots', () => ({ useBots: hooks.none }));
 vi.mock('@/app/use-terminal', () => ({ useTerminal: () => ({}) }));
 vi.mock('@/app/work-item-terminal', () => ({ WorkItemTerminal: () => null }));
 
@@ -44,7 +44,10 @@ describe('WorkItemPage header', () => {
         id: 1,
         projectId: 1,
         parentId: null,
-        teamId: null,
+        ownerBotId: null,
+        pendingOwnerBotId: null,
+        participantBotIds: [],
+        targets: [],
         acceptanceLines: [],
         type: 'feature',
         title: 'Auth',

@@ -79,45 +79,6 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 	}
 }
 
-func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
-	ctx := context.Background()
-	st, err := openStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	if _, err := testServerCreateTeam(t, st, ctx, store.Team{Name: "release", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	project, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var teamID int64
-	if err := st.DB().QueryRowContext(ctx, "SELECT id FROM team WHERE name = 'release'").
-		Scan(&teamID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.CreateWorkItem(ctx, store.WorkItem{
-		ProjectID: project.ID,
-		Title:     "Ship desktop updater",
-		Status:    "queued",
-		TeamID:    &teamID,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodDelete, "/teams/release", nil)
-	req.SetPathValue("name", "release")
-	res := httptest.NewRecorder()
-	(&server{st: st}).deleteTeam(res, req)
-	status, body := res.Code, strings.TrimSpace(res.Body.String())
-	if status != http.StatusNoContent || body != "" {
-		t.Errorf("DELETE /teams/release = %d %s, want 204", status, body)
-	}
-}
-
 func TestSpaceTeam(t *testing.T) {
 	st, err := openStore(t.TempDir())
 	if err != nil {

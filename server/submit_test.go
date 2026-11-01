@@ -16,8 +16,8 @@ import (
 func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items",
-		`{"projectId":1,"title":"Login","teamId":1,"acceptanceLines":[{"text":"wrong password is refused"}]}`)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","teamId":1}`)
+		`{"projectId":1,"title":"Login","ownerBotId":1,"acceptanceLines":[{"text":"wrong password is refused"}]}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","ownerBotId":1}`)
 	queued := make(chan struct{})
 	var wraps atomic.Int32
 	env.fake.onRun = func(_, text string, _ *int64) {
@@ -34,8 +34,8 @@ func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 		}
 	}
 
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	do(t, http.MethodPatch, env.url+"/work-items/2", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
+	do(t, http.MethodPost, env.url+"/work-items/2/approve", `{"key":"k2"}`)
 	close(queued)
 
 	deadline := time.Now().Add(5 * time.Second)
@@ -60,7 +60,7 @@ func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 		t.Errorf("item 2 = %s, want in_progress", body)
 	}
 	status, body := do(t, http.MethodGet, env.url+"/work-items/1/proof", "")
-	want := `"acceptanceLines":[{"position":1,"text":"wrong password is refused","checked":true,"note":"401"}],"commands":[],"screenshots":[]`
+	want := `"acceptanceLines":[{"position":1,"text":"wrong password is refused","checked":true,"note":"401"}],"commands":[],"repositories":[],"screenshots":[]`
 	if status != 200 || !strings.Contains(body, want) {
 		t.Errorf("proof of item 1 = %d %s, want 200 with %s", status, body, want)
 	}

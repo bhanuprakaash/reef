@@ -125,7 +125,7 @@ func botScopes(ch store.Space, bot string) []memory.Ref {
 }
 
 // botID is the id of the Bot that holds role in ch. With no Space (ch.ID is 0, as for
-// reef context) it is the one that holds role in the Team of the work item, or else the
+// reef context) it is the participant of the work item named role, or else the
 // Bot named role.
 func botID(ctx context.Context, st *store.Store, ch store.Space, role string) (int64, error) {
 	if ch.ID != 0 {
@@ -136,15 +136,13 @@ func botID(ctx context.Context, st *store.Store, ch store.Space, role string) (i
 		if err != nil {
 			return 0, err
 		}
-		if w.TeamID != nil {
-			t, err := st.TeamByID(ctx, *w.TeamID)
+		for _, id := range w.ParticipantBotIDs {
+			b, err := st.Bot(ctx, id)
 			if err != nil {
 				return 0, err
 			}
-			for _, r := range t.Roles {
-				if r.Name == role {
-					return r.BotID, nil
-				}
+			if b.Name == role {
+				return id, nil
 			}
 		}
 	}
@@ -277,6 +275,11 @@ func firstPrompt(
 			}
 		}
 		b.WriteString(who)
+		if spaceID != 0 && ch.Kind != store.KindConsultation {
+			if err := fixLines(ctx, st, &b, spaceID); err != nil {
+				return "", err
+			}
+		}
 		if know, err = itemParts(ctx, st, ms, nil, ch, r); err != nil {
 			return "", err
 		}
@@ -306,8 +309,8 @@ func firstPrompt(
 				fmt.Fprintf(&b, "%d. [%s] %s\n", l.Position, tick, l.Text)
 			}
 		}
-		if p.BaseBranch != "" {
-			fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
+		if err := targetLines(ctx, st, &b, f); err != nil {
+			return "", err
 		}
 		if know, err = workItemKnow(ctx, st, ms, f, ch, r); err != nil {
 			return "", err

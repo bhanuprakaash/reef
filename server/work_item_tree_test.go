@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/bhanuprakaash/reef/store"
-	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func TestSubItemUsesParentTreeBranchAndPR(t *testing.T) {
@@ -35,17 +34,17 @@ func TestSubItemUsesParentTreeBranchAndPR(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Parent"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Child"}`)
 
-	tree := worktree.Path(dataDir, 1, "1")
-	want := fmt.Sprintf(`{"branch":"work-item/1","path":%q}`, tree)
-	if status, body := do(t, http.MethodPost, ts.URL+"/work-items/2/worktree", ""); status != 200 || body != want {
-		t.Fatalf("ensure worktree of sub-item = %d %s, want 200 %s", status, body, want)
-	}
-	if status, body := do(t, http.MethodGet, ts.URL+"/work-items/2/worktree", ""); status != 200 || body != want {
-		t.Errorf("get worktree of sub-item = %d %s, want 200 %s", status, body, want)
+	tree := filepath.Join(dataDir, "worktrees", "item-1", "1-app")
+	for _, method := range []string{http.MethodPost, http.MethodGet} {
+		status, body := do(t, method, ts.URL+"/work-items/2/workspaces", "")
+		if status != 200 || !strings.Contains(body, `"workItemId":1,`) ||
+			!strings.Contains(body, fmt.Sprintf(`"dir":%q,"branch":"work-item/1"`, tree)) {
+			t.Fatalf("%s workspaces of sub-item = %d %s, want the parent's workspace at %s", method, status, body, tree)
+		}
 	}
 
 	writeIn(t, tree, "new.txt", "one\n")
-	wantDiff := `[{"path":"new.txt","status":"added","hunks":[{"header":"@@ -0,0 +1 @@",` +
+	wantDiff := `[{"path":"1-app/new.txt","status":"added","hunks":[{"header":"@@ -0,0 +1 @@",` +
 		`"lines":[{"kind":"add","new":1,"text":"one"}]}]}]`
 	if status, body := do(t, http.MethodGet, ts.URL+"/work-items/2/diff", ""); status != 200 || body != wantDiff {
 		t.Errorf("diff of sub-item = %d %s, want 200 %s", status, body, wantDiff)
@@ -87,7 +86,7 @@ func TestPollGitHub_SubItemNotPolledOnItsOwn(t *testing.T) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
-	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
+	repo := ghWorkItemSetup(t, st, ts.URL, store.SoloTeam)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Child"}`)
 
 	binDir := t.TempDir()

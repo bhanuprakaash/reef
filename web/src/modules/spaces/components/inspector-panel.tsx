@@ -34,7 +34,14 @@ function ToolCallRow({ call }: { call: InspectorToolCall }) {
   const children = call.children ?? [];
   return (
     <div>
-      <div className="text-soft">{label ? `${call.name} ${label}` : call.name}</div>
+      <div className="text-soft">
+        {label ? `${call.name} ${label}` : call.name}
+        {call.targets && call.targets.length > 0 && (
+          <span className="ml-2 text-muted">
+            {call.targets.map((t) => t.projectName).join(', ')}
+          </span>
+        )}
+      </div>
       {children.length > 0 && (
         <details className="mt-1.5">
           <summary className="cursor-pointer">

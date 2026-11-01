@@ -190,15 +190,22 @@ func (s *server) pollGitHub(ctx context.Context) {
 	}
 }
 
-// pollWorkItemGitHub polls the PR of one work item. A work item with no worktree yet, or no gh
+// pollWorkItemGitHub polls the PR of one work item. A work item with no workspace of its home project yet, or no gh
 // PR (no PR, or gh not logged in), posts nothing.
 func (s *server) pollWorkItemGitHub(ctx context.Context, ghPath string, f store.WorkItem) error {
 	p, err := s.st.Project(ctx, f.ProjectID)
 	if err != nil {
 		return err
 	}
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+	ws, err := s.itemWorkspaces(ctx, f)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(ws, func(w store.Workspace) bool { return w.ProjectID == p.ID })
+	if i < 0 {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(ws[i].Dir, ".git")); err != nil {
 		return nil
 	}
 	pr, err := runGh(ctx, ghPath, p.Path, f.TreeKey())

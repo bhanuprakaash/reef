@@ -180,7 +180,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Errorf("instructions = %q, want the shared prompt first", ag.cfg.Instructions)
 	}
 	want := agent.Config{
-		Cwd: dir + "/worktrees/1/1", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
+		Cwd: dir + "/worktrees/item-1", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
 		Instructions: ag.cfg.Instructions,
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
@@ -263,7 +263,7 @@ func TestWorkDir_NoWorkItem(t *testing.T) {
 			if want := filepath.Join(dir, "chats", "1"); got != want || key != "" {
 				t.Errorf("WorkDir of a Space with no work item = %q, %q, want %q and no key", got, key, want)
 			}
-		} else if want := filepath.Join(dir, "worktrees", "1", "1"); got != want || key != "1" {
+		} else if want := filepath.Join(dir, "worktrees", "item-1"); got != want || key != "1" {
 			t.Errorf("WorkDir of a work item Space = %q, %q, want %q and key 1", got, key, want)
 		}
 	}
@@ -826,7 +826,7 @@ func TestSession_TeamWriteEditLeavesRunningSpaceAlone(t *testing.T) {
 			if got := !slices.Contains(cfg.DisallowedTools, "Edit"); got != tc.before {
 				t.Errorf("next turn can edit = %v, want %v (disallowed %v)", got, tc.before, cfg.DisallowedTools)
 			}
-			if got := s.members[s.leadID].run.CheckpointDir != ""; got != tc.before {
+			if got := s.members[s.leadID].run.Workspaces != nil; got != tc.before {
 				t.Errorf("next turn has a checkpoint = %v, want %v", got, tc.before)
 			}
 		})
@@ -1416,7 +1416,7 @@ func TestSession_RecreatesRemovedWorktree(t *testing.T) {
 	if err := s.Run(ctx, "hi", nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	tree := dir + "/worktrees/1/1"
+	tree := dir + "/worktrees/item-1"
 	if err := os.RemoveAll(tree); err != nil {
 		t.Fatal(err)
 	}
@@ -1425,7 +1425,7 @@ func TestSession_RecreatesRemovedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(tree + "/.git"); err != nil {
+	if _, err := os.Stat(tree + "/1-shop/.git"); err != nil {
 		t.Errorf("worktree after the second wake: %v, want it made again", err)
 	}
 	if len(ags) != 2 || !ags[0].closed || ags[1].cfg.Cwd != tree || len(ags[1].prompts) != 1 {

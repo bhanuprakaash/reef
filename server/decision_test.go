@@ -10,11 +10,13 @@ import (
 // decisionFixture has work items 1 and 2, each with a Space holding one message.
 func decisionFixture(t *testing.T) *httptest.Server {
 	t.Helper()
-	ts := newTestServer(t)
+	ts, st := newEmbedServer(t, nil)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Billing"}`)
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth"}`)
+	approveForSpace(t, st, 2)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":2,"name":"billing"}`)
 	do(t, http.MethodPost, ts.URL+"/messages", `{"spaceId":1,"author":"user","body":"use sessions"}`)
 	do(t, http.MethodPost, ts.URL+"/messages", `{"spaceId":2,"author":"user","body":"use stripe"}`)

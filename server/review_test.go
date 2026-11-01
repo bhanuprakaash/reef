@@ -20,7 +20,7 @@ import (
 func submittedEnv(t *testing.T) *liveEnv {
 	t.Helper()
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	env.fake.onRun = func(_, text string, _ *int64) {
 		switch {
 		case text == space.WrapCommand:
@@ -37,7 +37,7 @@ func submittedEnv(t *testing.T) *liveEnv {
 			}
 		}
 	}
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := env.st.PendingProposal(context.Background(), 2); err == nil {
@@ -70,7 +70,7 @@ func TestSendBackReachesTheLeadWithTheNote(t *testing.T) {
 	env := submittedEnv(t)
 
 	status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
-	if status != 400 || !strings.Contains(body, "a note for the lead is required") {
+	if status != 400 || !strings.Contains(body, "a note for the owner is required") {
 		t.Errorf("send back without a note = %d %s, want 400 asking for a note", status, body)
 	}
 	status, body = do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued","note":"401 not 403"}`)
@@ -105,8 +105,8 @@ func TestSendBackReachesTheLeadWithTheNote(t *testing.T) {
 func submittedUnwrappedEnv(t *testing.T) *liveEnv {
 	t.Helper()
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	deadline := time.Now().Add(5 * time.Second)
 	for env.h.s.lookup(2) == nil {
 		if time.Now().After(deadline) {
@@ -135,8 +135,8 @@ func TestDeleteSpaceInReviewIsRefused(t *testing.T) {
 
 func TestProofScreenshotsServeOnlyImagesUnderTheDataFolder(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
-	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/approve", `{"key":"k1"}`)
 	env.waitIdle(t, 2)
 	inside := filepath.Join(env.dir, "shot.png")
 	notes := filepath.Join(env.dir, "notes.txt")

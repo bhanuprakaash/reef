@@ -26,7 +26,7 @@ spaces() { "$H" sql "select count(*) from space where work_item_id = $1" | tail 
 started() { curl -s "http://$A/inbox" | grep -o "\"kind\":\"started\",\"group\":\"fyi\",\"spaceId\":0,\"workItemId\":$1," | wc -l | tr -d ' '; } # started ITEM -> count of its started items in the inbox
 start_server() { ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name queue >/dev/null; A=$(cat "$S/serve.addr"); }
 
-### Project (a git repo with one commit), the solo team (id 1) and four work items
+### Project (a git repo with one commit), the seeded lead bot (id 1) and four work items, the last without an owner
 
 git -C "$S/cwd" init -q -b main
 echo one >"$S/cwd/a.txt"
@@ -35,22 +35,22 @@ git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -qm init
 
 start_server
 api_call POST /projects '{"name":"app","path":"'"$S"'/cwd"}'
-api_call POST /work-items '{"projectId":1,"title":"Login","description":"email and password","teamId":1,"acceptanceLines":[{"text":"wrong password is refused"},{"text":"session lasts a day"}]}'
-api_call POST /work-items '{"projectId":1,"title":"Logout","teamId":1}'
-api_call POST /work-items '{"projectId":1,"title":"Signup","teamId":1}'
-api_call POST /work-items '{"projectId":1,"title":"Archive","teamId":1}'
+api_call POST /work-items '{"projectId":1,"title":"Login","description":"email and password","ownerBotId":1,"acceptanceLines":[{"text":"wrong password is refused"},{"text":"session lasts a day"}]}'
+api_call POST /work-items '{"projectId":1,"title":"Logout","ownerBotId":1}'
+api_call POST /work-items '{"projectId":1,"title":"Signup","ownerBotId":1}'
+api_call POST /work-items '{"projectId":1,"title":"Archive"}'
 api_call PUT /work-items/1/brief '{"body":"sessions, not JWT","author":"user"}'
 
 ### Queue the first item: it starts at once, with its Space and its first prompt
 
-api_call PATCH /work-items/1 '{"status":"queued"}'
+api_call POST /work-items/1/approve '{"key":"k1"}'
 first_ok=1
 [ "$STATUS" = 200 ] || first_ok=0
 echo "$BODY" | grep -q '"status":"in_progress"' || first_ok=0
 wait_done 1 1 || first_ok=0
 first_ok_log=$(grep -c 'scenario=queue-lead' "$E/fake-claude.log")
 [ "$first_ok_log" = 1 ] || first_ok=0
-check queue-first-starts "$first_ok" "PATCH queued: $STATUS $BODY; Spaces of item 1: $(spaces 1); queue-lead replays: $first_ok_log"
+check queue-first-starts "$first_ok" "approve: $STATUS $BODY; Spaces of item 1: $(spaces 1); queue-lead replays: $first_ok_log"
 
 prompt=$("$H" sql "select body from message where space_id = 1 and author = 'user'" | tail -n +2)
 prompt_ok=1
@@ -64,17 +64,32 @@ for want in "Acceptance lines:" "1. [ ] wrong password is refused" "2. [ ] sessi
 done
 check queue-prompt "$prompt_ok" "first message of Space 1: $(echo "$prompt" | tr '\n' '|'); first prompt of its first turn: $(echo "$context" | tr '\n' '|' | cut -c1-300)"
 
-### The second item waits while the first runs
+### The second item starts at once, next to the first
 
-api_call PATCH /work-items/2 '{"status":"queued"}'
+api_call POST /work-items/2/approve '{"key":"k2"}'
 second_ok=1
-echo "$BODY" | grep -q '"status":"queued"' || second_ok=0
-echo "$BODY" | grep -q '"queuePosition":1' || second_ok=0
-[ "$(item 2)" = "queued:1" ] || second_ok=0
-[ "$(spaces 2)" = 0 ] || second_ok=0
-check queue-second-waits "$second_ok" "item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2)"
+echo "$BODY" | grep -q '"status":"in_progress"' || second_ok=0
+wait_for "/spaces?workItem=2" '"workItemId":2' || second_ok=0
+wait_done 2 1 || second_ok=0
+[ "$(item 1)" = "in_progress:-" ] || second_ok=0
+[ "$(item 2)" = "in_progress:-" ] || second_ok=0
+[ "$(started 2)" = 1 ] || second_ok=0
+[ "$("$H" sql "select count(*) from message where space_id = 2 and author = 'reef'" | tail -1)" = 0 ] || second_ok=0
+first=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
+[ "$first" = "Work item 2: Logout" ] || second_ok=0
+check queue-second-runs "$second_ok" "item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2), started notes: $(started 2), first prompt: $first"
 
-### Needs you keeps the Team busy: a cap pause on item 1 does not start item 2
+### An item with no owner cannot be queued
+
+api_call POST /work-items/4/approve '{"key":"k4"}'
+owner_ok=1
+[ "$STATUS" = 400 ] || owner_ok=0
+echo "$BODY" | grep -q 'needs an owner before it is approved' || owner_ok=0
+[ "$(item 4)" = "backlog:-" ] || owner_ok=0
+[ "$(spaces 4)" = 0 ] || owner_ok=0
+check queue-needs-owner "$owner_ok" "approve of item 4: $STATUS $BODY; item 4 $(item 4), Spaces of item 4: $(spaces 4)"
+
+### Needs you holds only its own item: a cap pause on item 1 leaves item 2 running
 
 "$H" sql --write "update work_item set token_budget = 1 where id = 1" >/dev/null
 api_call POST /spaces/1/send '{"text":"hello"}'
@@ -82,32 +97,22 @@ send_status=$STATUS
 needs_ok=1
 [ "$send_status" = 409 ] || needs_ok=0
 [ "$(item 1)" = "needs_you:-" ] || needs_ok=0
-[ "$(item 2)" = "queued:1" ] || needs_ok=0
-[ "$(spaces 2)" = 0 ] || needs_ok=0
-paused_detail="send over budget $send_status; item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2)"
+[ "$(item 2)" = "in_progress:-" ] || needs_ok=0
+paused_detail="send over budget $send_status; item 1 $(item 1), item 2 $(item 2)"
 api_call POST /spaces/1/continue
 [ "$STATUS" = 204 ] || needs_ok=0
 [ "$(item 1)" = "in_progress:-" ] || needs_ok=0
-[ "$(item 2)" = "queued:1" ] || needs_ok=0
-check queue-needs-you-holds "$needs_ok" "$paused_detail; after continue item 1 $(item 1), item 2 $(item 2)"
+[ "$(item 2)" = "in_progress:-" ] || needs_ok=0
+check queue-needs-you-alone "$needs_ok" "$paused_detail; after continue item 1 $(item 1), item 2 $(item 2)"
 
-### The lead of item 1 submits for review: item 2 starts live, with no restart and no PATCH
+### The lead of item 1 submits for review in a live turn; item 2 keeps running
 
-before=$(item 2)
 api_call POST /spaces/1/send '{"text":"SUBMIT FOR REVIEW"}'
 submit_ok=1
 [ "$STATUS" = 202 ] || submit_ok=0
 wait_item 1 "review:-" || submit_ok=0
-wait_for "/spaces?workItem=2" '"workItemId":2' || submit_ok=0
-wait_done 2 1 || submit_ok=0
-[ "$before" = "queued:1" ] || submit_ok=0
 [ "$(item 2)" = "in_progress:-" ] || submit_ok=0
-note=$(started 2)
-[ "$note" = 1 ] || submit_ok=0
-[ "$("$H" sql "select count(*) from message where space_id = 2 and author = 'reef'" | tail -1)" = 0 ] || submit_ok=0
-first=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
-[ "$first" = "Work item 2: Logout" ] || submit_ok=0
-check queue-submit-starts "$submit_ok" "before submit item 2 $before; after: item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2), started notes: $note, first prompt: $first"
+check queue-submit-review "$submit_ok" "item 1 $(item 1), item 2 $(item 2)"
 
 api_call GET /work-items/1/proof
 proof_body=$BODY
@@ -118,14 +123,13 @@ echo "$proof_body" | grep -q '"commands":\[{"command":"go test ./...","output":"
 wait_for "/spaces/1/proposal" '"kind":"wrap"' || proof_ok=0
 check queue-submit-proof "$proof_ok" "proof of item 1: $STATUS $proof_body; wrap-up of Space 1: $(curl -s "http://$A/spaces/1/proposal" | cut -c1-120)"
 
-### Item 2 submits through reef mcp while the server is down; the restart opens item 3
+### Item 2 submits through reef mcp while the server is down, with item 3 queued; the restart starts item 3
 
-api_call PATCH /work-items/3 '{"status":"queued"}'
-queued_before=$(item 3)
 "$H" serve-stop
+"$H" sql --write "update work_item set status = 'queued', queue_position = 1, approved_at = '2026-01-01T00:00:00Z' where id = 3" >/dev/null
+queued_before=$(item 3)
 "$H" sql --write "insert into token (token, space_id, role, created_at, bot_id) values ('lead-2', 2, 'lead', '2026-10-27T00:00:00Z', 1)" >/dev/null
 submit_out=$(REEF_TOKEN=lead-2 "$H" mcp-call submit_for_review '{"commands":[{"command":"true","output":""}]}')
-before=$(item 3)
 start_server
 restart_ok=1
 wait_for "/spaces?workItem=3" '"workItemId":3' || restart_ok=0
@@ -137,7 +141,7 @@ echo "$submit_out" | grep -q '< isError=false' || restart_ok=0
 note=$(started 3)
 [ "$note" = 1 ] || restart_ok=0
 [ "$("$H" sql "select count(*) from message where space_id = 3 and author = 'reef'" | tail -1)" = 0 ] || restart_ok=0
-check queue-restart-starts "$restart_ok" "item 3 queued $queued_before; submit while down: $(echo "$submit_out" | grep '^< ' | cut -c1-60); item 3 $before before the restart; after: item 2 $(item 2), item 3 $(item 3), Spaces of item 3: $(spaces 3), started notes: $note"
+check queue-restart-starts "$restart_ok" "item 3 queued $queued_before; submit while down: $(echo "$submit_out" | grep '^< ' | cut -c1-60); after the restart: item 2 $(item 2), item 3 $(item 3), Spaces of item 3: $(spaces 3), started notes: $note"
 
 ### The submit of item 2 was never heard by a live server: the restart runs its wrap-up, and Done approves it
 
@@ -152,27 +156,14 @@ api_call PATCH /work-items/2 '{"status":"done"}'
 [ "$("$H" sql "select closed_at is not null from space where id = 2" | tail -1)" = 1 ] || wrap_ok=0
 check queue-restart-wraps "$wrap_ok" "wrap-up of Space 2 after the restart: $("$H" sql "select status from proposal where space_id = 2 order by id desc limit 1" | tail -1); Done: $STATUS; Space 2 closed: $("$H" sql "select closed_at is not null from space where id = 2" | tail -1), item 2 $(item 2)"
 
-### Send item 1 back: it goes to position 1, ahead of an item queued earlier, and starts next
+### Send item 1 back: it starts again at once in its one Space
 
-api_call PATCH /work-items/4 '{"status":"queued"}'
-c_pos=$(item 4)
 api_call PATCH /work-items/1 '{"status":"queued","note":"SAY IT TWICE"}'
 back_ok=1
 [ "$STATUS" = 200 ] || back_ok=0
-[ "$c_pos" = "queued:1" ] || back_ok=0
-[ "$(item 1)" = "queued:1" ] || back_ok=0
-[ "$(item 4)" = "queued:2" ] || back_ok=0
-[ "$(item 3)" = "in_progress:-" ] || back_ok=0
-check queue-send-back-first "$back_ok" "item 4 queued alone: $c_pos; after send back item 1 $(item 1), item 4 $(item 4), item 3 $(item 3)"
-
-api_call PATCH /work-items/3 '{"status":"dropped"}'
-next_ok=1
-[ "$STATUS" = 200 ] || next_ok=0
-[ "$(item 3)" = "dropped:-" ] || next_ok=0
-[ "$(item 1)" = "in_progress:-" ] || next_ok=0
-[ "$(item 4)" = "queued:1" ] || next_ok=0
-[ "$(spaces 1)" = 1 ] || next_ok=0
-check queue-send-back-starts "$next_ok" "after item 3 dropped: item 1 $(item 1), item 4 $(item 4), Spaces of item 1: $(spaces 1)"
+[ "$(item 1)" = "in_progress:-" ] || back_ok=0
+[ "$(spaces 1)" = 1 ] || back_ok=0
+check queue-send-back-starts "$back_ok" "after send back: item 1 $(item 1), Spaces of item 1: $(spaces 1)"
 
 for i in $(seq 40); do grep -q 'scenario=sent-back-lead' "$E/fake-claude.log" && break; sleep 1; done
 note_prompt=$("$H" sql "select body from message where space_id = 1 and author = 'user' order by id desc limit 1" | tail -n +2)

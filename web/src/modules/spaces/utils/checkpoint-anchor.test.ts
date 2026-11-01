@@ -22,7 +22,7 @@ const turn = (id: number, role: string, startedAt: string): Turn => ({
   error: '',
   wakeText: '',
   retried: false,
-  checkpoint: `refs/reef/checkpoints/${id}`,
+  checkpoints: [{ workspaceId: 1, projectId: 1, ref: `refs/reef/checkpoints/${id}` }],
   startedAt,
 });
 

@@ -5,11 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -26,11 +24,6 @@ var ErrNoRepo = errors.New("work items need the project folder to be a git repo 
 // ErrDirty is returned by Remove for a worktree with uncommitted changes.
 var ErrDirty = errors.New("uncommitted changes")
 
-// Path is where the worktree of the work item with tree key key in project projectID lives.
-func Path(dataDir string, projectID int64, key string) string {
-	return filepath.Join(dataDir, "worktrees", strconv.FormatInt(projectID, 10), key)
-}
-
 // Branch is the branch a work item works on.
 func Branch(key string) string { return "work-item/" + key }
 
@@ -41,15 +34,75 @@ func ValidBranch(ctx context.Context, name string) bool {
 		exec.CommandContext(ctx, "git", "check-ref-format", "refs/heads/"+name).Run() == nil
 }
 
-// Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one,
-// after finishing an add that was cut short: its folder was made and registered but the
-// checkout into it never ran. The branch is made from base, the project's base branch, or from
-// the default branch of repo when base is empty (see baseRef), or reused when it exists. A new
-// branch from a base first fetches it from origin; a failed fetch is logged, not fatal. A
-// worktree whose folder is gone is made again. A repo with no commit has no HEAD to make a
-// branch from, and fails, as does a branch that another worktree has checked out. The add itself runs under context.WithoutCancel, so a ctx cancelled while it
-// is in flight does not leave another half-made tree.
-func Ensure(ctx context.Context, repo, dir, branch, base string) error {
+// StartRef is where a new branch starts: Ref is origin/<base> when Source is "origin" (origin was
+// fetched just now), or the local branch when Source is "local", with Note saying why origin
+// was not used.
+type StartRef struct {
+	Ref    string
+	Source string
+	Note   string
+}
+
+// ErrNoBase is returned by Create when the base branch exists neither at origin nor locally.
+var ErrNoBase = errors.New("base branch not found")
+
+// Create makes dir a worktree of repo on branch. It does nothing when dir already is one, after
+// finishing an add that was cut short: its folder was made and registered but the checkout into
+// it never ran. A new branch starts at the base branch (see ResolveBase), or at the one origin/HEAD
+// names, else the local default branch, when base is empty; an existing branch is reused. A
+// worktree whose folder is gone is made again. It fails with ErrNoBase instead of starting from
+// some other branch when the base branch cannot be found, with ErrNoRepo for a repo with no
+// commit, and when another worktree has the branch checked out. The add runs under
+// context.WithoutCancel, so a ctx cancelled while it is in flight does not leave a half-made
+// tree. The StartRef is empty when no new branch was needed: dir or the branch already existed.
+func Create(ctx context.Context, repo, dir, branch, base string) (StartRef, error) {
+	var b StartRef
+	err := ensure(ctx, repo, dir, branch, func() (string, error) {
+		var err error
+		b, err = ResolveBase(ctx, repo, base)
+		return b.Ref, err
+	})
+	return b, err
+}
+
+// ResolveBase fetches base from origin and picks the ref a branch starts from: origin/<base>
+// when the fetch worked, else the local <base> with a Note, else ErrNoBase.
+func ResolveBase(ctx context.Context, repo, base string) (StartRef, error) {
+	if base == "" {
+		if ref, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+			base = strings.TrimPrefix(ref, "origin/")
+		} else {
+			ref := baseRef(ctx, repo, "")
+			b := StartRef{Ref: ref, Source: "local"}
+			if _, err := git(ctx, repo, "remote", "get-url", "origin"); err == nil {
+				sha, _ := git(ctx, repo, "rev-parse", "--short", ref)
+				b.Note = fmt.Sprintf("origin's default branch is unknown; using local %s at %s",
+					strings.TrimPrefix(ref, "refs/heads/"), sha)
+			}
+			return b, nil
+		}
+	}
+	fetchErr := fetch(ctx, repo, base)
+	if fetchErr == nil {
+		ref := "refs/remotes/origin/" + base
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", ref); err == nil {
+			return StartRef{Ref: ref, Source: "origin"}, nil
+		}
+		fetchErr = fmt.Errorf("origin has no branch %s", base)
+	}
+	reason, _, _ := strings.Cut(fetchErr.Error(), "\n")
+	sha, err := git(ctx, repo, "rev-parse", "--short", "--verify", "--quiet", "refs/heads/"+base)
+	if err != nil {
+		return StartRef{}, fmt.Errorf("%w: %s is not at origin (%s) and there is no local %s", ErrNoBase, base, reason, base)
+	}
+	return StartRef{
+		Ref:    "refs/heads/" + base,
+		Source: "local",
+		Note:   fmt.Sprintf("origin could not be refreshed: %s; using local %s at %s", reason, base, sha),
+	}, nil
+}
+
+func ensure(ctx context.Context, repo, dir, branch string, start func() (string, error)) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return finishHalfAdd(ctx, dir)
 	}
@@ -75,23 +128,22 @@ func Ensure(ctx context.Context, repo, dir, branch, base string) error {
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
 		return err
 	default:
-		if base != "" {
-			fetch(ctx, repo, base)
+		ref, err := start()
+		if err != nil {
+			return err
 		}
-		args = []string{"worktree", "add", "-b", branch, dir, baseRef(ctx, repo, base)}
+		args = []string{"worktree", "add", "-b", branch, dir, ref}
 	}
 	_, err = git(context.WithoutCancel(ctx), repo, args...)
 	return err
 }
 
 // fetch updates origin/branch in repo.
-func fetch(ctx context.Context, repo, branch string) {
+func fetch(ctx context.Context, repo, branch string) error {
 	ctx, cancel := context.WithTimeout(ctx, _fetchTimeout)
 	defer cancel()
-	env := []string{"GIT_TERMINAL_PROMPT=0"}
-	if _, err := gitEnv(ctx, repo, env, "fetch", "origin", branch); err != nil {
-		log.Printf("fetch base branch: %v", err)
-	}
+	_, err := gitEnv(ctx, repo, []string{"GIT_TERMINAL_PROMPT=0"}, "fetch", "origin", branch)
+	return err
 }
 
 // baseRef is the ref a work item branch starts from, so it does not inherit the commits of
@@ -214,6 +266,15 @@ func IsRepo(ctx context.Context, dir string) bool {
 func HasCommit(ctx context.Context, dir string) bool {
 	_, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", "HEAD")
 	return err == nil
+}
+
+// Head is the short id of the commit HEAD points at in dir, or "" when it points at none.
+func Head(ctx context.Context, dir string) string {
+	sha, err := git(ctx, dir, "rev-parse", "--short", "--verify", "--quiet", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return sha
 }
 
 // Checkpoint stores HEAD and the whole working tree of the checkout at dir, untracked files

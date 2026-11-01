@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -36,6 +37,8 @@ type fakeSession struct {
 	onRun func(role, text string, parent *int64)
 	// tools, when set, names the tool each role calls at the start of its message turns.
 	tools map[string]string
+	// toolInput, when set, is the arguments of the tool each role calls.
+	toolInput map[string]string
 
 	// reviewed receives the Bot of each memory review when it starts; reviewHold, when set, is
 	// waited on before it ends, and reviewFail makes it fail. They are guarded by mu, as is reviews.
@@ -113,7 +116,9 @@ func (f *fakeSession) RunAs(
 		f.onRun(role, text, parent)
 	}
 	if tool := f.tools[role]; tool != "" {
-		onEvent(agent.Event{Kind: agent.KindToolCall, ToolID: "t", ToolName: tool})
+		onEvent(agent.Event{
+			Kind: agent.KindToolCall, ToolID: "t", ToolName: tool, Input: json.RawMessage(f.toolInput[role]),
+		})
 	}
 	if strings.HasSuffix(text, "fail") {
 		return errors.New("boom")
@@ -302,7 +307,15 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), reviewed: make(chan int64, 1), directStart: make(chan struct{}, 2)}}
 	env.st, env.fake.st = st, st
 	env.serve(t)
-	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
+	repo := t.TempDir()
+	// Copy the committed fixture to avoid running Git twice per test during setup.
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(filepath.Join(repo, ".git"), os.DirFS("testdata/live-git")); err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+repo+`"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"scratch"}`)
 	return env
 }
@@ -405,7 +418,8 @@ func (e *liveEnv) sendTo(t *testing.T, id int, text string) (int, string) {
 // workItemSpace adds a work item and a Space on it, and returns the Space's id.
 func (e *liveEnv) workItemSpace(t *testing.T) int {
 	t.Helper()
-	do(t, http.MethodPost, e.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPost, e.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
+	approveForSpace(t, e.st, 1)
 	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	return 2
 }
@@ -1223,6 +1237,7 @@ func TestSend_WrapWakesNobody(t *testing.T) {
 	env := newLiveEnv(t)
 	env.teamSpace(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"w","team":"core"}`)
 	env.fake.onRun = func(string, string, *int64) {
 		_, err := env.st.CreateMessage(context.Background(),

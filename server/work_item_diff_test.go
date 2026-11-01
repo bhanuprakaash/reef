@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -29,16 +30,16 @@ func TestGetWorkItemDiff_UncommittedFile(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 
-	dir := worktree.Path(dataDir, 1, "1")
+	dir := filepath.Join(dataDir, "worktrees", "item-1", "1-app")
 	writeIn(t, dir, "new.txt", "one\ntwo\n")
 
 	status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/diff", "")
 	if status != 200 {
 		t.Fatalf("status = %d, body = %s", status, body)
 	}
-	want := `[{"path":"new.txt","status":"added","hunks":[{"header":"@@ -0,0 +1,2 @@",` +
+	want := `[{"path":"1-app/new.txt","status":"added","hunks":[{"header":"@@ -0,0 +1,2 @@",` +
 		`"lines":[{"kind":"add","new":1,"text":"one"},{"kind":"add","new":2,"text":"two"}]}]}]`
 	if body != want {
 		t.Errorf("diff = %s, want %s", body, want)
@@ -64,9 +65,9 @@ func TestGetWorkItemDiff_ScopeCurrent(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 
-	dir := worktree.Path(dataDir, 1, "1")
+	dir := filepath.Join(dataDir, "worktrees", "item-1", "1-app")
 	writeIn(t, dir, "old.txt", "old\n")
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "-m", "old work")
@@ -87,10 +88,10 @@ func TestGetWorkItemDiff_ScopeCurrent(t *testing.T) {
 		}
 		return strings.Join(out, ",")
 	}
-	if got, want := paths(""), "new.txt,old.txt"; got != want {
+	if got, want := paths(""), "1-app/new.txt,1-app/old.txt"; got != want {
 		t.Errorf("full diff = %q, want %q", got, want)
 	}
-	if got, want := paths("?scope=current"), "new.txt"; got != want {
+	if got, want := paths("?scope=current"), "1-app/new.txt"; got != want {
 		t.Errorf("current diff = %q, want %q", got, want)
 	}
 }

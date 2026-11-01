@@ -78,7 +78,7 @@ func TestSession_OneBotRunsWithProfileAccess(t *testing.T) {
 		if err != nil || len(turns) != 1 {
 			t.Fatalf("team %s: turns = %v, %v, want one", tt.team, turns, err)
 		}
-		if got := turns[0].Checkpoint != nil; got != tt.checkpoint {
+		if got := len(turns[0].Checkpoints) > 0; got != tt.checkpoint {
 			t.Errorf("team %s: checkpoint = %v, want %v", tt.team, got, tt.checkpoint)
 		}
 		want := "lesson " + strconv.FormatInt(item.ID, 10) + ": Check the empty case first."

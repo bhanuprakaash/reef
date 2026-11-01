@@ -493,12 +493,28 @@ func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, 
 func (s *server) runOne(
 	ctx context.Context, id int64, l *live, sess session, kind turnKind, w wake,
 ) (end turnState, ok, closed bool) {
+	var dirs []targetDir
+	var dirsRead sync.Once
 	onEvent := func(ev agent.Event) {
+		if ev.Kind == agent.KindToolCall {
+			dirsRead.Do(func() {
+				var err error
+				if dirs, err = s.spaceTargets(ctx, id); err != nil {
+					log.Printf("space %d: read targets: %v", id, err)
+				}
+			})
+		}
 		l.mu.Lock()
 		if ev.Kind == agent.KindToolCall && !talkTool(ev.ToolName) {
 			l.hops = 0
 		}
-		l.publishLocked("agent", ev)
+		var out any = ev
+		if ev.Kind == agent.KindToolCall {
+			if t := targetOf(dirs, ev.Input); t != nil {
+				out = targetedEvent{ev, t}
+			}
+		}
+		l.publishLocked("agent", out)
 		l.mu.Unlock()
 	}
 	var err error
@@ -779,6 +795,7 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.openStarted(r.Context())
 	w.WriteHeader(http.StatusNoContent)
 }
 

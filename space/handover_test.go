@@ -49,7 +49,7 @@ func TestSession_RefreshStartsNewContextWithHandoverAndFailureRetries(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.MoveWorkItem(ctx, done.ID, "done", store.ByLead); err != nil {
+	if _, err := st.MoveWorkItem(ctx, done.ID, "done", store.ByOwner); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, ParentID: &f.ID, Title: "Write the login tests"}); err != nil {
@@ -105,7 +105,7 @@ func TestSession_RefreshStartsNewContextWithHandoverAndFailureRetries(t *testing
 	for _, want := range []string{
 		"## Handover", "Goal: Login", "decision 1: Use Google OAuth.",
 		"sub-item 2: Add callback route", "sub-item 3: Write the login tests (backlog)",
-		"Workspace: " + dir + "/worktrees/1/1, branch work-item/1",
+		"Workspace: " + dir + "/worktrees/item-1, branch work-item/1",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("handover missing %q in:\n%s", want, prompt)

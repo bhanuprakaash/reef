@@ -1,0 +1,1 @@
+ALTER TABLE work_item ADD COLUMN pending_owner_bot_id INTEGER REFERENCES bot(id) ON DELETE SET NULL;

@@ -49,6 +49,11 @@ type server struct {
 	reviews map[int64]context.CancelFunc
 
 	approveMu sync.Mutex
+	// admitMu makes one scan of the started items at a time, so an item gets its Space and its
+	// first turn once; starting holds the Spaces whose claimed start is still running. It is
+	// never held across git.
+	admitMu  sync.Mutex
+	starting map[int64]bool
 
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
@@ -99,7 +104,7 @@ func newHandler(
 	s := &server{
 		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
 		ctx: ctx, cancel: cancel,
-		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
+		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{}, starting: map[int64]bool{},
 		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{}, now: time.Now,
 	}
 	for _, opt := range opts {

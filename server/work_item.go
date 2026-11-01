@@ -15,7 +15,6 @@ import (
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
-	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) workItemRoutes(mux *http.ServeMux) {
@@ -29,6 +28,16 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
 	mux.HandleFunc("PUT /work-items/{id}/queue-position", s.moveInQueue)
 	mux.HandleFunc("/work-items/{id}/queue-position", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/approve", s.approveWorkItem)
+	mux.HandleFunc("/work-items/{id}/approve", methodNotAllowed)
+	mux.HandleFunc("PUT /work-items/{id}/participants", s.putParticipants)
+	mux.HandleFunc("/work-items/{id}/participants", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/owner", s.transferOwner)
+	mux.HandleFunc("/work-items/{id}/owner", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/targets", s.listTargets)
+	mux.HandleFunc("POST /work-items/{id}/targets", s.addTarget)
+	mux.HandleFunc("DELETE /work-items/{id}/targets/{projectId}", s.deleteTarget)
+	mux.HandleFunc("/work-items/{id}/targets", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/brief", s.getBrief)
 	mux.HandleFunc("PUT /work-items/{id}/brief", s.putBrief)
 	mux.HandleFunc("/work-items/{id}/brief", methodNotAllowed)
@@ -38,9 +47,9 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /work-items/{id}/notes/{role}", s.putRoleNotes)
 	mux.HandleFunc("DELETE /work-items/{id}/notes/{role}", s.deleteRoleNotes)
 	mux.HandleFunc("/work-items/{id}/notes/{role}", methodNotAllowed)
-	mux.HandleFunc("GET /work-items/{id}/worktree", s.getWorkItemWorktree)
-	mux.HandleFunc("POST /work-items/{id}/worktree", s.ensureWorkItemWorktree)
-	mux.HandleFunc("/work-items/{id}/worktree", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/workspaces", s.listWorkItemWorkspaces)
+	mux.HandleFunc("POST /work-items/{id}/workspaces", s.ensureWorkItemWorkspaces)
+	mux.HandleFunc("/work-items/{id}/workspaces", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/diff", s.getWorkItemDiff)
 	mux.HandleFunc("/work-items/{id}/diff", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/proof", s.getWorkItemProof)
@@ -169,7 +178,7 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 
 // decideReview moves the top-level item in review as the user. Done approves the wrap-up the
 // lead proposed when it submitted, or closes the Space when there is none. Queued sends the item
-// back with note, which reaches the lead when the Team restarts the item. A wrap-up still
+// back with note, which reaches the lead when the queue restarts the item. A wrap-up still
 // running is 409, so the user decides on what the lead finished. An item with no proof has no
 // Space to wrap up or wake: it is only moved.
 func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note string) (store.WorkItem, error) {
@@ -216,7 +225,121 @@ func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note
 	return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
 }
 
-// moveInQueue puts the queued work item at a position in its Team's queue; a position outside
+// approveWorkItem is the user authorizing a backlog item with the owner and participants in the
+// body (the proposal's where left out) and queuing it. key names this approval: the same key again
+// answers 200 with the item as it is, another key for an approved item is 409.
+func (s *server) approveWorkItem(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		OwnerBotID        *int64  `json:"ownerBotId"`
+		ParticipantBotIDs []int64 `json:"participantBotIds"`
+		TargetProjectIDs  []int64 `json:"targetProjectIds"`
+		Key               string  `json:"key"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.ApproveWorkItem(r.Context(), id, in.OwnerBotID, in.ParticipantBotIDs, in.TargetProjectIDs, in.Key)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	s.openStarted(r.Context())
+	writeJSON(w, http.StatusOK, f)
+}
+
+// putParticipants sets the owner and participants of a backlog work item; any other item is 400.
+func (s *server) putParticipants(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		OwnerBotID        *int64  `json:"ownerBotId"`
+		ParticipantBotIDs []int64 `json:"participantBotIds"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.SetWorkItemParticipants(r.Context(), id, in.OwnerBotID, in.ParticipantBotIDs)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
+func (s *server) listTargets(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ts, err := s.st.WorkItemTargets(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ts)
+}
+
+// addTarget lets the user add a Project's repository to a top-level work item. The item's Space
+// gets a message naming it. A sub-item or an unknown Project is 400, a repeated Project 409.
+func (s *server) addTarget(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		ProjectID int64 `json:"projectId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	t, err := s.st.AddWorkItemTarget(r.Context(), id, in.ProjectID, store.ByUser)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if s.begin() {
+		go func() {
+			defer s.wg.Done()
+			s.openAddedTarget(s.ctx, id, in.ProjectID)
+		}()
+	}
+	writeJSON(w, http.StatusCreated, t)
+}
+
+// deleteTarget takes a Project's repository off a backlog work item. A started item or a Project
+// with a workspace is 409; the home Project and a Project that is not a target are 400.
+func (s *server) deleteTarget(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	projectID, err := strconv.ParseInt(r.PathValue("projectId"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: project id", store.ErrInvalid))
+		return
+	}
+	if err := s.st.RemoveWorkItemTarget(r.Context(), id, projectID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// moveInQueue puts the queued work item at a position in the queue; a position outside
 // the queue, or an item that is not queued, is 400.
 func (s *server) moveInQueue(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -245,7 +368,7 @@ func (s *server) moveInQueue(w http.ResponseWriter, r *http.Request) {
 // turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
 // can refuse or fail, and the next wake makes it again. The memory items are retired before the
 // row goes, so a failure leaves the item to delete again. The refs go last, after the rows that
-// name them. The Team's next queued item starts. A project folder that is gone is not git cleaned up: its worktree folder, if
+// name them. A project folder that is gone is not git cleaned up: its worktree folder, if
 // any, is just removed.
 func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -264,11 +387,6 @@ func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	p, err := s.st.Project(r.Context(), f.ProjectID)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
 	if err := s.spacesInUse(r.Context(), store.SpaceFilter{WorkItemID: &id}); err != nil {
 		writeError(w, err)
 		return
@@ -278,12 +396,13 @@ func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	gone := projectGone(p.Path)
 	if f.ParentID == nil {
-		if gone {
-			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.TreeKey()))
-		} else {
-			err = s.removeWorkItemTree(r.Context(), p, f)
+		ws, err := s.st.WorkItemWorkspaces(r.Context(), f.ID)
+		if err == nil {
+			err = s.removeWorkspaces(r.Context(), ws)
+		}
+		if err == nil {
+			err = os.RemoveAll(space.WorkRoot(s.dataDir, f.TreeKey()))
 		}
 		if err != nil {
 			writeError(w, err)
@@ -307,11 +426,9 @@ func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.openStarted(r.Context())
-	if !gone {
-		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
-			writeError(w, err)
-			return
-		}
+	if err := s.deleteRefs(context.WithoutCancel(r.Context()), refs); err != nil {
+		writeError(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -345,143 +462,6 @@ func (s *server) spacesInUse(ctx context.Context, f store.SpaceFilter) error {
 func projectGone(path string) bool {
 	_, err := os.Stat(path)
 	return errors.Is(err, os.ErrNotExist)
-}
-
-// checkpointRefs lists the checkpoint refs of the turns of the Spaces that match f.
-func (s *server) checkpointRefs(ctx context.Context, f store.SpaceFilter) ([]string, error) {
-	cs, err := s.st.Spaces(ctx, f)
-	if err != nil {
-		return nil, err
-	}
-	var refs []string
-	for _, c := range cs {
-		ts, err := s.st.Turns(ctx, store.TurnFilter{SpaceID: &c.ID})
-		if err != nil {
-			return nil, err
-		}
-		for _, t := range ts {
-			if t.Checkpoint != nil {
-				refs = append(refs, *t.Checkpoint)
-			}
-		}
-	}
-	return refs, nil
-}
-
-// checkWorkItemTree is 409 when the worktree of work item f of project p has uncommitted changes.
-func (s *server) checkWorkItemTree(ctx context.Context, p store.Project, f store.WorkItem) error {
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	return treeConflict(f, dir, worktree.Clean(ctx, dir))
-}
-
-// removeWorkItemTree removes the worktree of work item f of project p; 409 when it has
-// uncommitted changes.
-func (s *server) removeWorkItemTree(ctx context.Context, p store.Project, f store.WorkItem) error {
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	return treeConflict(f, dir, worktree.Remove(ctx, p.Path, dir))
-}
-
-func treeConflict(f store.WorkItem, dir string, err error) error {
-	if errors.Is(err, worktree.ErrDirty) {
-		return fmt.Errorf("%w: work item %d has uncommitted changes in %s; commit or discard them first",
-			store.ErrConflict, f.ID, dir)
-	}
-	return err
-}
-
-// getWorkItemWorktree returns the path and branch of the work item's worktree, the parent's for
-// a sub-item, or an empty path when it has none yet. It never makes one.
-func (s *server) getWorkItemWorktree(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	f, err := s.st.WorkItem(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	p, err := s.st.Project(r.Context(), f.ProjectID)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		dir = ""
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"path": dir, "branch": worktree.Branch(f.TreeKey())})
-}
-
-// ensureWorkItemWorktree makes the work item's worktree, the same way the first wake of one of
-// its Spaces would, and returns its path. A worktree or branch that already exists is
-// reused.
-func (s *server) ensureWorkItemWorktree(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	f, err := s.st.WorkItem(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	p, err := s.st.Project(r.Context(), f.ProjectID)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	if err := space.EnsureWorktree(r.Context(), s.trees, p, dir, f.TreeKey()); err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"path": dir, "branch": worktree.Branch(f.TreeKey())})
-}
-
-// getWorkItemDiff returns the work item worktree's changes, uncommitted and untracked files
-// included, against the commit its branch and the project's base branch last shared, or against
-// the worktree's own HEAD with ?scope=current. A work item with no worktree yet has no changes.
-func (s *server) getWorkItemDiff(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	f, err := s.st.WorkItem(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	p, err := s.st.Project(r.Context(), f.ProjectID)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-		writeJSON(w, http.StatusOK, []worktree.FileDiff{})
-		return
-	}
-	base := "HEAD"
-	if r.URL.Query().Get("scope") != "current" {
-		base, err = worktree.Base(r.Context(), p.Path, dir, p.BaseBranch)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	diffs, err := worktree.Diff(r.Context(), dir, base)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if diffs == nil {
-		diffs = []worktree.FileDiff{}
-	}
-	writeJSON(w, http.StatusOK, diffs)
 }
 
 // getWorkItemProof returns what the lead submitted the work item with; 404 before it submitted.

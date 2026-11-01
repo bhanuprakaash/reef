@@ -31,6 +31,11 @@ func (s *server) joinSpace(ctx context.Context, id, botID int64) (store.Role, er
 	if err != nil {
 		return store.Role{}, err
 	}
+	if c, err := s.st.Space(ctx, id); err == nil && c.WorkItemID != nil {
+		if err := s.st.AddWorkItemParticipant(ctx, *c.WorkItemID, botID); err != nil {
+			return store.Role{}, err
+		}
+	}
 	s.noteJoined(ctx, id, role.Name)
 	return role, nil
 }
@@ -159,8 +164,8 @@ func (s *server) dropMember(ctx context.Context, id int64, m store.PendingRemova
 	return false, nil
 }
 
-// settleLeaving applies the removals still pending in Space id when a chain ends. When another
-// chain already holds the Space, that chain applies them when it ends.
+// settleLeaving applies the removals and owner transfers still pending in Space id when a chain
+// ends. When another chain already holds the Space, that chain applies them when it ends.
 func (s *server) settleLeaving(ctx context.Context, id int64) {
 	ctx = context.WithoutCancel(ctx)
 	pending, err := s.st.LeavingMembers(ctx, id)
@@ -168,7 +173,12 @@ func (s *server) settleLeaving(ctx context.Context, id int64) {
 		log.Printf("list leaving members of Space %d: %v", id, err)
 		return
 	}
-	if len(pending) == 0 {
+	transfers, err := s.st.PendingOwnerTransfers(ctx, id)
+	if err != nil {
+		log.Printf("list pending transfers of Space %d: %v", id, err)
+		return
+	}
+	if len(pending) == 0 && len(transfers) == 0 {
 		return
 	}
 	c, _, err := s.claim(ctx, id, _noTurn)
@@ -183,19 +193,22 @@ func (s *server) settleLeaving(ctx context.Context, id int64) {
 	_ = c.release(nil)
 }
 
-// applyLeaving removes the Bots marked as leaving Space id and closes their agents in sess, when
-// the Space has one. A removal that no longer holds gets a notice in the Space and leaves the Bot
-// a member; the errors are returned.
+// applyLeaving applies the owner transfers pending in Space id, then removes the Bots marked as
+// leaving it and closes their agents in sess, when the Space has one. A removal that no longer
+// holds gets a notice in the Space and leaves the Bot a member; the errors are returned.
 func (s *server) applyLeaving(ctx context.Context, id int64, sess session) error {
 	ctx = context.WithoutCancel(ctx)
+	var errs []error
+	if err := s.applyTransfers(ctx, id); err != nil {
+		errs = append(errs, err)
+	}
 	pending, err := s.st.LeavingMembers(ctx, id)
 	if err != nil {
-		return err
+		return errors.Join(append(errs, err)...)
 	}
 	if len(pending) == 0 {
-		return nil
+		return errors.Join(errs...)
 	}
-	var errs []error
 	for _, m := range pending {
 		err := s.st.ApplyMemberRemoval(ctx, m)
 		if err == nil {

@@ -362,7 +362,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 			if err != nil || len(turns) != 1 {
 				t.Fatalf("turns = %+v, %v, want one", turns, err)
 			}
-			if got := turns[0].Checkpoint != nil; got != tt.wantCheckpoint {
+			if got := len(turns[0].Checkpoints) > 0; got != tt.wantCheckpoint {
 				t.Errorf("turn has a checkpoint = %v, want %v", got, tt.wantCheckpoint)
 			}
 		})

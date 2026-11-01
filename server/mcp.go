@@ -18,6 +18,7 @@ import (
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 const _defaultSearchLimit = 20
@@ -137,10 +138,13 @@ type (
 		Type        string `json:"type,omitempty" jsonschema:"a label: feature, bug, incident, investigation, task or improvement; default task"`
 	}
 	proposeWorkItemIn struct {
-		Type        string   `json:"type" jsonschema:"a label: feature, bug, incident, investigation, task or improvement"`
-		Title       string   `json:"title" jsonschema:"what the work item is, in one line"`
-		Description string   `json:"description" jsonschema:"what to do and why"`
-		Acceptance  []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+		Type         string   `json:"type" jsonschema:"a label: feature, bug, incident, investigation, task or improvement"`
+		Title        string   `json:"title" jsonschema:"what the work item is, in one line"`
+		Description  string   `json:"description" jsonschema:"what to do and why"`
+		Acceptance   []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+		Owner        string   `json:"owner,omitempty" jsonschema:"name of the Bot you propose as owner, from find_bots; it need not be you"`
+		Participants []string `json:"participants,omitempty" jsonschema:"names of the other Bots you propose as participants, from find_bots"`
+		Targets      []int64  `json:"targets,omitempty" jsonschema:"ids of other Projects whose repository the work needs, from list_projects"`
 	}
 	proposeSpaceIn struct {
 		Name          string  `json:"name" jsonschema:"what the Space is for, in a few words"`
@@ -319,8 +323,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_work_item",
 		Description: "Propose a new work item for this project when you find work that is not " +
-			"yours to do now. It lands in the Backlog as proposed by you, with the team whose " +
-			"responsibility fits it best suggested. The user decides whether and when to queue it; " +
+			"yours to do now. It lands in the Backlog as proposed by you, with the owner and " +
+			"participants you name (find_bots finds them; the owner need not be you) and any other " +
+			"Projects whose repository it needs. The user may change all of it, then approves it; " +
 			"a proposal never starts work.",
 	}, m.proposeWorkItem)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -354,15 +359,16 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "set_sub_item_status",
 		Description: "Set the status of a sub-item: backlog, queued, in_progress, needs_you, " +
-			"review, done or dropped. Only the lead may; the lead is the one that sets it done.",
+			"review, done or dropped. Only the owner may; the owner is the one that sets it done.",
 	}, m.setSubItemStatus)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "submit_for_review",
 		Description: "Submit this work item for the user's review with your proof: tick its " +
-			"acceptance lines with a note each, add the commands you ran with their output and " +
-			"screenshot files. Only the lead may, and only while every sub-item is done or " +
-			"dropped. The work item goes to review, its team is free for the next queued item, " +
-			"and when your turn ends you are asked to wrap up this Space.",
+			"acceptance lines with a note each, add the commands you ran with their output (name " +
+			"the Project of a command that checks one repository) and screenshot files. The review " +
+			"records each repository's branch, head commit and base. Only the owner may, and only " +
+			"while every sub-item is done or dropped. When your turn ends you are asked to wrap " +
+			"up this Space.",
 	}, m.submitForReview)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "browser_navigate",
@@ -398,6 +404,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
 	m.registerProjectTools(srv)
+	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.WorkItemID == nil && c.Kind != store.KindConsultation {
+		m.registerOpenWorkspace(srv)
+	}
 	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.Kind == store.KindConversation {
 		m.registerConsult(srv)
 		m.registerSendToSpace(srv)
@@ -857,6 +866,11 @@ func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
 	}), nil
 }
 
+// isOwner reports whether this token's Bot owns the top-level item w belongs to.
+func (m *mcpServer) isOwner(w store.WorkItem) bool {
+	return m.tok.BotID != nil && w.OwnerBotID != nil && *m.tok.BotID == *w.OwnerBotID
+}
+
 func (m *mcpServer) createSubItem(
 	ctx context.Context, _ *mcp.CallToolRequest, in createSubItemIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
@@ -903,22 +917,40 @@ func (m *mcpServer) proposeWorkItem(
 	for _, text := range in.Acceptance {
 		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
 	}
-	team, err := m.st.SuggestTeam(ctx, in.Title+" "+in.Description)
-	switch {
-	case err == nil:
-		w.SuggestedTeamID = &team.ID
-	case !errors.Is(err, store.ErrNotFound):
-		return nil, store.WorkItem{}, err
+	for _, id := range in.Targets {
+		w.Targets = append(w.Targets, store.Target{ProjectID: id})
+	}
+	proposal := ""
+	if in.Owner != "" || len(in.Participants) > 0 {
+		bots, err := m.st.Bots(ctx)
+		if err != nil {
+			return nil, store.WorkItem{}, err
+		}
+		if in.Owner != "" {
+			b, err := findBot(bots, in.Owner)
+			if err != nil {
+				return nil, store.WorkItem{}, err
+			}
+			w.OwnerBotID = &b.ID
+			proposal = " (proposed owner " + b.Name + ")"
+		}
+		for _, ref := range in.Participants {
+			b, err := findBot(bots, ref)
+			if err != nil {
+				return nil, store.WorkItem{}, err
+			}
+			w.ParticipantBotIDs = append(w.ParticipantBotIDs, b.ID)
+		}
+		if len(w.ParticipantBotIDs) > 0 && w.OwnerBotID == nil {
+			return nil, store.WorkItem{}, errors.New("participants need an owner")
+		}
 	}
 	w, err = m.st.CreateWorkItem(ctx, w)
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
-	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
-		name, w.ID, w.Title)
-	if team.Name != "" {
-		text += fmt.Sprintf(" Suggested team: %s.", team.Name)
-	}
+	text := fmt.Sprintf("%s proposed work item %d: %s%s. It is in the Backlog until you approve it.",
+		name, w.ID, w.Title, proposal)
 	if err := m.st.AddFYI(ctx, store.KindProposed, w.ID, text); err != nil {
 		return nil, store.WorkItem{}, err
 	}
@@ -1026,6 +1058,17 @@ func (m *mcpServer) findBots(
 	return nil, out, nil
 }
 
+// findBot is the Bot whose name is ref, ignoring case, or whose id is ref.
+func findBot(bots []store.Bot, ref string) (store.Bot, error) {
+	if i := slices.IndexFunc(bots, func(b store.Bot) bool { return strings.EqualFold(b.Name, ref) }); i >= 0 {
+		return bots[i], nil
+	}
+	if i := slices.IndexFunc(bots, func(b store.Bot) bool { return strconv.FormatInt(b.ID, 10) == ref }); i >= 0 {
+		return bots[i], nil
+	}
+	return store.Bot{}, fmt.Errorf("%w: no Bot %q; use a name or id from find_bots", store.ErrInvalid, ref)
+}
+
 func selected(all []store.Connection, ids []int64) []store.Connection {
 	var out []store.Connection
 	for _, c := range all {
@@ -1071,33 +1114,42 @@ func (m *mcpServer) readSubItem(
 func (m *mcpServer) setSubItemStatus(
 	ctx context.Context, _ *mcp.CallToolRequest, in setSubItemStatusIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
-	lead, err := m.isLead(ctx)
+	f, err := m.subItem(ctx, in.ID)
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
-	if !lead {
-		return nil, store.WorkItem{}, fmt.Errorf("%w: only the lead sets a sub-item's status", store.ErrInvalid)
+	if !m.isOwner(f) {
+		return nil, store.WorkItem{}, fmt.Errorf("%w: only the owner sets a sub-item's status", store.ErrInvalid)
 	}
-	if _, err := m.subItem(ctx, in.ID); err != nil {
-		return nil, store.WorkItem{}, err
-	}
-	w, err := m.st.MoveWorkItem(ctx, in.ID, in.Status, store.ByLead)
+	w, err := m.st.MoveWorkItem(ctx, in.ID, in.Status, store.ByOwner)
 	return nil, w, err
 }
 
 func (m *mcpServer) submitForReview(
 	ctx context.Context, _ *mcp.CallToolRequest, in submitForReviewIn,
 ) (*mcp.CallToolResult, store.WorkItem, error) {
-	lead, err := m.isLead(ctx)
-	if err != nil {
-		return nil, store.WorkItem{}, err
-	}
-	if !lead {
-		return nil, store.WorkItem{}, fmt.Errorf("%w: only the lead submits a work item for review", store.ErrInvalid)
-	}
 	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, store.WorkItem{}, err
+	}
+	if !m.isOwner(f) {
+		return nil, store.WorkItem{}, fmt.Errorf("%w: only the owner submits a work item for review", store.ErrInvalid)
+	}
+	repos, err := m.proofRepositories(ctx, f.ID)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	for i, c := range in.Commands {
+		in.Commands[i].ProjectID = 0
+		if c.Project == "" {
+			continue
+		}
+		j := slices.IndexFunc(f.Targets, func(t store.Target) bool { return strings.EqualFold(t.ProjectName, c.Project) })
+		if j < 0 {
+			return nil, store.WorkItem{}, fmt.Errorf("%w: command %q checks project %q, which is not a repository of this Work item",
+				store.ErrInvalid, c.Command, c.Project)
+		}
+		in.Commands[i].Project, in.Commands[i].ProjectID = f.Targets[j].ProjectName, f.Targets[j].ProjectID
 	}
 	for _, p := range in.Screenshots {
 		if err := m.checkScreenshot(p); err != nil {
@@ -1105,9 +1157,34 @@ func (m *mcpServer) submitForReview(
 		}
 	}
 	w, err := m.st.SubmitForReview(ctx, f.ID, in.Lines, store.Proof{
-		SpaceID: m.tok.SpaceID, Commands: in.Commands, Screenshots: in.Screenshots,
+		SpaceID: m.tok.SpaceID, Commands: in.Commands, Screenshots: in.Screenshots, Repositories: repos,
 	})
 	return nil, w, err
+}
+
+// proofRepositories snapshots the workspaces of item id as they are now.
+func (m *mcpServer) proofRepositories(ctx context.Context, id int64) ([]store.ProofRepository, error) {
+	ws, err := m.st.WorkItemWorkspaces(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	repos := make([]store.ProofRepository, 0, len(ws))
+	for _, wk := range ws {
+		if wk.State == store.WorkspaceRemoved {
+			continue
+		}
+		r := store.ProofRepository{
+			WorkspaceID: wk.ID, ProjectID: wk.ProjectID, Branch: wk.Branch, BaseRef: wk.BaseRef, Dir: wk.Dir,
+		}
+		if wk.State == store.WorkspaceReady {
+			r.Head = worktree.Head(ctx, wk.Dir)
+			if r.Dirty, err = worktree.Dirty(ctx, wk.Dir); err != nil {
+				return nil, fmt.Errorf("check %s for uncommitted changes: %w", wk.Dir, err)
+			}
+		}
+		repos = append(repos, r)
+	}
+	return repos, nil
 }
 
 // checkScreenshot is ErrInvalid unless path is an existing file under the Reef data folder.

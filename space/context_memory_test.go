@@ -206,11 +206,15 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	ch := sessionSpace(t, st, f, false)
 	ag := newRecordingAgent()
 
-	s, err := Open(ctx, st, ms, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	dir := t.TempDir()
+	s, err := Open(ctx, st, ms, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
+	if _, err := EnsureWorkspaces(ctx, st, NewTrees(t.TempDir()), dir, f); err != nil {
+		t.Fatal(err)
+	}
 	want, err := Context(ctx, st, ms, f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)
@@ -234,8 +238,8 @@ func TestContext_YourItemsAreTheRolesBot(t *testing.T) {
 		Roles: []store.Role{{Name: "developer", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
-	teamID := int64(2)
-	g, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, Title: "Logout", TeamID: &teamID})
+	owner := int64(2)
+	g, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, Title: "Logout", OwnerBotID: &owner})
 	if err != nil {
 		t.Fatal(err)
 	}

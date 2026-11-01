@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
@@ -91,7 +93,7 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if t.Checkpoint == nil {
+	if len(t.Checkpoints) == 0 {
 		writeError(w, fmt.Errorf("%w: turn %d has no checkpoint", store.ErrInvalid, id))
 		return
 	}
@@ -102,7 +104,7 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	err = s.restoreTree(ctx, c, ch, t)
 	if err == nil {
-		err = s.noteRollback(ctx, ch, id)
+		err = s.noteRollback(ctx, ch, fmt.Sprintf("Rolled back to before turn %d.", id))
 	}
 	if err = c.release(err); err != nil {
 		writeError(w, err)
@@ -111,9 +113,9 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// noteRollback posts the rollback note of turn id in every Space of ch's work item, since
+// noteRollback posts body in every Space of ch's work item, since
 // work item Spaces share a worktree; a quick session's Space has no work item to share with.
-func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) error {
+func (s *server) noteRollback(ctx context.Context, ch store.Space, body string) error {
 	chs := []store.Space{ch}
 	if ch.WorkItemID != nil {
 		var err error
@@ -121,7 +123,6 @@ func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) err
 			return err
 		}
 	}
-	body := fmt.Sprintf("Rolled back to before turn %d.", id)
 	for _, c := range chs {
 		if _, err := s.st.CreateMessage(ctx, store.Message{
 			SpaceID: c.ID, Author: store.ReefAuthor, Body: body,
@@ -132,17 +133,14 @@ func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) err
 	return nil
 }
 
-// restoreTree puts the Space's tree back to the checkpoint of t. It is a conflict, not a
-// wait, when the Space's tree is not the one t was checkpointed in, when a `reef chat`
-// has the Space open, or when a turn of any Space runs on the tree.
+// restoreTree puts every workspace t checkpointed back to its checkpoint. It is a conflict,
+// not a wait, when t was checkpointed in a workspace the Space's work item does not have now,
+// when a `reef chat` has the Space open, or when a turn of any Space runs on the work item's
+// folder.
 func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t store.Turn) error {
-	from, dir, err := s.checkpointTrees(ctx, ch, t)
+	restores, err := s.checkpointTrees(ctx, ch, t)
 	if err != nil {
 		return err
-	}
-	if from != dir {
-		return fmt.Errorf(
-			"turn %d was checkpointed in %s, not %s: %w", t.ID, from, dir, store.ErrConflict)
 	}
 	c.l.mu.Lock()
 	open := c.l.sess != nil
@@ -150,32 +148,80 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t st
 	if !open && space.InUse(s.dataDir, t.SpaceID) {
 		return fmt.Errorf("space %d is open elsewhere: %w", t.SpaceID, store.ErrConflict)
 	}
+	dir, _, err := space.WorkDir(ctx, s.st, s.dataDir, ch.ID)
+	if err != nil {
+		return err
+	}
 	unlock, ok := s.trees.TryLock(dir)
 	if !ok {
 		return fmt.Errorf("%s has a turn running: %w", dir, store.ErrConflict)
 	}
 	defer unlock()
-	return worktree.Restore(ctx, dir, *t.Checkpoint)
+	var restored, failed []string
+	var errs []error
+	for _, r := range restores {
+		if err := worktree.Restore(ctx, r.dir, r.ref); err != nil {
+			failed = append(failed, r.project)
+			errs = append(errs, fmt.Errorf("%s: %w", r.project, err))
+			continue
+		}
+		restored = append(restored, r.project)
+	}
+	if len(failed) > 0 && len(restored) > 0 {
+		err := s.noteRollback(ctx, ch, fmt.Sprintf("Rollback to before turn %d stopped partway. Restored: %s. Not restored: %s.",
+			t.ID, strings.Join(restored, ", "), strings.Join(failed, ", ")))
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
-// checkpointTrees is the directory the checkpoint of t was taken in, and the directory its
-// Space ch runs in now. They differ for a free Space's turn after an attach. A Space with no
-// project has no checkpoint to compare with.
-func (s *server) checkpointTrees(
-	ctx context.Context, ch store.Space, t store.Turn,
-) (from, dir string, err error) {
-	if ch.ProjectID == 0 {
-		return "", "", fmt.Errorf("%w: Space %d has no project, so no checkpoint to restore",
-			store.ErrConflict, ch.ID)
+type restore struct{ project, dir, ref string }
+
+// checkpointTrees is the workspace folder and ref of each checkpoint of t. A checkpoint taken
+// in a workspace that the work item of the Space ch, or the Space itself, does not have now,
+// or that git cannot read there, is a conflict: a free Space's turn from before an attach has
+// none to give.
+func (s *server) checkpointTrees(ctx context.Context, ch store.Space, t store.Turn) ([]restore, error) {
+	var ws []store.Workspace
+	var err error
+	owner := fmt.Sprintf("Space %d", ch.ID)
+	if ch.WorkItemID == nil {
+		ws, err = s.st.SpaceWorkspaces(ctx, ch.ID)
+	} else {
+		var f store.WorkItem
+		if f, err = s.st.WorkItem(ctx, *ch.WorkItemID); err != nil {
+			return nil, err
+		}
+		owner = fmt.Sprintf("work item %d", f.ID)
+		ws, err = s.itemWorkspaces(ctx, f)
 	}
-	dir, _, err = space.WorkDir(ctx, s.st, s.dataDir, ch.ID)
 	if err != nil {
-		return "", "", err
+		return nil, err
 	}
-	p, err := s.st.Project(ctx, ch.ProjectID)
-	if err != nil {
-		return "", "", err
+	var out []restore
+	for _, c := range t.Checkpoints {
+		i := slices.IndexFunc(ws, func(w store.Workspace) bool { return w.ID == c.WorkspaceID })
+		if i < 0 {
+			return nil, fmt.Errorf("turn %d was checkpointed in workspace %d, which %s does not have: %w",
+				t.ID, c.WorkspaceID, owner, store.ErrConflict)
+		}
+		from, _, err := worktree.Origin(ctx, ws[i].Dir, c.Ref)
+		if err != nil {
+			return nil, err
+		}
+		if from != ws[i].Dir {
+			return nil, fmt.Errorf("turn %d was checkpointed in %s, not %s: %w",
+				t.ID, from, ws[i].Dir, store.ErrConflict)
+		}
+		p, err := s.st.Project(ctx, ws[i].ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		label := p.Name
+		if ws[i].Name != "" {
+			label += " (" + ws[i].Name + ")"
+		}
+		out = append(out, restore{label, ws[i].Dir, c.Ref})
 	}
-	from, _, err = worktree.Origin(ctx, p.Path, *t.Checkpoint)
-	return from, dir, err
+	return out, nil
 }

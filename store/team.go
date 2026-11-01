@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"unicode"
 
 	"github.com/bhanuprakaash/reef/skill"
 )
@@ -189,41 +188,6 @@ func (s *Store) TeamByID(ctx context.Context, id int64) (Team, error) {
 	return s.Team(ctx, name)
 }
 
-// isStopWord is true for the words left out of a SuggestTeam match: they say nothing about who
-// owns the work.
-func isStopWord(w string) bool {
-	switch w {
-	case "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "its",
-		"of", "on", "or", "that", "the", "this", "to", "was", "with":
-		return true
-	}
-	return false
-}
-
-// SuggestTeam returns the Team whose responsibility text best matches any word of text, or
-// the default team, solo, when none does. It is ErrNotFound only when solo is gone too.
-func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
-	var words []string
-	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	}) {
-		if !isStopWord(w) {
-			words = append(words, `"`+w+`"`)
-		}
-	}
-	name := SoloTeam
-	if len(words) > 0 {
-		err := s.db.QueryRowContext(ctx,
-			"SELECT team.name FROM team_fts JOIN team ON team.id = team_fts.rowid "+
-				"WHERE team_fts MATCH ? ORDER BY bm25(team_fts), team.id LIMIT 1",
-			strings.Join(words, " OR ")).Scan(&name)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return Team{}, fmt.Errorf("match teams: %w", err)
-		}
-	}
-	return s.Team(ctx, name)
-}
-
 // roles lists the members in table (team_member or space_member) whose key column is id, lead
 // first, with the Bot's configuration.
 func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
@@ -286,8 +250,7 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
-// DeleteTeam removes the named Team. Its Bots, its Spaces and their members stay. Its queued
-// Work items return to backlog; in-progress ones keep running.
+// DeleteTeam removes the named Team. Its Bots, its Spaces and their members stay.
 func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	if name == SoloTeam {
 		return fmt.Errorf("%w: team %s is the default team and cannot be deleted", ErrInvalid, SoloTeam)
@@ -307,11 +270,6 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE space SET team_id = NULL WHERE team_id = ?", id); err != nil {
 		return fmt.Errorf("detach Spaces from team %s: %w", name, err)
-	}
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE work_item SET status = ?, queue_position = NULL WHERE team_id = ? AND status = ?",
-		_backlog, id, _queued); err != nil {
-		return fmt.Errorf("return queued items of team %s to backlog: %w", name, err)
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM team WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete team %s: %w", name, err)

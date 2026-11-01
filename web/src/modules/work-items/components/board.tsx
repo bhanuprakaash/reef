@@ -3,18 +3,18 @@ import { Link } from 'react-router';
 import { useMoveWorkItem } from '@/modules/work-items/api/move-work-item';
 import { useReorderQueue } from '@/modules/work-items/api/reorder-queue';
 import { COLUMNS, dropAction } from '@/modules/work-items/utils/board-drop';
-import type { Team, WorkItem, WorkItemStatus } from '@/types/api';
+import type { Bot, WorkItem, WorkItemStatus } from '@/types/api';
 
-type Props = { items: WorkItem[]; teams: Team[] };
+type Props = { items: WorkItem[]; bots: Bot[] };
 
 const byPosition = (a: WorkItem, b: WorkItem) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0);
 
-export function Board({ items, teams }: Props) {
+export function Board({ items, bots }: Props) {
   const move = useMoveWorkItem();
   const reorder = useReorderQueue();
   const [dragging, setDragging] = useState<WorkItem | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const teamName = (id: number | null) => teams.find((t) => t.id === id)?.name;
+  const ownerName = (id: number | null) => bots.find((b) => b.id === id)?.name;
 
   function drop(column: WorkItemStatus, onto?: WorkItem) {
     setDragging(null);
@@ -26,7 +26,7 @@ export function Board({ items, teams }: Props) {
   }
 
   function card(item: WorkItem) {
-    const team = teamName(item.teamId);
+    const owner = ownerName(item.ownerBotId);
     return (
       <li key={item.id} onDrop={(e) => (e.stopPropagation(), drop(item.status, item))}>
         <Link
@@ -53,29 +53,14 @@ export function Board({ items, teams }: Props) {
             <span className="block text-[14.5px] break-words">{item.title}</span>
             <span className="block text-xs break-words text-muted">
               {item.type}
-              {team && ` · ${team}`}
+              {item.status === 'backlog' && item.proposedBy && ` · proposed by ${item.proposedBy}`}
+              {owner && ` · owner ${owner}`}
+              {item.status === 'queued' && item.sentBack && ' · sent back'}
             </span>
           </span>
         </Link>
       </li>
     );
-  }
-
-  function queued(column: WorkItem[]) {
-    const teamIds = [...new Set(column.map((i) => i.teamId))].sort((a, b) =>
-      (teamName(a) ?? '~').localeCompare(teamName(b) ?? '~'),
-    );
-    return teamIds.map((id) => (
-      <div key={id ?? 'none'} role="group" aria-label={`${teamName(id) ?? 'No Crew'} queue`}>
-        <h3 className="px-1 pb-1.5 text-xs text-muted">{teamName(id) ?? 'No Crew'}</h3>
-        <ul className="flex flex-col gap-2">
-          {column
-            .filter((i) => i.teamId === id)
-            .sort(byPosition)
-            .map(card)}
-        </ul>
-      </div>
-    ));
   }
 
   const problem = refusal ?? move.error?.message ?? reorder.error?.message;
@@ -102,11 +87,9 @@ export function Board({ items, teams }: Props) {
               <h2 className="px-1 text-[13px] text-soft">
                 {label} <span className="text-muted">{column.length}</span>
               </h2>
-              {status === 'queued' ? (
-                queued(column)
-              ) : (
-                <ul className="flex flex-col gap-2">{column.map(card)}</ul>
-              )}
+              <ul className="flex flex-col gap-2">
+                {(status === 'queued' ? [...column].sort(byPosition) : column).map(card)}
+              </ul>
             </section>
           );
         })}

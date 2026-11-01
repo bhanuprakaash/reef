@@ -14,14 +14,19 @@ const workItem: WorkItem = {
   title: 'Login',
   description: '',
   status: 'in_progress',
-  teamId: null,
   proposedBy: '',
-  suggestedTeamId: null,
   queuePosition: null,
   tokenBudget: 0,
   createdAt: '',
   closedAt: null,
+  approvedAt: null,
+  approvalKey: null,
+  sentBack: false,
   acceptanceLines: [],
+  ownerBotId: null,
+  pendingOwnerBotId: null,
+  participantBotIds: [],
+  targets: [],
 };
 
 const space: SpacePreview = {

@@ -48,8 +48,8 @@ func (s *server) listTurns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ts)
 }
 
-// rollbackable keeps the turns of Space id that have a checkpoint taken in the tree the
-// Space runs in now. A checkpoint git cannot read is not rollbackable either.
+// rollbackable keeps the turns of Space id that have checkpoints, all taken in workspaces of
+// the work item the Space belongs to now.
 func (s *server) rollbackable(ctx context.Context, id int64, ts []store.Turn) ([]store.Turn, error) {
 	ch, err := s.st.Space(ctx, id)
 	if err != nil {
@@ -57,10 +57,10 @@ func (s *server) rollbackable(ctx context.Context, id int64, ts []store.Turn) ([
 	}
 	var out []store.Turn
 	for _, t := range ts {
-		if t.Checkpoint == nil {
+		if len(t.Checkpoints) == 0 {
 			continue
 		}
-		if from, dir, err := s.checkpointTrees(ctx, ch, t); err == nil && from == dir {
+		if _, err := s.checkpointTrees(ctx, ch, t); err == nil {
 			out = append(out, t)
 		}
 	}

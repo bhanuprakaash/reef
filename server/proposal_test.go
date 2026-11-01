@@ -45,7 +45,6 @@ func gitProject(t *testing.T, env *liveEnv, id int64) {
 func TestAttach_FreeSpaceToWorkItem(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	ms := testMemory(t, env.st)
 	if _, err := ms.Remember(ctx,
@@ -81,7 +80,6 @@ func TestAttach_MixedProjectMemoryStaysInTheSpace(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"other","path":"`+t.TempDir()+`"}`)
-	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	do(t, http.MethodPut, env.url+"/spaces/1/projects/2", "")
 	ms := testMemory(t, env.st)
@@ -126,8 +124,8 @@ func TestAttach_MixedProjectMemoryStaysInTheSpace(t *testing.T) {
 
 func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {
 	env := newLiveEnv(t)
-	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"c"}`); status != 201 {
 		t.Fatalf("create = %d %s, want 201", status, body)
@@ -149,8 +147,9 @@ func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {
 
 func TestAttach_NotAGitRepo(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
-	p, err := env.st.Project(context.Background(), 1)
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"bare","path":"`+t.TempDir()+`"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Login"}`)
+	p, err := env.st.Project(context.Background(), 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +162,6 @@ func TestAttach_NotAGitRepo(t *testing.T) {
 
 func TestAttach_Errors(t *testing.T) {
 	env := newLiveEnv(t)
-	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"other","path":"`+t.TempDir()+`"}`)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Billing"}`)
 	tests := []struct {
@@ -222,7 +220,6 @@ func TestAttach_SpaceWithNoProjectOrAnotherProject(t *testing.T) {
 
 func TestAttach_AttachedSpaceAndConversation(t *testing.T) {
 	env := newLiveEnv(t)
-	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Search"}`)
 	do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":1}`)
@@ -241,7 +238,6 @@ func TestAttach_AttachedSpaceAndConversation(t *testing.T) {
 
 func TestAttach_WhileRunning(t *testing.T) {
 	env := newLiveEnv(t)
-	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	env.send(t, "block")
 	<-env.fake.started
@@ -293,6 +289,7 @@ func TestCreateSpace_FromABotAddsMembersOneByOne(t *testing.T) {
 func TestProposalRoutes(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", ""); status != 404 ||
 		body != `{"error":"pending proposal of Space 2: not found"}` {

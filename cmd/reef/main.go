@@ -142,6 +142,13 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
+	paused, err := st.PauseInterrupted(ctx, failed)
+	if err != nil {
+		return fmt.Errorf("pause interrupted work: %w", err)
+	}
+	if err := server.NoteInterrupted(ctx, st, paused, failed); err != nil {
+		logger.Printf("note interrupted work: %v", err)
+	}
 	leaving, err := st.LeavingMembers(ctx, 0)
 	if err != nil {
 		return fmt.Errorf("list pending removals: %w", err)
@@ -149,6 +156,15 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	for _, p := range leaving {
 		if err := st.ApplyMemberRemoval(ctx, p); err != nil {
 			logger.Printf("remove Bot %d from Space %d: %v", p.BotID, p.SpaceID, err)
+		}
+	}
+	transfers, err := st.PendingOwnerTransfers(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("list pending transfers: %w", err)
+	}
+	for _, id := range transfers {
+		if _, _, err := st.ApplyOwnerTransfer(ctx, id); err != nil {
+			logger.Printf("transfer work item %d: %v", id, err)
 		}
 	}
 	if err := st.PauseWaitingExchangeSpaces(ctx); err != nil {

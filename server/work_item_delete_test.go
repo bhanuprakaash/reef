@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 )
 
 // seedMemory saves two accepted items and one candidate in scope through the server and
@@ -113,15 +114,16 @@ func TestDeleteWorkItem_FolderGoneRemovesRowsAndWorktree(t *testing.T) {
 }
 
 func TestDeleteWorkItem_RefusedWhileTheTreeIsLocked(t *testing.T) {
-	env, tree := rollbackEnv(t)
-	unlock, err := env.h.s.trees.Lock(context.Background(), tree)
+	env, _ := rollbackEnv(t)
+	root := space.WorkRoot(env.dir, "1")
+	unlock, err := env.h.s.trees.Lock(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
 
 	status, body := do(t, http.MethodDelete, env.url+"/work-items/1", "")
-	if want := `{"error":"` + tree + ` has a turn running: conflict"}`; status != 409 || body != want {
+	if want := `{"error":"` + root + ` has a turn running: conflict"}`; status != 409 || body != want {
 		t.Errorf("delete while the tree is locked = %d %s, want 409 %s", status, body, want)
 	}
 	if status, _ := do(t, http.MethodGet, env.url+"/work-items/1", ""); status != 200 {

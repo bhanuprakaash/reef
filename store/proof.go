@@ -6,14 +6,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
 
-// ProofCommand is a command the lead ran as proof, with the output it showed.
+// ProofCommand is a command the owner ran as proof, with the output it showed.
 type ProofCommand struct {
-	Command string `json:"command"`
-	Output  string `json:"output"`
+	Command   string `json:"command"`
+	Output    string `json:"output"`
+	Project   string `json:"project,omitempty" jsonschema:"name of the Project (repository) the command checked; leave out when it checks the whole Work item"`
+	ProjectID int64  `json:"projectId,omitempty" jsonschema:"set by Reef from project; leave out"`
+}
+
+// ProofRepository is one repository of a submitted assignment as it stood at submit: the
+// workspace, its branch, head commit, base, and whether it had uncommitted changes. Checks are
+// the proof commands run for its Project.
+type ProofRepository struct {
+	WorkspaceID int64          `json:"workspaceId"`
+	ProjectID   int64          `json:"projectId"`
+	ProjectName string         `json:"projectName"`
+	Branch      string         `json:"branch"`
+	Head        string         `json:"head"`
+	BaseRef     string         `json:"baseRef"`
+	Dir         string         `json:"dir"`
+	Dirty       bool           `json:"dirty"`
+	Checks      []ProofCommand `json:"checks"`
 }
 
 // LineTick sets whether acceptance line Position of a Work item is ticked, and its note.
@@ -23,15 +41,16 @@ type LineTick struct {
 	Note     string `json:"note,omitempty"`
 }
 
-// Proof is what the lead submits a top-level Work item with: the item's acceptance lines as
+// Proof is what the owner submits a top-level Work item with: the item's acceptance lines as
 // ticked, the commands it ran and the screenshot files it took. SpaceID is the Space it
 // submitted from.
 type Proof struct {
-	SpaceID         int64            `json:"spaceId"`
-	AcceptanceLines []AcceptanceLine `json:"acceptanceLines"`
-	Commands        []ProofCommand   `json:"commands"`
-	Screenshots     []string         `json:"screenshots"`
-	SubmittedAt     time.Time        `json:"submittedAt"`
+	SpaceID         int64             `json:"spaceId"`
+	AcceptanceLines []AcceptanceLine  `json:"acceptanceLines"`
+	Commands        []ProofCommand    `json:"commands"`
+	Repositories    []ProofRepository `json:"repositories"`
+	Screenshots     []string          `json:"screenshots"`
+	SubmittedAt     time.Time         `json:"submittedAt"`
 }
 
 // SubmitForReview ticks the lines of top-level item id as ticks say, stores p as its proof and
@@ -80,6 +99,17 @@ func (s *Store) SubmitForReview(ctx context.Context, id int64, ticks []LineTick,
 		id, p.SpaceID, commands, screenshots, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
 		return WorkItem{}, fmt.Errorf("write proof: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM proof_repository WHERE work_item_id = ?", id); err != nil {
+		return WorkItem{}, fmt.Errorf("clear proof repositories: %w", err)
+	}
+	for _, r := range p.Repositories {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO proof_repository (work_item_id, workspace_id, project_id, branch, head, base_ref, dir, dirty) "+
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			id, r.WorkspaceID, r.ProjectID, r.Branch, r.Head, r.BaseRef, r.Dir, r.Dirty); err != nil {
+			return WorkItem{}, fmt.Errorf("write proof repository: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return WorkItem{}, fmt.Errorf("commit submit: %w", err)
 	}
@@ -114,15 +144,50 @@ func (s *Store) Proof(ctx context.Context, id int64) (Proof, error) {
 		return Proof{}, err
 	}
 	p.AcceptanceLines = w.AcceptanceLines
+	if p.Repositories, err = s.proofRepositories(ctx, id); err != nil {
+		return Proof{}, err
+	}
+	rest := []ProofCommand{}
+	for _, c := range p.Commands {
+		i := slices.IndexFunc(p.Repositories, func(r ProofRepository) bool { return r.ProjectID == c.ProjectID })
+		if c.ProjectID == 0 || i < 0 {
+			rest = append(rest, c)
+			continue
+		}
+		p.Repositories[i].Checks = append(p.Repositories[i].Checks, c)
+	}
+	p.Commands = rest
 	return p, nil
 }
 
-// SendBack puts the item in review at the top of its Team's queue, keeps note for the lead's
+func (s *Store) proofRepositories(ctx context.Context, id int64) ([]ProofRepository, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT r.workspace_id, r.project_id, COALESCE(p.name, 'deleted project ' || r.project_id), "+
+			"r.branch, r.head, r.base_ref, r.dir, r.dirty "+
+			"FROM proof_repository r LEFT JOIN project p ON p.id = r.project_id "+
+			"WHERE r.work_item_id = ? ORDER BY r.workspace_id", id)
+	if err != nil {
+		return nil, fmt.Errorf("read proof repositories: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := []ProofRepository{}
+	for rows.Next() {
+		r := ProofRepository{Checks: []ProofCommand{}}
+		if err := rows.Scan(&r.WorkspaceID, &r.ProjectID, &r.ProjectName, &r.Branch, &r.Head, &r.BaseRef,
+			&r.Dir, &r.Dirty); err != nil {
+			return nil, fmt.Errorf("scan proof repository: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SendBack puts the item in review at the front of the queue, keeps note for the owner's
 // next wake (see ClaimSendBack) and rejects the wrap-up proposal its Space waits on, which the
 // next submit replaces. A blank note is ErrInvalid.
 func (s *Store) SendBack(ctx context.Context, id int64, note string) (WorkItem, error) {
 	if strings.TrimSpace(note) == "" {
-		return WorkItem{}, fmt.Errorf("%w: a note for the lead is required to send work item %d back", ErrInvalid, id)
+		return WorkItem{}, fmt.Errorf("%w: a note for the owner is required to send work item %d back", ErrInvalid, id)
 	}
 	p, err := s.Proof(ctx, id)
 	if err != nil {
@@ -193,11 +258,12 @@ func (s *Store) UnwrappedSpaces(ctx context.Context) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-// ClaimWrap reports whether Space id submitted its Work item for review and no one has started
-// its wrap-up yet, and marks the wrap-up started: only the first caller gets true.
+// ClaimWrap reports whether Space id submitted its Work item, which is still in review, and no
+// one has started its wrap-up yet, and marks the wrap-up started: only the first caller gets true.
 func (s *Store) ClaimWrap(ctx context.Context, spaceID int64) (bool, error) {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE proof SET wrap_started = 1 WHERE space_id = ? AND wrap_started = 0", spaceID)
+		"UPDATE proof SET wrap_started = 1 WHERE space_id = ? AND wrap_started = 0 "+
+			"AND work_item_id IN (SELECT id FROM work_item WHERE status = ?)", spaceID, _review)
 	if err != nil {
 		return false, fmt.Errorf("claim wrap-up: %w", err)
 	}

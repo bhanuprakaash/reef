@@ -38,6 +38,10 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /spaces/{id}/projects/{projectId}", s.addSpaceProject)
 	mux.HandleFunc("DELETE /spaces/{id}/projects/{projectId}", s.removeSpaceProject)
 	mux.HandleFunc("/spaces/{id}/projects/{projectId}", methodNotAllowed)
+	mux.HandleFunc("GET /spaces/{id}/workspaces", s.listSpaceWorkspaces)
+	mux.HandleFunc("/spaces/{id}/workspaces", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/workspaces/{workspaceId}/abandon", s.abandonSpaceWorkspace)
+	mux.HandleFunc("/spaces/{id}/workspaces/{workspaceId}/abandon", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/reopen", s.reopenSpace)
 	mux.HandleFunc("/spaces/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/inspector", s.getInspector)
@@ -148,11 +152,10 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.WorkItemID != nil {
 		if in.BotID != 0 {
-			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Bot", store.ErrInvalid))
+			writeError(w, fmt.Errorf("%w: the Space of a work item is made of its owner and participants, not a Bot", store.ErrInvalid))
 			return
 		}
-		if err := s.useItemTeam(r.Context(), &in.Space); err != nil {
-			writeError(w, err)
+		if s.createWorkItemSpace(w, r, in.Space) {
 			return
 		}
 	}
@@ -210,25 +213,39 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
-// useItemTeam sets the Team of a new Space of a work item to the item's Team, and refuses another
-// one. An item with no Team, or an unknown item (the store refuses that), leaves the Team as given.
-func (s *server) useItemTeam(ctx context.Context, in *store.Space) error {
-	item, err := s.st.WorkItem(ctx, *in.WorkItemID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && item.TeamID == nil) {
-		return nil
+// createWorkItemSpace answers a Space request for a Work item whose top-level item is known: its
+// Space is the owner's, with the participants as members, and an item not approved yet has none.
+// It reports whether it answered; an unknown item is left to createSpace's own errors.
+func (s *server) createWorkItemSpace(w http.ResponseWriter, r *http.Request, in store.Space) bool {
+	item, err := s.st.WorkItem(r.Context(), *in.WorkItemID)
+	if errors.Is(err, store.ErrNotFound) || err == nil && item.ProjectID != in.ProjectID {
+		return false
+	}
+	if err == nil && item.ParentID != nil {
+		item, err = s.st.WorkItem(r.Context(), *item.ParentID)
 	}
 	if err != nil {
-		return err
+		writeError(w, err)
+		return true
 	}
-	team, err := s.st.TeamByID(ctx, *item.TeamID)
+	if item.ApprovedAt == nil || item.OwnerBotID == nil {
+		writeError(w, fmt.Errorf("%w: approve work item %d first, a Space of it runs once it has an owner",
+			store.ErrInvalid, item.ID))
+		return true
+	}
+	owner, err := s.st.Bot(r.Context(), *item.OwnerBotID)
 	if err != nil {
-		return err
+		writeError(w, err)
+		return true
 	}
-	if in.Team != "" && in.Team != team.Name {
-		return fmt.Errorf("%w: work item %d belongs to Team %s, not %s", store.ErrInvalid, item.ID, team.Name, in.Team)
+	in.Role, in.Team = owner.Name, ""
+	c, err := s.st.CreateSpaceOf(r.Context(), in, item.ParticipantBotIDs, owner.ID)
+	if err != nil {
+		writeError(w, err)
+		return true
 	}
-	in.Team = team.Name
-	return nil
+	writeJSON(w, http.StatusCreated, c)
+	return true
 }
 
 // createBotSpace creates a Space with no Team and one member, the Bot, which leads it
@@ -405,7 +422,7 @@ func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (
 		}
 	}
 	body := fmt.Sprintf("This Space is now attached to work item %q (%d). It works in %s on %s.",
-		f.Title, f.ID, worktree.Path(s.dataDir, p.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
+		f.Title, f.ID, space.WorkRoot(s.dataDir, f.TreeKey()), worktree.Branch(f.TreeKey()))
 	if dirty, err := worktree.Dirty(ctx, p.Path); err != nil {
 		log.Printf("check %s for changes: %v", p.Path, err)
 	} else if dirty {

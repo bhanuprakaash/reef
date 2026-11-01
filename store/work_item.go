@@ -14,8 +14,9 @@ import (
 const (
 	_defaultType   = "feature"
 	_defaultStatus = "backlog"
-	_workItemCols  = "id, project_id, parent_id, type, title, description, status, team_id, " +
-		"proposed_by, suggested_team_id, queue_position, token_budget, created_at, closed_at"
+	_workItemCols  = "id, project_id, parent_id, type, title, description, status, " +
+		"proposed_by, queue_position, token_budget, created_at, closed_at, approved_at, approval_key, " +
+		"EXISTS (SELECT 1 FROM proof WHERE proof.work_item_id = work_item.id AND send_back_note != '')"
 )
 
 func validType(t string) bool {
@@ -53,14 +54,22 @@ type WorkItem struct {
 	Title           string           `json:"title"`
 	Description     string           `json:"description"`
 	Status          string           `json:"status"`
-	TeamID          *int64           `json:"teamId"`
 	ProposedBy      string           `json:"proposedBy"`
-	SuggestedTeamID *int64           `json:"suggestedTeamId"`
 	QueuePosition   *int64           `json:"queuePosition"`
 	TokenBudget     int64            `json:"tokenBudget"`
 	CreatedAt       time.Time        `json:"createdAt"`
 	ClosedAt        *time.Time       `json:"closedAt"`
+	ApprovedAt      *time.Time       `json:"approvedAt"`
+	ApprovalKey     *string          `json:"approvalKey"`
+	SentBack        bool             `json:"sentBack"`
 	AcceptanceLines []AcceptanceLine `json:"acceptanceLines"`
+	// OwnerBotID, ParticipantBotIDs (the owner among them) and Targets belong to the top-level
+	// item: a sub-item reads its parent's and cannot set its own.
+	OwnerBotID *int64 `json:"ownerBotId"`
+	// PendingOwnerBotID is the Bot a requested transfer waits to make the owner.
+	PendingOwnerBotID *int64   `json:"pendingOwnerBotId"`
+	ParticipantBotIDs []int64  `json:"participantBotIds"`
+	Targets           []Target `json:"targets"`
 }
 
 // WorkItemFilter narrows WorkItems. A nil id or an empty Status or Type matches everything.
@@ -81,7 +90,8 @@ func (w WorkItem) TreeKey() string {
 }
 
 // CreateWorkItem adds w and its acceptance lines. A parent must be a top-level item of
-// w.ProjectID.
+// w.ProjectID. A top-level item gets its Project as its first target, and the owner and
+// participants as given; a sub-item cannot be given any.
 func (s *Store) CreateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error) {
 	if err := w.validate(); err != nil {
 		return WorkItem{}, err
@@ -89,16 +99,45 @@ func (s *Store) CreateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	if err := s.checkParent(ctx, w); err != nil {
 		return WorkItem{}, err
 	}
+	if w.ParentID != nil && (w.OwnerBotID != nil || len(w.ParticipantBotIDs) > 0) {
+		return WorkItem{}, fmt.Errorf("%w: a sub-item shares its parent's owner and participants", ErrInvalid)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorkItem{}, fmt.Errorf("begin create work item: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	owner, others, extra := w.OwnerBotID, w.ParticipantBotIDs, w.Targets
 	w, err = insertWorkItem(ctx, tx, w)
 	if err != nil {
 		return WorkItem{}, s.writeErr(ctx, "write work item", err, ErrInvalid,
-			parent{table: "project", id: &w.ProjectID}, parent{table: "team", id: w.TeamID},
-			parent{table: "team", id: w.SuggestedTeamID})
+			parent{table: "project", id: &w.ProjectID})
+	}
+	if w.ParentID == nil {
+		if err := putParticipants(ctx, tx, w.ID, owner, others); err != nil {
+			return WorkItem{}, err
+		}
+		by := ByUser
+		if w.ProposedBy != "" {
+			by = ""
+		}
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO work_item_target (work_item_id, project_id, proposed_by, authorized_by, created_at) "+
+				"VALUES (?, ?, ?, ?, ?)", w.ID, w.ProjectID, w.ProposedBy, by,
+			w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+			return WorkItem{}, fmt.Errorf("add home target: %w", err)
+		}
+		for _, t := range extra {
+			if _, err := tx.ExecContext(ctx,
+				"INSERT OR IGNORE INTO work_item_target (work_item_id, project_id, proposed_by, authorized_by, "+
+					"created_at) VALUES (?, ?, ?, ?, ?)",
+				w.ID, t.ProjectID, w.ProposedBy, by, w.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+				if isForeignKey(err) {
+					return WorkItem{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
+				}
+				return WorkItem{}, fmt.Errorf("add proposed target: %w", err)
+			}
+		}
 	}
 	if err := putLines(ctx, tx, w.ID, w.AcceptanceLines); err != nil {
 		return WorkItem{}, err
@@ -124,11 +163,11 @@ func insertWorkItem(ctx context.Context, x execer, w WorkItem) (WorkItem, error)
 	}
 	now := time.Now().UTC()
 	res, err := x.ExecContext(ctx,
-		"INSERT INTO work_item (project_id, parent_id, type, title, description, status, team_id, "+
-			"proposed_by, suggested_team_id, queue_position, token_budget, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		w.ProjectID, w.ParentID, w.Type, w.Title, w.Description, w.Status, w.TeamID,
-		w.ProposedBy, w.SuggestedTeamID, w.QueuePosition, w.TokenBudget,
+		"INSERT INTO work_item (project_id, parent_id, type, title, description, status, "+
+			"proposed_by, queue_position, token_budget, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		w.ProjectID, w.ParentID, w.Type, w.Title, w.Description, w.Status,
+		w.ProposedBy, w.QueuePosition, w.TokenBudget,
 		now.Format(time.RFC3339Nano))
 	if err != nil {
 		return w, fmt.Errorf("insert work item: %w", err)
@@ -217,8 +256,8 @@ func (s *Store) WorkItems(ctx context.Context, f WorkItemFilter) ([]WorkItem, er
 // old one, and nil AcceptanceLines keep the old lines; any other lines replace them, and a line
 // whose text is unchanged keeps its checked and note; an item in review or done refuses new text
 // (ErrConflict). An item never changes project, parent, proposer, status or queue position:
-// MoveWorkItem moves the status and the queue. The Team changes only while the item is in backlog,
-// done or dropped: otherwise it holds, or waits for, its Team's turn.
+// MoveWorkItem moves the status and the queue. An owner or participants, when given, change only
+// while the item is in the backlog; nil for both keeps them.
 func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -236,9 +275,21 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	if err := w.validate(); err != nil {
 		return WorkItem{}, err
 	}
-	changesTeam := (w.TeamID == nil) != (old.TeamID == nil) || w.TeamID != nil && *w.TeamID != *old.TeamID
-	if changesTeam && !slices.Contains([]string{_backlog, _done, _dropped}, old.Status) {
-		return WorkItem{}, fmt.Errorf("%w: work item %d is %s and keeps its team", ErrInvalid, w.ID, old.Status)
+	if old, err = withScope(ctx, tx, old); err != nil {
+		return WorkItem{}, err
+	}
+	if w.OwnerBotID == nil && w.ParticipantBotIDs == nil {
+		w.OwnerBotID, w.ParticipantBotIDs = old.OwnerBotID, old.ParticipantBotIDs
+	}
+	oldSet := participantSet(old.OwnerBotID, old.ParticipantBotIDs)
+	newSet := participantSet(w.OwnerBotID, w.ParticipantBotIDs)
+	if !sameBot(old.OwnerBotID, w.OwnerBotID) || !slices.Equal(oldSet, newSet) {
+		if old.ParentID != nil || old.Status != _backlog {
+			return WorkItem{}, fmt.Errorf("%w: work item %d keeps its owner and participants", ErrInvalid, w.ID)
+		}
+		if err := putParticipants(ctx, tx, w.ID, w.OwnerBotID, w.ParticipantBotIDs); err != nil {
+			return WorkItem{}, err
+		}
 	}
 	if old.AcceptanceLines, err = readLines(ctx, tx, w.ID); err != nil {
 		return WorkItem{}, err
@@ -250,13 +301,10 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 			ErrConflict, w.ID, old.Status)
 	}
 	_, err = tx.ExecContext(ctx,
-		"UPDATE work_item SET type = ?, title = ?, description = ?, team_id = ?, "+
-			"suggested_team_id = ?, token_budget = ? WHERE id = ?",
-		w.Type, w.Title, w.Description, w.TeamID, w.SuggestedTeamID,
-		w.TokenBudget, w.ID)
+		"UPDATE work_item SET type = ?, title = ?, description = ?, token_budget = ? WHERE id = ?",
+		w.Type, w.Title, w.Description, w.TokenBudget, w.ID)
 	if err != nil {
-		return WorkItem{}, s.writeErr(ctx, "update work item", err, ErrInvalid,
-			parent{table: "team", id: w.TeamID}, parent{table: "team", id: w.SuggestedTeamID})
+		return WorkItem{}, fmt.Errorf("update work item: %w", err)
 	}
 	if w.AcceptanceLines != nil {
 		if _, err := tx.ExecContext(ctx,
@@ -289,8 +337,7 @@ func (s *Store) closeInTx(ctx context.Context, tx *sql.Tx, id int64) error {
 }
 
 // DeleteWorkItem removes the item and, by cascade, its sub-items, acceptance lines, briefs,
-// notes, decisions and Spaces. A top-level item that held its Team's turn frees it: the Team's
-// next queued item starts. One that waited in the queue closes its gap.
+// notes, decisions and Spaces. One that waited in the queue closes its gap.
 func (s *Store) DeleteWorkItem(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -301,7 +348,7 @@ func (s *Store) DeleteWorkItem(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	if w.ParentID == nil && w.TeamID != nil {
+	if w.ParentID == nil {
 		if err := requeue(ctx, tx, w, _dropped); err != nil {
 			return err
 		}
@@ -312,7 +359,7 @@ func (s *Store) DeleteWorkItem(ctx context.Context, id int64) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit delete work item: %w", err)
 	}
-	return s.startAfter(ctx, w, _dropped)
+	return nil
 }
 
 // txWorkItem reads the item inside tx, without its acceptance lines.
@@ -356,7 +403,7 @@ func (s *Store) withLines(ctx context.Context, w WorkItem) (WorkItem, error) {
 		return WorkItem{}, err
 	}
 	w.AcceptanceLines = lines
-	return w, nil
+	return withScope(ctx, s.db, w)
 }
 
 func readLines(ctx context.Context, q interface {
@@ -405,10 +452,10 @@ func (w *WorkItem) validate() error {
 func scanWorkItem(r interface{ Scan(...any) error }) (WorkItem, error) {
 	var w WorkItem
 	var created string
-	var closed sql.NullString
+	var closed, approved sql.NullString
 	if err := r.Scan(
-		&w.ID, &w.ProjectID, &w.ParentID, &w.Type, &w.Title, &w.Description, &w.Status, &w.TeamID,
-		&w.ProposedBy, &w.SuggestedTeamID, &w.QueuePosition, &w.TokenBudget, &created, &closed,
+		&w.ID, &w.ProjectID, &w.ParentID, &w.Type, &w.Title, &w.Description, &w.Status,
+		&w.ProposedBy, &w.QueuePosition, &w.TokenBudget, &created, &closed, &approved, &w.ApprovalKey, &w.SentBack,
 	); err != nil {
 		return WorkItem{}, err
 	}
@@ -420,5 +467,14 @@ func scanWorkItem(r interface{ Scan(...any) error }) (WorkItem, error) {
 	if w.ClosedAt, err = parseClosed(closed); err != nil {
 		return WorkItem{}, fmt.Errorf("work item %d: %w", w.ID, err)
 	}
+	if approved.Valid {
+		a, err := time.Parse(time.RFC3339Nano, approved.String)
+		if err != nil {
+			return WorkItem{}, fmt.Errorf("work item %d: bad approved_at: %w", w.ID, err)
+		}
+		w.ApprovedAt = &a
+	}
 	return w, nil
 }
+
+func sameBot(a, b *int64) bool { return a == nil && b == nil || a != nil && b != nil && *a == *b }

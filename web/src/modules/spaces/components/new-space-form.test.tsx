@@ -68,3 +68,19 @@ it('opens a Bot proposal with its Bots and coordinator, and no Crew chosen', () 
   expect(markup).not.toMatch(/aria-label="Include lead"[^>]*checked/);
   expect(markup).toMatch(/aria-label="xena coordinates"[^>]*checked/);
 });
+
+it('uses the Work item owner and participants and requires a Space name', () => {
+  const markup = renderToStaticMarkup(
+    <MemoryRouter>
+      <NewSpaceForm projectId={1} workItemId={7} onClose={() => {}} />
+    </MemoryRouter>,
+  );
+
+  expect(markup).toContain('This Space uses the Work item’s owner and participants.');
+  expect(markup).toContain('placeholder="required"');
+  expect(markup).toContain('required=""');
+  expect(markup).toMatch(/disabled=""[^>]*>Start<\/button>/);
+  expect(markup).not.toContain('Crews');
+  expect(markup).not.toContain('Include lead');
+  expect(markup).not.toContain('Include xena');
+});

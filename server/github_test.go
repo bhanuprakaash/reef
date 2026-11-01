@@ -77,7 +77,8 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	ts.Close()
 	h1.Close()
@@ -130,7 +131,8 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	t.Cleanup(ts.Close)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	ts.Close()
 	h.Close()
@@ -185,7 +187,8 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	if status, body := do(t, http.MethodPost, ts.URL+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"main"}`); status != 201 {
 		t.Fatalf("create Space = %d %s", status, body)
@@ -269,7 +272,7 @@ func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 	// No Space yet: the work item's worktree exists, but noteWorkItem has nowhere to post.
 
 	binDir := t.TempDir()
@@ -286,6 +289,7 @@ func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 		t.Fatalf("work item github stored with no Space yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
 	}
 
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 	h.s.pollGitHub(context.Background())
 	msgs, err := st.Messages(context.Background(), 1, 0)
@@ -323,7 +327,8 @@ func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
@@ -380,7 +385,8 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
@@ -437,7 +443,8 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 	binDir := t.TempDir()
@@ -487,7 +494,8 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 			gitIn(t, repo, "commit", "-m", "first")
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-			do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+			do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
+			approveForSpace(t, st, 1)
 			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main"}`)
 
 			binDir := t.TempDir()
@@ -529,7 +537,7 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items/1/workspaces", "")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -557,7 +565,7 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 
 // ghWorkItemSetup creates a git repo project, a work item with a worktree, and a Space of
 // team on it, via h. It returns the repo path.
-func ghWorkItemSetup(t *testing.T, url, team string) string {
+func ghWorkItemSetup(t *testing.T, st *store.Store, url, team string) string {
 	t.Helper()
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-b", "main")
@@ -566,7 +574,8 @@ func ghWorkItemSetup(t *testing.T, url, team string) string {
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, url+"/projects", `{"name":"app","path":"`+repo+`"}`)
 	do(t, http.MethodPost, url+"/work-items", `{"projectId":1,"title":"Demo"}`)
-	do(t, http.MethodPost, url+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, url+"/work-items/1/workspaces", "")
+	approveForSpace(t, st, 1)
 	do(t, http.MethodPost, url+"/spaces",
 		`{"projectId":1,"workItemId":1,"name":"main","team":"`+team+`"}`)
 	return repo
@@ -597,7 +606,7 @@ func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, st, ts.URL, "crew")
 	coordinatorID := *testServerBot(t, st, "lead")
 	coordinator, err := st.Bot(ctx, coordinatorID)
 	if err != nil {
@@ -705,7 +714,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, st, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -774,7 +783,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, st, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -857,7 +866,7 @@ func TestPollGitHub_SoloTeamFailedCheckWakesCoordinator(t *testing.T) {
 	t.Cleanup(h.Close)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
+	repo := ghWorkItemSetup(t, st, ts.URL, store.SoloTeam)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -908,7 +917,7 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, st, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -994,7 +1003,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghWorkItemSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, st, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)

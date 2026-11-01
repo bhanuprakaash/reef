@@ -26,10 +26,10 @@ const (
 type Runner struct {
 	// OnPrompt, when set, sees every prompt before it is sent to the agent.
 	OnPrompt func(prompt string)
-	// CheckpointDir, when set, is a git checkout snapshotted before every turn. A turn whose
-	// snapshot fails is stored failed and never sent to the agent. A checkout with no commit
-	// has nothing to snapshot: its turns run with no checkpoint.
-	CheckpointDir string
+	// Workspaces, when set, lists the workspaces snapshotted before every turn, one checkpoint
+	// each. A turn whose snapshot fails is stored failed and never sent to the agent. A
+	// checkout with no commit has nothing to snapshot: it gets no checkpoint.
+	Workspaces func(ctx context.Context) ([]store.Workspace, error)
 	// DataDir is the data folder of this Reef copy. It is part of every checkpoint ref, so
 	// two copies sharing a repo never overwrite each other's.
 	DataDir string
@@ -126,15 +126,8 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
 	}
 
-	if r.CheckpointDir != "" {
-		ref, err := r.checkpointRef(turn.ID)
-		if err == nil {
-			err = worktree.Checkpoint(wctx, r.CheckpointDir, ref)
-		}
-		if err == nil {
-			_, err = r.st.SetTurnCheckpoint(wctx, turn.ID, ref)
-		}
-		if err != nil && !errors.Is(err, worktree.ErrNoCommit) {
+	if r.Workspaces != nil {
+		if err := r.checkpoint(wctx, turn.ID); err != nil {
 			return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 		}
 	}
@@ -397,15 +390,37 @@ func (r *Runner) delta(ctx context.Context) (string, error) {
 	return changedSince(ctx, r.st, r.Memory, ch, *r.botID, since)
 }
 
-// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
-// Turns made before the data dir was in the name keep their stored ref, which still restores.
-func (r *Runner) checkpointRef(turnID int64) (string, error) {
-	dir, err := filepath.Abs(r.DataDir)
+// checkpoint snapshots every workspace Workspaces lists and records a checkpoint of turn id for
+// each.
+func (r *Runner) checkpoint(ctx context.Context, id int64) error {
+	ws, err := r.Workspaces(ctx)
 	if err != nil {
-		return "", fmt.Errorf("checkpoint ref: %w", err)
+		return err
+	}
+	for _, w := range ws {
+		if err := CheckpointWorkspace(ctx, r.st, r.DataDir, id, w); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func CheckpointWorkspace(
+	ctx context.Context, st *store.Store, dataDir string, turnID int64, w store.Workspace,
+) error {
+	dir, err := filepath.Abs(dataDir)
+	if err != nil {
+		return fmt.Errorf("checkpoint ref: %w", err)
 	}
 	sum := sha256.Sum256([]byte(dir))
-	return fmt.Sprintf("refs/reef/checkpoints/%x/%d", sum[:6], turnID), nil
+	ref := fmt.Sprintf("refs/reef/checkpoints/%x/%d/%d", sum[:6], turnID, w.ID)
+	if err := worktree.Checkpoint(ctx, w.Dir, ref); err != nil {
+		if errors.Is(err, worktree.ErrNoCommit) {
+			return nil
+		}
+		return err
+	}
+	return st.AddTurnCheckpoint(ctx, turnID, w.ID, ref)
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply
