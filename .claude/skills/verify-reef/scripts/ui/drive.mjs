@@ -4489,7 +4489,9 @@ async function navigate() {
   check((await pins()) === want, 'a Bot, a chat and a Space each pin through their own button (GET /pins)', await pins());
   const pinned = aside.getByRole('region', { name: 'Pinned' });
   await pinned.waitFor();
-  const labels = (await pinned.getByRole('listitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  const readLabels = async () => (await pinned.getByRole('listitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  for (let i = 0; i < 20 && (await readLabels()).length !== 3; i++) await page.waitForTimeout(250);
+  const labels = await readLabels();
   check(labels.length === 3 && [sam.name, chat.name, room.name].every((n) => labels.some((l) => l.includes(n))) && ['Bot', 'Chat', 'Space'].every((k) => labels.some((l) => l.endsWith(k))), 'the Pinned section lists the three with their kind', labels.join(' | '));
   await page.reload();
   await aside.getByRole('region', { name: 'Pinned' }).waitFor();
