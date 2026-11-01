@@ -23,7 +23,21 @@ job() {
 		case $kind in
 		feature) "$H" feature "$name" ;;
 		ui)
+			if [ "$name" = pr ]; then
+				export REEF_FAKE_GH="$out/gh-$2" REEF_GH_INTERVAL=1s
+				mkdir -p "$REEF_FAKE_GH"
+				export PATH="$(dirname "$H")/ui/fake-gh:$PATH"
+			fi
 			"$H" serve-start --data-name ui || exit 1
+			case "$name" in
+			phone|theme|inbox) teams="duo" ;;
+			inspector|review|workshop|hovercard|mention|team-management|team) teams="full" ;;
+			teams|coordination) teams="duo full" ;;
+			*) teams="" ;;
+			esac
+			for team in $teams; do
+				"$H" team-apply "$(dirname "$H")/../../../../teams/$team.json" || exit 1
+			done
 			"$H" ui "$name"
 			rc=$?
 			"$H" serve-stop
@@ -40,6 +54,7 @@ i=0
 for spec in "$@"; do
 	i=$((i + 1))
 	job "$spec" "$i" &
+	if [ $((i % 3)) -eq 0 ]; then wait; fi
 done
 wait
 
