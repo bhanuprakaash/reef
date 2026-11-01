@@ -58,7 +58,7 @@ func replacement(
 // left, the workspace and the last messages the Bot has already answered, which its first wake
 // leaves out.
 func handover(
-	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, botID int64, dir string,
+	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, bot store.Role, dir string,
 	newcomer bool,
 ) (string, error) {
 	var b strings.Builder
@@ -114,7 +114,7 @@ func handover(
 		}
 	}
 	if ms != nil {
-		items, _, err := ms.Newest(ctx, BotScopes(ch, botID)[0], []string{memory.KindDecision}, _handoverDecisions)
+		items, _, err := ms.Newest(ctx, BotScopes(ch, bot.BotID)[0], []string{memory.KindDecision}, _handoverDecisions)
 		if err != nil {
 			return "", err
 		}
@@ -130,7 +130,7 @@ func handover(
 	}
 	var posted int64
 	for _, m := range msgs {
-		if m.BotID != nil && *m.BotID == botID && m.ParentID == nil {
+		if m.BotID != nil && *m.BotID == bot.BotID && m.ParentID == nil {
 			posted = max(posted, m.ID)
 		}
 	}
@@ -139,6 +139,19 @@ func handover(
 	lines := make([]string, len(msgs))
 	for i, m := range msgs {
 		lines[i] = fmt.Sprintf("%s: %s", m.Author, clip(m.Body, _handoverMessageRunes))
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID, BotID: &bot.BotID, Status: "done"})
+	if err != nil {
+		return "", err
+	}
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].WakeText == "" {
+			continue
+		}
+		if strings.TrimSpace(turns[i].Reply) != "" {
+			lines = append(lines, fmt.Sprintf("%s: %s", bot.Name, clip(turns[i].Reply, _handoverMessageRunes)))
+		}
+		break
 	}
 	b.WriteString(handoverList("Last messages", lines))
 	b.WriteString("Read earlier messages with read_thread and search_sessions, and saved memory with recall.\n")

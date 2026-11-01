@@ -180,6 +180,46 @@ func TestSession_RefreshHandoverHoldsTheAnswerOnceAndWakeHoldsTheNewMessage(t *t
 	}
 }
 
+func TestSession_RefreshHandoverHoldsTheReplyAPostedTurnKept(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	dev := testBotID(t, e.st, "developer")
+	e.say("user", "Read the notes", nil)
+	e.wake("developer", "[Space 1, message 1]\nRead the notes", nil, store.Scope{})
+	if _, err := e.st.CreateMessage(ctx, store.Message{
+		SpaceID: e.ch.ID, Author: "developer", BotID: dev, Body: "Reading notes.txt and owners.txt now.",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := e.st.CreateTurn(ctx, store.Turn{
+		SpaceID: e.ch.ID, Role: "developer", BotID: dev, Backend: "claude", SessionID: "s1",
+		WakeText: "[Space 1, message 1]\nRead the notes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	turn.Reply = "notes.txt lists three open bugs.\n\nowners.txt gives each an owner: Ana, Raj and Mei.\n\nStart with the bug Ana owns."
+	if _, err := e.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.Refresh(ctx, *dev); err != nil {
+		t.Fatal(err)
+	}
+	e.say("user", "Which first?", nil)
+	e.wake("developer", "[Space 1, message 4]\nWhich first?", nil, store.Scope{})
+
+	prompt := e.agents[1].prompts[0]
+	want := "Last messages:\n- user: Read the notes\n- developer: ok\n- developer: Reading notes.txt and owners.txt now.\n" +
+		"- developer: notes.txt lists three open bugs.\n\nowners.txt gives each an owner: Ana, Raj and Mei.\n\nStart with the bug Ana owns.\n"
+	if !strings.Contains(prompt, want) {
+		t.Errorf("prompt = %q, want it to hold %q", prompt, want)
+	}
+	if n := strings.Count(prompt, "Start with the bug Ana owns."); n != 1 {
+		t.Errorf("reply appears %d times, want 1", n)
+	}
+}
+
 func TestSession_NewcomerStartsFromAHandover(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

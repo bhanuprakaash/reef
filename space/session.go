@@ -646,7 +646,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			if err != nil {
 				return "", err
 			}
-			return handover(ctx, s.st, s.ms, ch, r.BotID, cwd, joined)
+			return handover(ctx, s.st, s.ms, ch, r, cwd, joined)
 		}
 	}
 	if refreshed {
