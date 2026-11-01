@@ -471,7 +471,8 @@ its first turn: a first message that goes to a specialist starts no lead.
   When the Bot already has finished turns in the Space, a `## Handover` follows the context
   prompt: the goal (the work item's title, description and brief, or the Space's name), the
   settled decisions, the completed and unfinished sub-items, the workspace folder and branch,
-  the pull request, and the last five messages as one-line excerpts, then a line that points to
+  the pull request, and the last five messages up to the Bot's newest top-level message, each
+  in full up to 2000 characters (the wake leaves these out), then a line that points to
   `read_thread` and `search_sessions` for the rest. It is built from stored records only, never
   by asking the old session, so an old model that is gone does not matter, and it is sent
   with the first prompt only. A new backend context starts like this in three cases. A
