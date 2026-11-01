@@ -194,7 +194,7 @@ func replay(
 	errByID := toolResultErrors(lines)
 	toolCwd := cwd
 	switch name {
-	case "write-d", "write-file", "delete-readme", "work-developer", "work-tester", "google-architect-woken", "google-developer-woken", "google-tester-woken":
+	case "write-d", "write-file", "delete-readme", "work-developer", "work-tester", "f-file", "append-commit", "google-architect-woken", "google-developer-woken", "google-tester-woken":
 		entries, _ := os.ReadDir(cwd)
 		var repos []string
 		for _, entry := range entries {
