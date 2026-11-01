@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -151,6 +152,27 @@ func TestOpenWorkspace_CheckpointsNewFixDuringTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	rows, err := st.SpaceWorkspaces(ctx, sp.ID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("workspaces = %+v, %v; want old fix", rows, err)
+	}
+	sum := sha256.Sum256([]byte(dataDir))
+	ref := fmt.Sprintf("refs/reef/checkpoints/%x/%d/%d", sum[:6], turn.ID, rows[0].ID)
+	lock := filepath.Join(repo, ".git", ref+".lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if text, failed := call("open_workspace", map[string]any{"project": p.ID, "fix": "old"}); !failed {
+		t.Fatalf("open with locked checkpoint = %s; want failure", text)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	open("old")
+	writeIn(t, old.Dir, "later.txt", "later edit")
 	open("old")
 	first := open("first")
 	writeIn(t, first.Dir, "new.txt", "first edit")
@@ -158,8 +180,8 @@ func TestOpenWorkspace_CheckpointsNewFixDuringTurn(t *testing.T) {
 	second := open("second")
 	writeIn(t, second.Dir, "new.txt", "second edit")
 	got, err := st.Turn(ctx, turn.ID)
-	if err != nil || len(got.Checkpoints) != 2 {
-		t.Fatalf("checkpoints = %+v, %v; want two", got.Checkpoints, err)
+	if err != nil || len(got.Checkpoints) != 3 {
+		t.Fatalf("checkpoints = %+v, %v; want three", got.Checkpoints, err)
 	}
 	if got.Checkpoints[0].Ref == got.Checkpoints[1].Ref {
 		t.Fatal("fixes share a checkpoint ref")
@@ -175,6 +197,9 @@ func TestOpenWorkspace_CheckpointsNewFixDuringTurn(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(w.Dir, "new.txt")); !os.IsNotExist(err) {
 			t.Errorf("%s new.txt still exists: %v", w.Fix, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(old.Dir, "later.txt")); !os.IsNotExist(err) {
+		t.Errorf("old later edit still exists: %v", err)
 	}
 	if b, err := os.ReadFile(filepath.Join(old.Dir, "old.txt")); err != nil || string(b) != "existing edit" {
 		t.Errorf("old edit = %q, %v", b, err)
