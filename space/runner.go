@@ -398,31 +398,30 @@ func (r *Runner) checkpoint(ctx context.Context, id int64) error {
 		return err
 	}
 	for _, w := range ws {
-		ref, err := r.checkpointRef(id, w.ID)
-		if err != nil {
-			return err
-		}
-		err = worktree.Checkpoint(ctx, w.Dir, ref)
-		if err == nil {
-			err = r.st.AddTurnCheckpoint(ctx, id, w.ID, ref)
-		}
-		if err != nil && !errors.Is(err, worktree.ErrNoCommit) {
+		if err := CheckpointWorkspace(ctx, r.st, r.DataDir, id, w); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>/
-// <workspace id>: worktrees of one repository share their refs, so each workspace needs its own.
-// Turns made before that keep their stored ref, which still restores.
-func (r *Runner) checkpointRef(turnID, workspaceID int64) (string, error) {
-	dir, err := filepath.Abs(r.DataDir)
+// CheckpointWorkspace snapshots one workspace for a running turn.
+func CheckpointWorkspace(
+	ctx context.Context, st *store.Store, dataDir string, turnID int64, w store.Workspace,
+) error {
+	dir, err := filepath.Abs(dataDir)
 	if err != nil {
-		return "", fmt.Errorf("checkpoint ref: %w", err)
+		return fmt.Errorf("checkpoint ref: %w", err)
 	}
 	sum := sha256.Sum256([]byte(dir))
-	return fmt.Sprintf("refs/reef/checkpoints/%x/%d/%d", sum[:6], turnID, workspaceID), nil
+	ref := fmt.Sprintf("refs/reef/checkpoints/%x/%d/%d", sum[:6], turnID, w.ID)
+	if err := worktree.Checkpoint(ctx, w.Dir, ref); err != nil {
+		if errors.Is(err, worktree.ErrNoCommit) {
+			return nil
+		}
+		return err
+	}
+	return st.AddTurnCheckpoint(ctx, turnID, w.ID, ref)
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply
