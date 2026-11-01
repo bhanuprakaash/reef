@@ -423,6 +423,7 @@ export type InspectorTurn = {
   model: string;
   usage: Usage;
   costUsd: number | null;
+  instructions: string;
   prompt: string;
   toolCalls: InspectorToolCall[];
 };
