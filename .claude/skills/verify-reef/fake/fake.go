@@ -192,6 +192,30 @@ func replay(
 	logTurn(fakeLog, role, name, cwd, sid)
 
 	errByID := toolResultErrors(lines)
+	toolCwd := cwd
+	switch name {
+	case "write-d", "write-file", "delete-readme", "google-architect-woken", "google-developer-woken", "google-tester-woken":
+		entries, _ := os.ReadDir(cwd)
+		var repos []string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				dir := filepath.Join(cwd, entry.Name())
+				if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+					repos = append(repos, dir)
+				}
+			}
+		}
+		if filepath.Base(filepath.Dir(cwd)) == "worktrees" && strings.HasPrefix(filepath.Base(cwd), "item-") {
+			if len(repos) != 1 {
+				msg := fmt.Sprintf("scenario %s needs one repository in %s, found %d", name, cwd, len(repos))
+				fmt.Fprintln(os.Stderr, "fake claude:", msg)
+				writeLine(out, map[string]any{"type": "result", "is_error": true, "result": msg})
+				return
+			}
+			toolCwd = repos[0]
+		}
+	}
+
 	prev := 0.0
 	for _, l := range lines {
 		gap := l.T - prev
@@ -203,7 +227,7 @@ func replay(
 			time.Sleep(time.Duration(gap * float64(time.Second)))
 		}
 
-		replaced := strings.ReplaceAll(l.Out, hdr.Cwd, cwd)
+		replaced := strings.ReplaceAll(l.Out, hdr.Cwd, toolCwd)
 		replaced = strings.ReplaceAll(replaced, hdr.Session, sid)
 
 		isReplayPrompt := false
@@ -234,7 +258,7 @@ func replay(
 		switch {
 		case kind.Type == "assistant":
 			appendSessionRaw(sessf, replaced, cwd, sid)
-			applyToolUses(replaced, cwd, mcpConfig, errByID)
+			applyToolUses(replaced, toolCwd, mcpConfig, errByID)
 		case kind.Type == "user" && !isReplayPrompt:
 			appendSessionRaw(sessf, replaced, cwd, sid)
 		}
