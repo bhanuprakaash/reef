@@ -308,8 +308,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	repo := t.TempDir()
-	// Copy an empty committed repository so each test gets its own Git state without
-	// starting Git twice during setup.
+	// Copy the committed fixture to avoid running Git twice per test during setup.
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
 	}

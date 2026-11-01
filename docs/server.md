@@ -257,7 +257,7 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `projectId` | number | required on create; never changes. Deleting the Project deletes its own Work items; an item that only targets the Project is kept and paused (see `DELETE /projects/{id}`) |
+| `projectId` | number | required on create; never changes. Deleting the Project deletes its own Work items; a foreign item that targets it is kept, and its active Space is paused so the item moves to `needs_you` (see `DELETE /projects/{id}`) |
 | `parentId` | number? | `null` for a top-level item. Must be a top-level item of the same project, else `invalid: work item 2 is a sub-item and cannot have sub-items`; never changes. Deleting the parent deletes its sub-items |
 | `type` | string | `feature` (default), `bug`, `incident`, `investigation`, `task` or `improvement`, else `invalid`. A `PUT` without `type` keeps the old one |
 | `title` | string | required |
@@ -639,7 +639,7 @@ tool calls.
 | `POST /projects` | `name`, `path`, `purpose` (optional, plain words) | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
-| `DELETE /projects/{id}` | | 204; its own Work items are deleted. Every workspace directory of the Project and its own items, and checkpoint refs taken there, are removed; branches are kept. A Space with no Work item stays without this Project. An open Work item that targets this Project but belongs to another Project is paused in `needs_you` with a note. Its target and workspace rows stay as history: the target name reads `deleted project N`, and the workspace row has state `removed` with note `project <name> was deleted`, although its directory is removed. | 404, 409 a workspace has uncommitted changes or a targeted item is running (nothing is removed) |
+| `DELETE /projects/{id}` | | 204; its own Work items are deleted. Every workspace directory of the Project and its own items, and checkpoint refs taken there, are removed; branches are kept. A Space with no Work item stays without this Project. A foreign Work item that targets this Project is kept; if it has an active Space, that Space is paused and the item moves to `needs_you` with a note. Its target and workspace rows stay as history: the target name reads `deleted project N`, and the workspace row has state `removed` with note `project <name> was deleted`, although its directory is removed. | 404, 409 a workspace has uncommitted changes or a targeted item is running (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |

@@ -405,7 +405,6 @@ func (r *Runner) checkpoint(ctx context.Context, id int64) error {
 	return nil
 }
 
-// CheckpointWorkspace snapshots one workspace for a running turn.
 func CheckpointWorkspace(
 	ctx context.Context, st *store.Store, dataDir string, turnID int64, w store.Workspace,
 ) error {
