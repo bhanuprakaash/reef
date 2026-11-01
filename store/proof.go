@@ -162,8 +162,9 @@ func (s *Store) Proof(ctx context.Context, id int64) (Proof, error) {
 
 func (s *Store) proofRepositories(ctx context.Context, id int64) ([]ProofRepository, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT r.workspace_id, r.project_id, p.name, r.branch, r.head, r.base_ref, r.dir, r.dirty "+
-			"FROM proof_repository r JOIN project p ON p.id = r.project_id "+
+		"SELECT r.workspace_id, r.project_id, COALESCE(p.name, 'deleted project ' || r.project_id), "+
+			"r.branch, r.head, r.base_ref, r.dir, r.dirty "+
+			"FROM proof_repository r LEFT JOIN project p ON p.id = r.project_id "+
 			"WHERE r.work_item_id = ? ORDER BY r.workspace_id", id)
 	if err != nil {
 		return nil, fmt.Errorf("read proof repositories: %w", err)
