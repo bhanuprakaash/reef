@@ -103,3 +103,86 @@ func TestSubmitForReview(t *testing.T) {
 		t.Errorf("second ClaimWrap = %v, %v, want false", claimed, err)
 	}
 }
+
+func TestProofKeepsRepositoryWhenProjectIsDeleted(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	home, err := s.CreateProject(ctx, Project{Name: "app", Path: "/tmp/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := s.CreateProject(ctx, Project{Name: "library", Path: "/tmp/library"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.CreateWorkItem(ctx, WorkItem{
+		ProjectID: home.ID, Title: "Use library", Status: _inProgress,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddWorkItemTarget(ctx, item.ID, target.ID, "user"); err != nil {
+		t.Fatal(err)
+	}
+	space, err := s.CreateSpace(ctx, Space{
+		ProjectID: home.ID, WorkItemID: &item.ID, Name: item.Title,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeWorkspace, err := s.EnsureWorkspace(ctx, Workspace{
+		ProjectID: home.ID, WorkItemID: &item.ID, Dir: "/tmp/app-worktree", Branch: "work-item/1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetWorkspace, err := s.EnsureWorkspace(ctx, Workspace{
+		ProjectID: target.ID, WorkItemID: &item.ID, Dir: "/tmp/library-worktree", Branch: "work-item/1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := Proof{
+		SpaceID: space.ID,
+		Repositories: []ProofRepository{
+			{WorkspaceID: homeWorkspace.ID, ProjectID: home.ID, Branch: "work-item/1", Dir: homeWorkspace.Dir},
+			{WorkspaceID: targetWorkspace.ID, ProjectID: target.ID, Branch: "work-item/1", Dir: targetWorkspace.Dir},
+		},
+	}
+	if _, err := s.SubmitForReview(ctx, item.ID, nil, proof); err != nil {
+		t.Fatal(err)
+	}
+
+	targetWorkspace.State, targetWorkspace.Note = WorkspaceRemoved, "project library was deleted"
+	if err := s.SetWorkspace(ctx, targetWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProject(ctx, target.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Proof(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Repositories) != 2 {
+		t.Fatalf("proof repositories = %+v, want home and deleted target", got.Repositories)
+	}
+	deleted := got.Repositories[1]
+	if deleted.ProjectID != target.ID || deleted.ProjectName != "deleted project 2" ||
+		deleted.WorkspaceID != targetWorkspace.ID || deleted.Dir != targetWorkspace.Dir {
+		t.Errorf("deleted project proof = %+v, want retained row labeled deleted project 2", deleted)
+	}
+	workItem, err := s.WorkItem(ctx, item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workItem.Targets) != 2 || workItem.Targets[1].ProjectName != "deleted project 2" {
+		t.Errorf("targets after project deletion = %+v, want tombstone target", workItem.Targets)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -307,8 +308,13 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	repo := t.TempDir()
-	gitIn(t, repo, "init", "-b", "main")
-	gitIn(t, repo, "commit", "--allow-empty", "-m", "first")
+	// Copy the committed fixture to avoid running Git twice per test during setup.
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.CopyFS(filepath.Join(repo, ".git"), os.DirFS("testdata/live-git")); err != nil {
+		t.Fatal(err)
+	}
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+repo+`"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"scratch"}`)
 	return env

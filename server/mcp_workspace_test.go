@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -109,5 +112,96 @@ func TestOpenWorkspace_QuickFixesOfAConversation(t *testing.T) {
 	items, err := reopened.WorkItems(ctx, store.WorkItemFilter{})
 	if err != nil || len(items) != 0 {
 		t.Errorf("work items = %d, %v; want none", len(items), err)
+	}
+}
+
+func TestOpenWorkspace_CheckpointsNewFixDuringTurn(t *testing.T) {
+	ctx := context.Background()
+	ts, st := newEmbedServer(t, nil)
+	dataDir := t.TempDir()
+	repo, _ := originRepo(t, "develop")
+	p, err := st.CreateProject(ctx, store.Project{Name: "app", Path: repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot := *testServerBot(t, st, "architect")
+	sp, err := st.CreateBotSpace(ctx, store.Space{Name: "chat"}, bot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := st.CreateToken(ctx, sp.ID, bot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callToolResult(t, st, tok, dataDir)
+	open := func(name string) openWorkspaceOut {
+		t.Helper()
+		text, failed := call("open_workspace", map[string]any{"project": p.ID, "fix": name})
+		if failed {
+			t.Fatalf("open %s: %s", name, text)
+		}
+		var out openWorkspaceOut
+		if err := json.Unmarshal([]byte(text), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	old := open("old")
+	writeIn(t, old.Dir, "old.txt", "existing edit")
+	turn, err := st.CreateTurn(ctx, store.Turn{SpaceID: sp.ID, BotID: &bot, Role: "architect", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.SpaceWorkspaces(ctx, sp.ID)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("workspaces = %+v, %v; want old fix", rows, err)
+	}
+	sum := sha256.Sum256([]byte(dataDir))
+	ref := fmt.Sprintf("refs/reef/checkpoints/%x/%d/%d", sum[:6], turn.ID, rows[0].ID)
+	lock := filepath.Join(repo, ".git", ref+".lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if text, failed := call("open_workspace", map[string]any{"project": p.ID, "fix": "old"}); !failed {
+		t.Fatalf("open with locked checkpoint = %s; want failure", text)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	open("old")
+	writeIn(t, old.Dir, "later.txt", "later edit")
+	open("old")
+	first := open("first")
+	writeIn(t, first.Dir, "new.txt", "first edit")
+	open("first")
+	second := open("second")
+	writeIn(t, second.Dir, "new.txt", "second edit")
+	got, err := st.Turn(ctx, turn.ID)
+	if err != nil || len(got.Checkpoints) != 3 {
+		t.Fatalf("checkpoints = %+v, %v; want three", got.Checkpoints, err)
+	}
+	if got.Checkpoints[0].Ref == got.Checkpoints[1].Ref {
+		t.Fatal("fixes share a checkpoint ref")
+	}
+	turn.Status = "done"
+	if _, err := st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := do(t, "POST", fmt.Sprintf("%s/turns/%d/rollback", ts.URL, turn.ID), ""); status != 204 {
+		t.Fatalf("rollback = %d %s", status, body)
+	}
+	for _, w := range []openWorkspaceOut{first, second} {
+		if _, err := os.Stat(filepath.Join(w.Dir, "new.txt")); !os.IsNotExist(err) {
+			t.Errorf("%s new.txt still exists: %v", w.Fix, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(old.Dir, "later.txt")); !os.IsNotExist(err) {
+		t.Errorf("old later edit still exists: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(old.Dir, "old.txt")); err != nil || string(b) != "existing edit" {
+		t.Errorf("old edit = %q, %v", b, err)
 	}
 }

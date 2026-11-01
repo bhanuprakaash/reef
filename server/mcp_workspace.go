@@ -83,13 +83,37 @@ func (m *mcpServer) openWorkspace(
 		fix = fmt.Sprintf("fix-%d", all+1)
 	}
 	for _, w := range rows {
-		if w.ProjectID == p.ID && w.Name == fix && w.State == store.WorkspaceRemoved {
+		if w.ProjectID != p.ID || w.Name != fix {
+			continue
+		}
+		if w.State == store.WorkspaceRemoved {
 			return nil, openWorkspaceOut{}, fmt.Errorf("%w: fix %s was abandoned; choose a new name", store.ErrConflict, fix)
 		}
 	}
 	w, err := space.EnsureFixWorkspace(ctx, m.st, space.NewTrees(m.dataDir), m.dataDir, sp.ID, fix, p)
 	if err != nil {
 		return nil, openWorkspaceOut{}, err
+	}
+	if w.State == store.WorkspaceReady && m.tok.BotID != nil {
+		turns, err := m.st.Turns(ctx, store.TurnFilter{SpaceID: &sp.ID, BotID: m.tok.BotID, Status: "running"})
+		if err != nil {
+			return nil, openWorkspaceOut{}, err
+		}
+		if len(turns) > 0 {
+			turn := turns[len(turns)-1]
+			checkpointed := false
+			for _, checkpoint := range turn.Checkpoints {
+				if checkpoint.WorkspaceID == w.ID {
+					checkpointed = true
+					break
+				}
+			}
+			if !checkpointed {
+				if err := space.CheckpointWorkspace(ctx, m.st, m.dataDir, turn.ID, w); err != nil {
+					return nil, openWorkspaceOut{}, err
+				}
+			}
+		}
 	}
 	return nil, openWorkspaceOut{
 		Fix: w.Name, Dir: w.Dir, Branch: w.Branch, Base: w.Base, BaseSource: w.BaseSource,

@@ -138,6 +138,7 @@ check flow-submit-review "$submit_ok" "item 1 $(item 1), sub-items $(sql1 "selec
 api_call POST /work-items/2/approve '{"key":"k2"}'
 wait_item 2 "in_progress:-"
 wait_for "/spaces?workItem=2" '"workItemId":2'
+wait_for "/messages?space=2" 'Work item 2: Order history'
 first2=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
 next_ok=1
 [ "$(spaces 2)" = 1 ] || next_ok=0
@@ -235,39 +236,49 @@ section_caps() {
 start_server caps
 "$H" team-apply "$E/pong.json" >/dev/null
 api_call POST /projects '{"name":"hop","path":"'"$S"'/cwd"}'
-api_call POST /work-items '{"projectId":1,"title":"workpong"}'
-api_call POST /work-items '{"projectId":1,"title":"talkpong"}'
-"$H" sql --write "update work_item set status = 'in_progress', owner_bot_id = coalesce(owner_bot_id, 1), approved_at = '2026-01-01T00:00:00Z', approval_key = 'by-hand-' || id where id in (1, 2); insert or ignore into work_item_participant (work_item_id, bot_id) select id, owner_bot_id from work_item where id in (1, 2)" >/dev/null
-api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"s1","team":"pong"}'
-api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"s2","team":"pong"}'
+api_call GET /teams/pong
+roster=$(printf '%s' "$BODY" | python3 -c 'import json,sys; r=json.load(sys.stdin)["roles"]; print(json.dumps({"ownerBotId": next(x["botId"] for x in r if x["lead"]), "participantBotIds": [x["botId"] for x in r]}))')
+for title in workpong talkpong; do
+	item=$(printf '%s' "$roster" | python3 -c 'import json,sys; v=json.load(sys.stdin); v.update(projectId=1,title=sys.argv[1]); print(json.dumps(v))' "$title")
+	api_call POST /work-items "$item"
+	id=$(printf '%s' "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+	api_call POST "/work-items/$id/approve" '{"key":"hop-'"$id"'"}'
+	[ "$STATUS" = 200 ] || { echo "approval failed for $id: $STATUS $BODY" >&2; return 1; }
+	wait_for "/spaces?workItem=$id" '"workItemId"'
+	starter=$(curl -s "http://$A/spaces?workItem=$id" | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["id"])')
+	wait_sql "select count(*) from turn where space_id = $starter and status != 'running'" 1
+	new_space=$starter
+	baseline=$(sql1 "select max(id) from turn where space_id = $new_space")
+	if [ "$id" = 1 ]; then work_space=$new_space; work_baseline=$baseline; else talk_space=$new_space; talk_baseline=$baseline; fi
+done
 
-api_call POST /spaces/1/send '{"text":"workpong"}'
-api_call POST /spaces/2/send '{"text":"talkpong"}'
+api_call POST "/spaces/$work_space/send" '{"text":"workpong"}'
+api_call POST "/spaces/$talk_space/send" '{"text":"talkpong"}'
 
-wait_sql "select count(*) from turn where space_id = 1 and status = 'done'" 13
-api_call POST /spaces/1/stop
+wait_sql "select count(*) from turn where space_id = $work_space and id > $work_baseline and status = 'done'" 13
+api_call POST "/spaces/$work_space/stop"
 work_ok=1
 [ "$STATUS" = 204 ] || work_ok=0
-first13="select id from turn where space_id = 1 and status = 'done' order by id limit 13"
+first13="select id from turn where space_id = $work_space and id > $work_baseline and status = 'done' order by id limit 13"
 seq=$("$H" sql "select role from ($first13) join turn using (id) order by id" | tail -n +2 | tr '\n' ' ')
 [ "$seq" = "lead developer tester developer tester developer tester developer tester developer tester developer tester " ] || work_ok=0
-[ -z "$(paused 1)" ] || work_ok=0
+[ -z "$(paused "$work_space")" ] || work_ok=0
 calls=$("$H" sql "select turn.role, t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.id in ($first13) group by turn.role, t.name order by 1" | tail -n +2 | tr '\n' ' ')
 [ "$calls" = "developer|Bash|6 tester|Bash|6 " ] || work_ok=0
-check hop-work-resets "$work_ok" "done turns of Space 1: $seq; paused: '$(paused 1)'; tool calls: $calls"
+check hop-work-resets "$work_ok" "done turns of Space 1: $seq; paused: '$(paused "$work_space")'; tool calls: $calls"
 
-wait_for "/spaces/2" '"paused":"hop cap'
+wait_for "/spaces/$talk_space" '"paused":"hop cap'
 sleep 1
 talk_ok=1
-seq=$("$H" sql "select role from turn where space_id = 2 order by id" | tail -n +2 | tr '\n' ' ')
+seq=$("$H" sql "select role from turn where space_id = $talk_space and id > $talk_baseline order by id" | tail -n +2 | tr '\n' ' ')
 [ "$seq" = "lead developer lead developer lead developer lead " ] || talk_ok=0
-[ "$("$H" sql "select distinct status from turn where space_id = 2" | tail -n +2 | tr '\n' ' ')" = "done " ] || talk_ok=0
-talk_calls=$("$H" sql "select t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = 2 and t.name != 'ToolSearch' group by t.name" | tail -n +2 | tr '\n' ' ')
+[ "$("$H" sql "select distinct status from turn where space_id = $talk_space and id > $talk_baseline" | tail -n +2 | tr '\n' ' ')" = "done " ] || talk_ok=0
+talk_calls=$("$H" sql "select t.name, count(*) from tool_call t join turn on turn.id = t.turn_id where turn.space_id = $talk_space and turn.id > $talk_baseline and t.name != 'ToolSearch' group by t.name" | tail -n +2 | tr '\n' ' ')
 [ "$talk_calls" = "mcp__reef__post_to_space|7 " ] || talk_ok=0
 [ "$(item 2)" = "needs_you:-" ] || talk_ok=0
 inbox=$(curl -s "http://$A/inbox")
-echo "$inbox" | grep -q '"kind":"held","group":"needs_you","spaceId":2,"workItemId":2,"text":"hop cap: 6 agent hops without a user message (1 wake held)"' || talk_ok=0
-check hop-talk-pauses "$talk_ok" "turns of Space 2: $seq; tool calls besides ToolSearch: $talk_calls; item 2 $(item 2); paused: $(paused 2); inbox: $(echo "$inbox" | cut -c1-240)"
+echo "$inbox" | grep -q '"kind":"held","group":"needs_you","spaceId":'"$talk_space"',"workItemId":2,"text":"hop cap: 6 agent hops without a user message (1 wake held)"' || talk_ok=0
+check hop-talk-pauses "$talk_ok" "turns of Space 2: $seq; tool calls besides ToolSearch: $talk_calls; item 2 $(item 2); paused: $(paused "$talk_space"); inbox: $(echo "$inbox" | cut -c1-240)"
 }
 
 # section NAME: run section_NAME under the run id $REEF_VERIFY_RUN/NAME, so it has its own
