@@ -769,7 +769,7 @@ async function phone() {
   const sideBySide = await files.evaluate((el) => getComputedStyle(el).flexDirection);
   check(sideBySide === 'row' && fb.right - fb.left === 390, 'the files show as chips above the diff, not a side list', `${sideBySide} ${JSON.stringify(fb)}`);
   await main.getByRole('region', { name: 'Diff' }).locator('[data-line="4"]').click();
-  await main.getByLabel('Comment on auth.go:4').fill('Log the bad token first.');
+  await main.getByLabel(`Comment on ${path.basename(tree)}/auth.go:4`).fill('Log the bad token first.');
   await main.getByRole('button', { name: 'Add comment' }).click();
   await shot('review');
   await noScroll('review');
@@ -1382,7 +1382,7 @@ async function inbox() {
       static permission = 'granted';
       static requestPermission = async () => 'granted';
       constructor(title, options) {
-        window.__notes.push({ title, body: options?.body, note: this });
+        if (title.endsWith('inbox room')) window.__notes.push({ title, body: options?.body, note: this });
       }
       close() {}
     };
@@ -1546,7 +1546,7 @@ async function inboxGroups() {
     return ok();
   };
   const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', ownerBotId: 1, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
-  const idle = (sid) => sql(`select active_turn from space where id=${sid}`) === '';
+  const idle = (sid) => sql(`select active_turn from space where id=${sid}`) === '' && sql(`select count(*) from turn where space_id=${sid}`) !== '0';
   await call('POST', `/work-items/${item.id}/approve`, { key: 'review-me' });
   await eventually(async () => (await getJson(`/spaces?workItem=${item.id}`)).length > 0);
   const sid = (await getJson(`/spaces?workItem=${item.id}`))[0].id;
@@ -2977,6 +2977,7 @@ async function hovercard() {
   check((await tip.count()) === 0, 'the card waits out its delay: nothing 150 ms after the pointer lands');
   await tip.waitFor({ timeout: 3000 });
   await shot('waiting');
+  for (let i = 0; i < 50 && (await flat()) !== (await expected()); i++) await page.waitForTimeout(100);
   const idleText = await flat();
   check(idleText === (await expected()), 'waiting Space: name, state, branch, changes and every role match REST and SQLite', idleText);
   check(idleText.startsWith('#hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
@@ -3683,7 +3684,13 @@ async function sidebar() {
   check(true, 'Search filters the Space and conversation rows');
 
   const own = Number(item.split('|')[0]);
-  const room = await (await call('POST', '/spaces', { projectId: project, name: 'review room', workItemId: own })).json();
+  const ownItem = await getJson(`/work-items/${own}`);
+  await call('PUT', `/work-items/${own}`, { ...ownItem, ownerBotId: 1, participantBotIds: [1] });
+  await call('POST', `/work-items/${own}/approve`, { key: `sb-${own}` });
+  let rooms = [];
+  for (const end = Date.now() + 60000; !rooms.length && Date.now() < end; await page.waitForTimeout(300)) rooms = await getJson(`/spaces?workItem=${own}`);
+  const room = rooms[0];
+  await call('PUT', `/spaces/${room.id}`, { name: 'review room' });
   const roomRow = section.getByRole('link', { name: '#review room' });
   await roomRow.waitFor({ timeout: 15000 });
   sql(`update work_item set status='in_progress', closed_at=null where id=${own}`, true);
@@ -4023,13 +4030,10 @@ async function workItem() {
   const proofCard = main.getByRole('region', { name: 'Proof' });
   await proofCard.getByText('Not submitted yet').waitFor();
   check(true, 'the proof section says Not submitted yet before a submit');
-  const space = await (
-    await fetch(`${base}/spaces`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: Number(pid), workItemId: Number(id), name: 'proof space' }),
-    })
-  ).json();
+  await fetch(`${base}/work-items/${id}/approve`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: `wi-${id}` }) });
+  let spaces = [];
+  for (const end = Date.now() + 60000; !spaces.length && Date.now() < end; await new Promise((r) => setTimeout(r, 300))) spaces = await getJson(`/spaces?workItem=${id}`);
+  const space = spaces[0];
   const commands = JSON.stringify([{ command: 'make test', output: 'ok: 12 passed' }]);
   sql(`insert into proof (work_item_id, space_id, commands, screenshots, submitted_at) values (${id}, ${space.id}, '${commands}', '["/data/shot-login.png"]', '2026-10-27T10:00:00Z')`, true);
   sql(`update acceptance_line set checked=1, note='verified by the test' where work_item_id=${id} and position=1`, true);
@@ -4068,7 +4072,7 @@ async function workItem() {
   await main.getByRole('heading', { name: 'Login form', level: 1 }).waitFor();
   const subId = page.url().split('/').pop();
   const none = await Promise.all(['Brief', 'Sub-items', 'Proof'].map((n) => main.getByRole('region', { name: n }).count()));
-  const parentLink = main.getByRole('link', { name: 'Work item page', exact: true });
+  const parentLink = main.locator('header').getByRole('link', { name: 'Work item page', exact: true });
   check(none.every((n) => n === 0), 'a sub-item page has no brief, sub-items or proof', JSON.stringify(none));
   check(
     (await parentLink.count()) === 1 && (await parentLink.getAttribute('href')) === `/work-items/${id}` && (await main.getByRole('region', { name: 'Acceptance lines' }).count()) === 1,
@@ -4078,7 +4082,7 @@ async function workItem() {
   const subHeader = (await main.getByRole('heading', { name: 'Login form', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
   const subSpaces = (await main.getByRole('region', { name: 'Spaces' }).innerText()).replace(/\s+/g, ' ');
   check(
-    (await main.getByRole('button', { name: 'New Space' }).count()) === 0 && subHeader.includes(`work-item/${id}`) && !subHeader.includes(`work-item/${subId}`) && subSpaces.includes('proof space'),
+    (await main.getByRole('button', { name: 'New Space' }).count()) === 0 && subHeader.includes(`work-item/${id}`) && !subHeader.includes(`work-item/${subId}`) && subSpaces.includes(space.name),
     "a sub-item page has no New Space, shows its parent's branch and its parent's Spaces",
     `${subHeader} | ${subSpaces}`,
   );
@@ -4241,9 +4245,12 @@ async function spaceHeader() {
   const suffix = Date.now().toString(36);
   const sam = await call('POST', '/bots', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
   const kit = await call('POST', '/bots', { name: `kit-${suffix}`, backend: 'claude' });
-  const itemA = await call('POST', '/work-items', { projectId: pid, title: `Header item ${suffix}` });
+  const itemA = await call('POST', '/work-items', { projectId: pid, title: `Header item ${suffix}`, ownerBotId: sam.id });
   const itemB = await call('POST', '/work-items', { projectId: pid, title: `Attach target ${suffix}` });
-  const workSpace = await call('POST', '/spaces', { projectId: pid, workItemId: itemA.id, name: `item-space-${suffix}` });
+  await call('POST', `/work-items/${itemA.id}/approve`, { key: `a${itemA.id}` });
+  let starters = [];
+  for (const end = Date.now() + 60000; !starters.length && Date.now() < end; await new Promise((r) => setTimeout(r, 300))) starters = await getJson(`/spaces?workItem=${itemA.id}`);
+  const workSpace = starters[0];
   const freeSpace = await call('POST', '/spaces', { projectId: pid, name: `free-space-${suffix}` });
   const conversation = await call('POST', '/spaces', { projectId: pid, kind: 'conversation', botId: sam.id, name: `chat-${suffix}` });
   const turn = (space, input, output, read, write) =>
@@ -4277,14 +4284,14 @@ async function spaceHeader() {
   };
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await open(workSpace.id, `item-space-${suffix}`);
+  await open(workSpace.id, workSpace.name);
   const used = (await getJson(`/spaces/${workSpace.id}`)).tokensUsed;
   const budget = (await getJson(`/spaces/${workSpace.id}`)).tokenBudget;
   const inspector = await getJson(`/spaces/${workSpace.id}/inspector`);
   const inspectorSum = inspector.roles.reduce((n, r) => n + r.usage.inputTokens + r.usage.outputTokens + r.usage.cacheWriteTokens, 0);
   const sqlSum = Number(sql(`select sum(input_tokens + output_tokens + cache_write_tokens) from turn where space_id=${workSpace.id}`));
   const text = await headerText();
-  check(text.includes(`Header item ${suffix}`) && text.includes('backlog'), "a Work item Space's header shows the item's title and status", text);
+  check(text.includes(`Header item ${suffix}`) && text.includes('in progress'), "a Work item Space's header shows the item's title and status", text);
   check(used === 1380 && used === inspectorSum && used === sqlSum, 'REST tokensUsed is the input, output and cache write tokens (cache reads not counted)', `GET ${used}, inspector ${inspectorSum}, sql ${sqlSum}`);
   check(text.includes(`Budget ${used.toLocaleString('en-US')} / ${budget.toLocaleString('en-US')}`), "the header's budget used is the REST tokensUsed over tokenBudget", text);
   check((await actions()) === 'Open Work item', 'a Work item Space has Open Work item and neither Attach nor Add Bot', await actions());
@@ -4323,7 +4330,7 @@ async function spaceHeader() {
   await page.keyboard.press('Escape');
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const [id, title, step] of [[workSpace.id, `item-space-${suffix}`, 'phone-work-item'], [freeSpace.id, `free-space-${suffix}`, 'phone-free'], [conversation.id, `chat-${suffix}`, 'phone-conversation']]) {
+  for (const [id, title, step] of [[workSpace.id, workSpace.name, 'phone-work-item'], [freeSpace.id, `free-space-${suffix}`, 'phone-free'], [conversation.id, `chat-${suffix}`, 'phone-conversation']]) {
     await open(id, title);
     check(await noOverflow(), `${step} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(step);
