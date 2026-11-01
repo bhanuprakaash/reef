@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	_handoverMessages  = 5
-	_handoverDecisions = 10
+	_handoverMessages     = 5
+	_handoverMessageRunes = 2000
+	_handoverDecisions    = 10
 )
 
 // _renewTokens is the context size at which the Bot's next turn starts a new backend context in
@@ -54,7 +55,8 @@ func replacement(
 
 // handover is what a new backend context of the Bot reads in its first turn in place of the
 // transcript, built from the stored records only: the goal, the decisions, the work done and
-// left, the workspace and the last messages in short.
+// left, the workspace and the last messages the Bot has already answered, which its first wake
+// leaves out.
 func handover(
 	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, botID int64, dir string,
 	newcomer bool,
@@ -122,13 +124,21 @@ func handover(
 		}
 		b.WriteString(handoverList("Settled decisions", lines))
 	}
-	msgs, err := st.MessagesPage(ctx, ch.ID, 0, _handoverMessages)
+	msgs, err := st.Messages(ctx, ch.ID, 0)
 	if err != nil {
 		return "", err
 	}
+	var posted int64
+	for _, m := range msgs {
+		if m.BotID != nil && *m.BotID == botID && m.ParentID == nil {
+			posted = max(posted, m.ID)
+		}
+	}
+	msgs = slices.DeleteFunc(msgs, func(m store.Message) bool { return m.ID > posted })
+	msgs = msgs[max(0, len(msgs)-_handoverMessages):]
 	lines := make([]string, len(msgs))
 	for i, m := range msgs {
-		lines[i] = fmt.Sprintf("%s: %s", m.Author, firstLine(m.Body))
+		lines[i] = fmt.Sprintf("%s: %s", m.Author, clip(m.Body, _handoverMessageRunes))
 	}
 	b.WriteString(handoverList("Last messages", lines))
 	b.WriteString("Read earlier messages with read_thread and search_sessions, and saved memory with recall.\n")
@@ -147,6 +157,14 @@ func newcomer(ctx context.Context, st *store.Store, spaceID int64, bot store.Rol
 		return false, err
 	}
 	return slices.Contains(notices, bot.Name+store.JoinedSuffix), nil
+}
+
+func clip(body string, limit int) string {
+	r := []rune(strings.TrimSpace(body))
+	if len(r) > limit {
+		return string(r[:limit]) + "…"
+	}
+	return string(r)
 }
 
 func handoverList(label string, lines []string) string {

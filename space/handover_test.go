@@ -139,6 +139,47 @@ func TestSession_RefreshStartsNewContextWithHandoverAndFailureRetries(t *testing
 	}
 }
 
+func TestSession_RefreshHandoverHoldsTheAnswerOnceAndWakeHoldsTheNewMessage(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	dev := testBotID(t, e.st, "developer")
+	e.say("user", "Plan the login", nil)
+	e.wake("developer", "[Space 1, message 1]\nPlan the login", nil, store.Scope{})
+	if _, err := e.st.CreateMessage(ctx, store.Message{
+		SpaceID: e.ch.ID, Author: "developer", BotID: dev,
+		Body: "Plan:\n1. Start with the callback route\n2. Write the tests",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.Refresh(ctx, *dev); err != nil {
+		t.Fatal(err)
+	}
+	e.say("user", "Which first?", nil)
+	e.wake("developer", "[Space 1, message 4]\nWhich first?", nil, store.Scope{})
+
+	if len(e.agents) != 2 || len(e.agents[1].prompts) != 1 {
+		t.Fatalf("agents = %d, want a second one with one prompt", len(e.agents))
+	}
+	prompt := e.agents[1].prompts[0]
+	for _, want := range []string{
+		"Last messages:\n- user: Plan the login\n- developer: ok\n- developer: Plan:\n1. Start with the callback route\n2. Write the tests\n",
+		"[Space 1, message 4]\nWhich first?",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt = %q, want it to hold %q", prompt, want)
+		}
+	}
+	if n := strings.Count(prompt, "Start with the callback route"); n != 1 {
+		t.Errorf("answer appears %d times, want 1", n)
+	}
+	if n := strings.Count(prompt, "Which first?"); n != 1 {
+		t.Errorf("current message appears %d times, want 1", n)
+	}
+	if strings.Contains(prompt, "older messages are not shown") {
+		t.Errorf("prompt = %q, want no omitted count: the handover lists what the wake drops", prompt)
+	}
+}
+
 func TestSession_NewcomerStartsFromAHandover(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -157,7 +198,7 @@ func TestSession_NewcomerStartsFromAHandover(t *testing.T) {
 		t.Fatalf("prompts = %q, want one", ag.prompts)
 	}
 	for _, want := range []string{
-		"You joined this Space after it started", "Goal: Login", "architect joined the Space",
+		"You joined this Space after it started", "Goal: Login",
 		"read_thread and search_sessions, and saved memory with recall",
 	} {
 		if !strings.Contains(ag.prompts[0], want) {

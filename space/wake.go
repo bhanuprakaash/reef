@@ -88,9 +88,8 @@ func block(
 	}
 	omitted := 0
 	if fresh && sc.Thread == 0 {
-		last, before := unread[len(unread)-1], len(unread)
+		last := unread[len(unread)-1]
 		unread = slices.DeleteFunc(unread, func(m store.Message) bool { return m.ID <= posted && m.ID != last.ID })
-		omitted = before - len(unread)
 	}
 	if read[sc.Thread] == 0 && len(unread) > _firstWake {
 		omitted += len(unread) - _firstWake
