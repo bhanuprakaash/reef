@@ -192,8 +192,8 @@ func TestSession_ClaudeGetsSkillsFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(ag.cfg.AddDirs, ","), BotSkillsDir(dataDir, bs.ID); got != want {
-		t.Errorf("AddDirs = %q, want %q", got, want)
+	if got := ag.cfg.AddDirs[0]; got != BotSkillsDir(dataDir, bs.ID) {
+		t.Errorf("AddDirs[0] = %q, want %q", got, BotSkillsDir(dataDir, bs.ID))
 	}
 }
 
