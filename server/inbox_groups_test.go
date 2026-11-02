@@ -34,7 +34,7 @@ func groupKinds(items []store.InboxItem) []string {
 func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	for _, name := range []string{"capped", "held"} {
+	for _, name := range []string{"capped", "held", "asked", "told"} {
 		do(t, http.MethodPost, env.url+"/spaces", fmt.Sprintf(`{"projectId":1,"name":%q}`, name))
 	}
 	env.failedTurn(t, "lead", "build it", nil)
@@ -52,12 +52,17 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 		store.Hold{SpaceID: 3, From: "lead", To: "architect", MessageID: msg.ID, Text: "plan it"}); err != nil {
 		t.Fatal(err)
 	}
+	for space, body := range map[int64]string{4: "which database?", 5: "plan posted"} {
+		if _, err := env.st.CreateMessage(ctx, store.Message{SpaceID: space, Author: "lead", Body: body}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","ownerBotId":1}`)
 	env.exec(t, "UPDATE work_item SET status = 'review' WHERE id = 1")
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Logout","ownerBotId":1}`)
 	do(t, http.MethodPost, env.url+"/work-items/2/approve", `{"key":"k2"}`)
-	env.waitIdle(t, 4)
-	tok, err := testToken(t, env.st, ctx, 4, "lead")
+	env.waitIdle(t, 6)
+	tok, err := testToken(t, env.st, ctx, 6, "lead")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,8 +77,8 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 	}
 
 	want := []string{
-		"fyi proposed", "fyi started", "fyi sub_item",
-		"needs_you failed", "needs_you held", "needs_you paused", "review review",
+		"fyi proposed", "fyi reply", "fyi started", "fyi sub_item",
+		"needs_you failed", "needs_you held", "needs_you paused", "needs_you question", "needs_you review",
 	}
 	if got := groupKinds(env.inboxItems(t)); !slices.Equal(got, want) {
 		t.Fatalf("inbox = %q, want %q", got, want)
@@ -85,6 +90,8 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 	for kind, text := range map[string]string{
 		"held":     "hop cap: 6 agent hops without a user message (1 wake held)",
 		"review":   "Login",
+		"question": "which database?",
+		"reply":    "plan posted",
 		"started":  "Started from the queue: Logout",
 		"sub_item": "lead added sub-item 3 to work item 2: Schema",
 		"proposed": "lead proposed work item 4: Slow deploy. It is in the Backlog until you approve it.",
@@ -94,7 +101,7 @@ func TestInbox_EachCauseInItsGroupAndOnlyFYIDismisses(t *testing.T) {
 		}
 	}
 
-	for _, kind := range []string{"paused", "held", "failed", "review"} {
+	for _, kind := range []string{"paused", "held", "failed", "review", "question"} {
 		status, body := do(t, http.MethodPost, env.url+"/inbox/dismiss", fmt.Sprintf(`{"kind":%q,"spaceId":2}`, kind))
 		if wantBody := "a " + kind + " item cannot be dismissed"; status != 409 || !strings.Contains(body, wantBody) {
 			t.Errorf("dismiss %s = %d %s, want 409 with %q", kind, status, body, wantBody)

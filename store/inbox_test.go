@@ -179,7 +179,7 @@ func TestInbox_Waiting(t *testing.T) {
 	e.say(1, "lead", "done, what next?")
 	e.say(2, "architect", "plan posted")
 	e.say(2, "reef", "Turn 3 by architect failed: server restarted.")
-	e.want("waiting 1 done, what next?")
+	e.want("question 1 done, what next?")
 
 	e.say(1, "user", "ship it")
 	e.want()
@@ -191,7 +191,7 @@ func TestInbox_Waiting(t *testing.T) {
 	if _, err := e.s.EndTurn(e.ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 shipped")
+	e.want("reply 1 shipped")
 
 	if err := e.s.PauseSpace(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
@@ -199,10 +199,27 @@ func TestInbox_Waiting(t *testing.T) {
 	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 }
 
+func TestInbox_QuestionEndsInAQuestionMark(t *testing.T) {
+	e := newInboxEnv(t)
+	for body, kind := range map[string]string{
+		"which one?":               "question",
+		"**which one?**  \n":       "question",
+		"(which one?)":             "question",
+		"which one? I can do both": "reply",
+		"which one":                "reply",
+	} {
+		e.say(1, "lead", body)
+		items, err := e.s.Inbox(e.ctx)
+		if err != nil || len(items) != 1 || items[0].Kind != kind {
+			t.Errorf("Inbox after %q = %+v, %v, want one %s", body, items, err, kind)
+		}
+	}
+}
+
 func TestInbox_ClosedSpaceIsNotAnItem(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "lead", "Wrap proposed.")
-	e.want("waiting 1 Wrap proposed.")
+	e.want("reply 1 Wrap proposed.")
 
 	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE space SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
@@ -212,7 +229,7 @@ func TestInbox_ClosedSpaceIsNotAnItem(t *testing.T) {
 	if err := e.s.ReopenSpace(e.ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 Wrap proposed.")
+	e.want("reply 1 Wrap proposed.")
 }
 
 func TestInbox_NewestFirst(t *testing.T) {
@@ -222,7 +239,7 @@ func TestInbox_NewestFirst(t *testing.T) {
 	if err := e.s.PauseSpace(e.ctx, 2, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 hello", "paused 2 token budget of 1000000 used: 1000312 tokens")
+	e.want("reply 1 hello", "paused 2 token budget of 1000000 used: 1000312 tokens")
 }
 
 func TestInbox_DismissWaiting(t *testing.T) {
@@ -230,21 +247,21 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	e.say(1, "user", "go")
 	reply := e.say(1, "lead", "done, your call")
 	other := e.say(2, "lead", "also done")
-	e.want("waiting 2 also done", "waiting 1 done, your call")
+	e.want("reply 2 also done", "reply 1 done, your call")
 	items, _ := e.s.Inbox(e.ctx)
 	if items[1].MessageID == nil || *items[1].MessageID != reply.ID {
 		t.Fatalf("item = %+v, want message id %d", items[1], reply.ID)
 	}
 
-	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "waiting", SpaceID: 1, MessageID: &reply.ID}); err != nil {
+	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "reply", SpaceID: 1, MessageID: &reply.ID}); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 2 also done")
+	e.want("reply 2 also done")
 
 	e.say(1, "lead", "one more thing")
-	e.want("waiting 1 one more thing", "waiting 2 also done")
+	e.want("reply 1 one more thing", "reply 2 also done")
 
-	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "waiting", SpaceID: 1, MessageID: &other.ID}); !errors.Is(err, ErrNotFound) {
-		t.Errorf("DismissInbox(waiting, message of another Space) = %v, want ErrNotFound", err)
+	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "reply", SpaceID: 1, MessageID: &other.ID}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DismissInbox(reply, message of another Space) = %v, want ErrNotFound", err)
 	}
 }
