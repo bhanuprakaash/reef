@@ -92,7 +92,11 @@ type (
 		Subtype   string `json:"subtype"`
 		SessionID string `json:"session_id"`
 		Model     string `json:"model"` // system/init
-		Event     struct {
+		MCP       []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"mcp_servers"` // system/init
+		Event struct {
 			Type  string `json:"type"`
 			Delta struct {
 				Type string `json:"type"`
@@ -441,7 +445,16 @@ func parseLine(line []byte, st *state) []agent.Event {
 	case "system":
 		if l.Subtype == "init" {
 			st.unprompted = true
-			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
+			evs := []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
+			for _, m := range l.MCP {
+				switch m.Status {
+				case "connected":
+					evs = append(evs, agent.Event{Kind: agent.KindMCP, MCPServer: m.Name, Text: agent.MCPConnected})
+				case "needs-auth":
+					evs = append(evs, agent.Event{Kind: agent.KindMCP, MCPServer: m.Name, Text: agent.MCPNeedsAuth})
+				}
+			}
+			return evs
 		}
 		if l.Subtype == "compact_boundary" {
 			return []agent.Event{{Kind: agent.KindCompacted}}

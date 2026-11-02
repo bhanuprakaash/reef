@@ -222,6 +222,45 @@ func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
 	}
 }
 
+func TestRunner_BackendReportSetsConnectionSignIn(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ids []int64
+	for _, name := range []string{"slack", "gitlab"} {
+		c, err := st.CreateConnection(ctx, store.Connection{Name: name, URL: "https://" + name + ".example/mcp"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, c.ID)
+	}
+	sa := &scriptAgent{events: make(chan agent.Event, 8), script: []agent.Event{
+		{Kind: agent.KindSession, SessionID: "s1"},
+		{Kind: agent.KindMCP, MCPServer: "slack", Text: agent.MCPNeedsAuth},
+		{Kind: agent.KindMCP, MCPServer: "gitlab", Text: agent.MCPConnected},
+		{Kind: agent.KindMCP, MCPServer: "reef", Text: agent.MCPConnected},
+		{Kind: agent.KindTurnEnd},
+	}}
+	r := newTestRunner(t, st, sa, ch.ID, "architect", "codex", "")
+	r.Connections = map[string]int64{"slack": ids[0], "gitlab": ids[1]}
+	if err := sendAs(ctx, st, ch.ID, r.Run, "hi", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.ConnectionSignIns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[ids[0]][0].Backend != "codex" || got[ids[0]][0].State != store.NeedsSignIn ||
+		got[ids[1]][0].State != store.SignedIn {
+		t.Errorf("sign-ins = %+v, want slack needs_sign_in and gitlab signed_in for codex, nothing for reef", got)
+	}
+}
+
 func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 	script := func(tool string, isError bool, before string, work bool, after string) []agent.Event {
 		evs := []agent.Event{

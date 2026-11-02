@@ -176,6 +176,71 @@ func (s *Store) DeleteConnection(ctx context.Context, id int64) error {
 	return tx.Commit()
 }
 
+// Sign-in states of a connection for one backend.
+const (
+	SignedIn     = "signed_in"
+	NeedsSignIn  = "needs_sign_in"
+	SignInFailed = "failed"
+)
+
+// SignIn is what Reef last learned about whether a backend can use a connection's server. Detail
+// is the backend's last output line when the state is SignInFailed.
+type SignIn struct {
+	Backend   string    `json:"backend"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// SetConnectionSignIn records the state of the connection for the backend. A connection that is
+// gone is left alone.
+func (s *Store) SetConnectionSignIn(ctx context.Context, id int64, backend, state, detail string) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO connection_sign_in (connection_id, backend, state, detail, updated_at) "+
+			"SELECT id, ?, ?, ?, ? FROM connection WHERE id = ? "+
+			"ON CONFLICT (connection_id, backend) DO UPDATE SET "+
+			"state = excluded.state, detail = excluded.detail, updated_at = excluded.updated_at",
+		backend, state, detail, time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("set sign-in of connection %d: %w", id, err)
+	}
+	return nil
+}
+
+// ConnectionSignIns returns every connection's sign-ins by connection id, each ordered by backend.
+func (s *Store) ConnectionSignIns(ctx context.Context) (map[int64][]SignIn, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT connection_id, backend, state, detail, updated_at FROM connection_sign_in "+
+			"ORDER BY connection_id, backend")
+	if err != nil {
+		return nil, fmt.Errorf("list sign-ins: %w", err)
+	}
+	type row struct {
+		id int64
+		SignIn
+	}
+	all, err := scanAll(rows, func(r interface{ Scan(...any) error }) (row, error) {
+		var v row
+		var updated string
+		if err := r.Scan(&v.id, &v.Backend, &v.State, &v.Detail, &updated); err != nil {
+			return row{}, err
+		}
+		var err error
+		if v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
+			return row{}, fmt.Errorf("sign-in of connection %d: bad updated_at: %w", v.id, err)
+		}
+		return v, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64][]SignIn{}
+	for _, v := range all {
+		out[v.id] = append(out[v.id], v.SignIn)
+	}
+	return out, nil
+}
+
 // checkConnections fails with ErrInvalid when an id names no connection.
 func (s *Store) checkConnections(ctx context.Context, ids []int64) error {
 	all, err := s.Connections(ctx)

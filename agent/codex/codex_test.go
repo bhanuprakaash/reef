@@ -22,6 +22,20 @@ func TestMessage_event(t *testing.T) {
 		want *agent.Event // nil: skipped
 	}{
 		{
+			name: "server not logged in",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"threadId":"t","name":"vendor","status":"failed","error":"The vendor MCP server is not logged in. Run ` + "`codex mcp login vendor`" + `.","failureReason":null}}`,
+			want: &agent.Event{Kind: agent.KindMCP, MCPServer: "vendor", Text: agent.MCPNeedsAuth},
+		},
+		{
+			name: "server signed in expired",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"name":"vendor","status":"failed","error":"token expired","failureReason":"reauthenticationRequired"}}`,
+			want: &agent.Event{Kind: agent.KindMCP, MCPServer: "vendor", Text: agent.MCPNeedsAuth},
+		},
+		{
+			name: "server failing for another reason is skipped",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"name":"vendor","status":"failed","error":"connection refused","failureReason":null}}`,
+		},
+		{
 			name: "text delta",
 			give: `{"method":"item/agentMessage/delta","params":{"threadId":"01a133d7","turnId":"01a133d7","itemId":"msg_057e","delta":"I"}}`,
 			want: &agent.Event{Kind: agent.KindText, Text: "I"},
@@ -141,8 +155,9 @@ func TestMessage_event(t *testing.T) {
 			give: `{"method":"item/completed","params":{"item":{"type":"reasoning","id":"rs_02b4","summary":[],"content":[]}}}`,
 		},
 		{
-			name: "mcp status",
+			name: "mcp status ready",
 			give: `{"method":"mcpServer/startupStatus/updated","params":{"threadId":"01a133d1","name":"codex_apps","status":"ready","error":null}}`,
+			want: &agent.Event{Kind: agent.KindMCP, MCPServer: "codex_apps", Text: agent.MCPConnected},
 		},
 		{
 			name: "response",

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -219,5 +220,24 @@ func TestLoginConnection(t *testing.T) {
 				t.Errorf("logins = %v, want %v", calls, tt.calls)
 			}
 		})
+	}
+	status, body := do(t, http.MethodGet, ts.URL+"/connections", "")
+	var list []struct {
+		Name   string
+		SignIn []store.SignIn
+	}
+	if err := json.Unmarshal([]byte(body), &list); err != nil || status != 200 {
+		t.Fatalf("GET /connections = %d %s, %v", status, body, err)
+	}
+	var got []string
+	for _, c := range list {
+		got = append(got, c.Name+":")
+		for _, si := range c.SignIn {
+			got = append(got, si.Backend+" "+si.State+" "+si.Detail)
+		}
+	}
+	want := []string{"keyed:", "local:", "lonely:", "claude signed_in ", "slack:", "claude signed_in ", "codex failed not registered"}
+	if !slices.Equal(got, want) {
+		t.Errorf("signIn by connection = %q, want %q", got, want)
 	}
 }

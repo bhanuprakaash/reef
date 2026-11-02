@@ -56,6 +56,7 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 {"kind":"turn_end","costUsd":1.1,"sessionUsage":{"inputTokens":1184,"outputTokens":534,"cacheReadTokens":91382,"cacheWriteTokens":31940}}
 {"kind":"background","text":"The background command finished with exit code 0."}
 {"kind":"compacted"}
+{"kind":"mcp","mcpServer":"slack","text":"needs_auth"}
 {"kind":"error","text":"No conversation found with session ID: ..."}
 ```
 
@@ -268,6 +269,7 @@ and `agentMessage`.
 | `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification`, carries a cost and `sessionUsage`. `total_cost_usd` is the running cost of the whole session, not the turn, and a `--resume` process continues the earlier total instead of starting from zero. The adapter sends it as it is, so it does not depend on where a process starts; the Space `Runner` stores the turn's own cost, that total minus the total the session's previous turn reported (kept on the turn as `session_cost_usd`; for a session stored before that, its largest cost plus the costs stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share). A background `task-notification` result sends no cost: the next turn's total holds it. | `turn/completed` with any status but `failed`; carries no cost |
 | `background` | The text of a turn claude ran by itself for a finished background task (no echoed prompt), sent at its `result` with `origin` `task-notification`. None when the turn wrote no text. | Never. |
 | `compacted` | `system` line with subtype `compact_boundary`, see Compaction above. | `item/completed` of an item of type `contextCompaction`. |
+| `mcp` | `system`/`init` line, one event after `session` for each entry of `mcp_servers` whose `status` is `connected` (`text` `connected`) or `needs-auth` (`needs_auth`); `mcpServer` is the entry's `name`. Other statuses send none. | `mcpServer/startupStatus/updated` with `status` `ready` (`connected`), or `failed` with `failureReason` `reauthenticationRequired` or an `error` saying the server is "not logged in" (`needs_auth`); `name` is the server. Sent as codex reports it, after `session`. |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined), carries a cost and `sessionUsage` the same way as `turn_end`. Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 
 `parentToolId`: Claude sets it from `parent_tool_use_id` (null on top-level lines) on
