@@ -483,9 +483,9 @@ held and stays after it is answered; `GET /spaces/{id}/prompts` lists the ones t
 | `tool` | string | `Bash`, `Read`, `Edit`, ... |
 | `input` | object | the call's arguments as the agent sent them, such as `{"command":"gzip -l /x"}` |
 | `rule` | string | the allow rule the backend suggests for the call, such as `Bash(gzip -l /x)`; `""` when it suggests none |
-| `path` | string | the path the call reaches outside the Bot's folders; `""` when none |
+| `path` | string | the path claude names as outside the Bot's folders (`blocked_path`); claude sends none for `Read`, so it is often `""`: the call's `input` holds the file |
 | `status` | string | `waiting`, `allowed`, `denied` or `expired` |
-| `answer` | string | `""` while waiting, then `once`, `always` or `deny` |
+| `answer` | string | `""` while waiting, then `once`, `always` or `deny`; a prompt that expired or was ended by a new message or Stop also stores `deny` |
 | `reason` | string | why it was denied: `denied by the user`, `no answer from the user`, `stopped`, `reef restarted` or the new-message text |
 | `granted` | bool | set when the user allowed a prompt after it expired: the Bot's next prompt for the same `rule` in the Space is allowed once without asking |
 | `createdAt`, `answeredAt` | string, string? | |

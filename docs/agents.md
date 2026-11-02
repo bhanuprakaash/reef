@@ -224,6 +224,9 @@ writes one `control_response` line on stdin, under the same lock as `Send`:
 Codex has no equivalent: `approvalPolicy` is always `never`, so it never asks and `Answer` does
 not exist on its adapter.
 
+How a prompt reaches the user (the card, the wait, the REST calls) is in
+[server.md](server.md#permission-prompts).
+
 ## Codex
 
 Transport is `codex app-server` (JSON-RPC over stdio), not `codex exec --json`.
