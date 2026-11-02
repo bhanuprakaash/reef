@@ -99,16 +99,23 @@ func TestProjectIcon(t *testing.T) {
 		t.Errorf("new project icon, colour = %q, %q, want both empty", p.Icon, p.Colour)
 	}
 
-	p.Icon, p.Colour = "🚀", "#2F72C0"
+	p.Icon, p.Colour = "rocket", "#2F72C0"
 	if _, err := s.UpdateProject(ctx, p); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Project(ctx, p.ID)
-	if err != nil || got.Icon != "🚀" || got.Colour != "#2F72C0" {
-		t.Errorf("Project = %q, %q, %v, want 🚀, #2F72C0", got.Icon, got.Colour, err)
+	if err != nil || got.Icon != "rocket" || got.Colour != "#2F72C0" {
+		t.Errorf("Project = %q, %q, %v, want rocket, #2F72C0", got.Icon, got.Colour, err)
 	}
 
-	p.Colour = "blue; x"
+	for _, icon := range []string{"🚀", "nope"} {
+		p.Icon = icon
+		if _, err := s.UpdateProject(ctx, p); !errors.Is(err, ErrInvalid) {
+			t.Errorf("UpdateProject with icon %q error = %v, want ErrInvalid", icon, err)
+		}
+	}
+
+	p.Icon, p.Colour = "rocket", "blue; x"
 	if _, err := s.UpdateProject(ctx, p); !errors.Is(err, ErrInvalid) {
 		t.Errorf("UpdateProject with colour %q error = %v, want ErrInvalid", p.Colour, err)
 	}

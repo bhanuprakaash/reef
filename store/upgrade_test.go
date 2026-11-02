@@ -34,8 +34,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 110 {
-		t.Errorf("user_version = %d, want 110", version)
+	if version != 111 {
+		t.Errorf("user_version = %d, want 111", version)
 	}
 
 	at := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.UTC)
@@ -109,8 +109,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 110 {
-		t.Errorf("user_version = %d, want 110", version)
+	if version != 111 {
+		t.Errorf("user_version = %d, want 111", version)
 	}
 	var approvals int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM approval").Scan(&approvals); err != nil {
@@ -234,5 +234,47 @@ func TestOpen_UpgradeRemovesTeamsWithoutRoles(t *testing.T) {
 	}
 	if spaces != 0 || messages != 0 {
 		t.Errorf("spaces, messages after the upgrade = %d, %d, want 0, 0", spaces, messages)
+	}
+}
+
+func TestOpen_UpgradeClearsEmojiProjectIcons(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"INSERT INTO project (name, path, icon, created_at) VALUES ('shop', '/work/shop', '🚀', '2026-01-02T03:04:05Z')",
+		"INSERT INTO project (name, path, icon, created_at) VALUES ('blog', '/work/blog', 'rocket', '2026-01-02T03:04:05Z')",
+		"PRAGMA user_version = 110",
+	} {
+		if _, err := s.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	var icons []string
+	rows, err := s.db.Query("SELECT icon FROM project ORDER BY id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var icon string
+		if err := rows.Scan(&icon); err != nil {
+			t.Fatal(err)
+		}
+		icons = append(icons, icon)
+	}
+	if want := []string{"", "rocket"}; !reflect.DeepEqual(icons, want) {
+		t.Errorf("icons = %q, want %q", icons, want)
 	}
 }

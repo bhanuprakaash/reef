@@ -94,7 +94,7 @@ function Mention({ children }: { children: ReactNode }) {
     <Hovercard content={bot.card}>
       {(trigger) => (
         <span
-          className="mention inline-flex items-center gap-[0.3em] whitespace-nowrap rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mention whitespace-nowrap rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={
             {
               '--bot': `color-mix(in oklab, ${bodyColour(bot.look)} 60%, var(--color-fg))`,
@@ -103,7 +103,9 @@ function Mention({ children }: { children: ReactNode }) {
           tabIndex={0}
           {...trigger}
         >
-          <Creature look={bot.look} size={18} />
+          <span className="mr-[0.3em] inline-block align-[-0.3em]">
+            <Creature look={bot.look} size={18} />
+          </span>
           {name.charAt(0).toUpperCase() + name.slice(1)}
         </span>
       )}

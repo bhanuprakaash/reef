@@ -1,3 +1,4 @@
+import { projectIconNames } from '@/components/project-icons';
 import type { Project } from '@/types/api';
 
 export const palette = [
@@ -12,6 +13,7 @@ export const palette = [
 ];
 
 export const projectTile = (p: Pick<Project, 'id' | 'name' | 'icon' | 'colour'>) => ({
-  letter: p.icon || (p.name.trim()[0]?.toUpperCase() ?? '?'),
+  icon: projectIconNames.includes(p.icon) ? p.icon : undefined,
+  letter: p.name.trim()[0]?.toUpperCase() ?? '?',
   colour: p.colour || palette[p.id % palette.length],
 });

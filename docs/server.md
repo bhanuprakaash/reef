@@ -76,8 +76,8 @@ logged in and on `PATH`.
   on the section label collapses the section (the choice is kept in the browser, and the count shows
   while it is collapsed). Each section lists at most eight one-line rows and a See all N link to its
   full list: all pinned rows, then the newest others. The switcher shows the project as a coloured
-  tile, its emoji or else its initial (All projects is a grid tile), and lists All projects first and then each project; the choice is a
-  filter only. The switcher's Change icon item and the tile on the project page open a picker with an emoji grid, a Letter option and eight colours; each choice saves at once with `PUT /projects/{id}`. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
+  tile, its icon or else its initial (All projects is a grid tile), and lists All projects first and then each project; the choice is a
+  filter only. The switcher's Change icon item and the tile on the project page open a picker with a grid of 28 line icons, a Letter option and eight colours; each choice saves at once with `PUT /projects/{id}`. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
   associated with that project; under All projects it reads `GET /spaces`. Switching never changes a
   Space's projects, context or sessions, and starts no chat. New Space and New conversation under
   All projects send `POST /spaces` with no `projectId`; New Work item needs a project (its + is
@@ -241,7 +241,7 @@ Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `purpose` | string | what the Project is for, in a line; default `""` |
-| `icon` | string | an emoji shown on the Project's tile; default `""`, which shows the first letter of the name (migration 110 [`110_project_icon.sql`](../store/migrations/110_project_icon.sql)) |
+| `icon` | string | an icon name from the picker set, drawn on the Project's tile; default `""`, which shows the first letter of the name, as does a name outside the set (migration 110 [`110_project_icon.sql`](../store/migrations/110_project_icon.sql); migration 111 [`111_project_icon_names.sql`](../store/migrations/111_project_icon_names.sql) clears an icon outside the set) |
 | `colour` | string | the tile colour as `#rrggbb`; default `""`, which picks one of the window's eight preset colours by id. The window offers only those eight |
 | `createdAt` | string | |
 
@@ -657,9 +657,9 @@ tool calls.
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /status` | | 200 `{"running":N}`, N the Spaces whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
-| `POST /projects` | `name`, `path`, `purpose` (optional, plain words), `icon` and `colour` (optional) | 201 | 400 missing field, a `path` that is not an absolute path to an existing folder, or a `colour` that is not one of the eight picker colours |
+| `POST /projects` | `name`, `path`, `purpose` (optional, plain words), `icon` and `colour` (optional) | 201 | 400 missing field, a `path` that is not an absolute path to an existing folder, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch), `icon` and `colour` (optional; empty clears them) | 200 | 400 (same `path` rule, a `baseBranch` that is not a branch name, or a `colour` that is not one of the eight picker colours), 404 |
+| `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch), `icon` and `colour` (optional; empty clears them) | 200 | 400 (same `path` rule, a `baseBranch` that is not a branch name, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours), 404 |
 | `DELETE /projects/{id}` | | 204; its own Work items are deleted. Every workspace directory of the Project and its own items, and checkpoint refs taken there, are removed; branches are kept. A Space with no Work item stays without this Project. A foreign Work item that targets this Project is kept; if it has an active Space, that Space is paused and the item moves to `needs_you` with a note. Its target and workspace rows stay as history: the target name reads `deleted project N`, and the workspace row has state `removed` with note `project <name> was deleted`, although its directory is removed. | 404, 409 a workspace has uncommitted changes or a targeted item is running (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
