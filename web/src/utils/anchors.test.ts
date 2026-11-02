@@ -10,7 +10,7 @@ describe('itemPath', () => {
       { ...base, kind: 'failed', group: 'needs_you', turnId: 12 },
       { ...base, kind: 'paused', group: 'needs_you' },
       { ...base, kind: 'held', group: 'needs_you' },
-      { ...base, kind: 'waiting', group: 'fyi' },
+      { ...base, kind: 'reply', group: 'fyi' },
     ];
 
     expect(items.map(itemPath)).toEqual([
@@ -25,7 +25,7 @@ describe('itemPath', () => {
     const review: InboxItem = {
       ...base,
       kind: 'review',
-      group: 'review',
+      group: 'needs_you',
       spaceId: 0,
       workItemId: 7,
     };

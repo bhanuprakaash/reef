@@ -6,13 +6,14 @@ import { useNotificationPermission } from '@/lib/use-notification-permission';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { PendingMemoryList } from '@/modules/inbox/components/pending-memory';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
+import { useDismissItem } from '@/modules/inbox/api/dismiss-item';
+import { useSeenItems } from '@/modules/inbox/hooks/use-seen-items';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import type { InboxItem } from '@/types/api';
 
 const groups: { group: InboxItem['group']; title: string; hint: string }[] = [
   { group: 'needs_you', title: 'Needs you', hint: 'Work is stopped until you act.' },
-  { group: 'review', title: 'Review', hint: 'Done by the Bots, waiting for your check.' },
-  { group: 'fyi', title: 'FYI', hint: 'Nothing is blocked. Dismiss what you have seen.' },
+  { group: 'fyi', title: 'FYI', hint: 'Nothing is blocked.' },
 ];
 
 export function InboxList() {
@@ -20,7 +21,11 @@ export function InboxList() {
   const spaces = useSpaces();
   const pendingMemory = usePendingMemory();
   const { permission, request } = useNotificationPermission();
+  const { seen, markSeen } = useSeenItems();
+  const dismiss = useDismissItem();
   const items = inbox.data ?? [];
+  const needsYou = items.filter((i) => i.group === 'needs_you').length;
+  const seenFyi = items.filter((i) => i.group === 'fyi' && seen.includes(itemKey(i)));
 
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-7 py-6">
@@ -29,7 +34,7 @@ export function InboxList() {
         {items.length > 0 && (
           <p className="mt-1.5 text-muted">
             {items.length === 1 ? '1 thing is waiting.' : `${items.length} things are waiting.`}{' '}
-            Everything else is moving on its own.
+            {needsYou === 1 ? '1 needs you.' : `${needsYou} need you.`}
           </p>
         )}
         {permission === 'default' && (
@@ -54,19 +59,33 @@ export function InboxList() {
         const shown = items.filter((i) => i.group === group);
         if (shown.length === 0) return null;
         return (
-          <section key={group} aria-labelledby={`inbox-${group}`} className="flex flex-col gap-3">
-            <div>
+          <section key={group} aria-labelledby={`inbox-${group}`} className="flex flex-col gap-1">
+            <div className="flex items-baseline gap-2.5">
               <h2 id={`inbox-${group}`} className="text-[15px]">
                 {title} <span className="font-normal text-muted">· {shown.length}</span>
               </h2>
               <p className="text-[13px] text-muted">{hint}</p>
+              {group === 'fyi' && seenFyi.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  disabled={dismiss.isPending}
+                  onClick={() => seenFyi.forEach((i) => dismiss.mutate(i))}
+                >
+                  Dismiss all seen ({seenFyi.length})
+                </Button>
+              )}
             </div>
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col border-t border-hairline">
               {shown.map((item) => (
                 <InboxRow
                   key={itemKey(item)}
                   item={item}
                   space={spaces.data?.find((c) => c.id === item.spaceId)}
+                  seen={seen.includes(itemKey(item))}
+                  onSeen={() => markSeen(itemKey(item))}
                 />
               ))}
             </ul>

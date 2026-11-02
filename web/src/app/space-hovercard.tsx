@@ -14,7 +14,7 @@ export function spaceState(
   if (space.paused !== '') return { status: 'paused', label: `Paused: ${space.paused}` };
   if (waiting.includes('failed')) return { status: 'failed', label: 'A turn failed' };
   if (working.length > 0) return { status: 'working', label: 'Working' };
-  if (waiting.includes('waiting')) return { status: 'needs-you', label: 'Waiting for you' };
+  if (waiting.includes('question')) return { status: 'needs-you', label: 'Waiting for you' };
   return { status: 'asleep', label: 'Idle' };
 }
 
