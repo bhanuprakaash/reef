@@ -38,7 +38,9 @@ export function PromptCards({ spaceId, roles }: { spaceId: number; roles: Role[]
                   <code className="block break-all font-mono text-[13px] text-soft">{target}</code>
                 )}
                 {p.status === 'expired' && (
-                  <p className="text-[13px] text-muted">No answer in time — denied</p>
+                  <p className="text-[13px] text-muted">
+                    Denied: {p.reason || 'no answer from the user'}
+                  </p>
                 )}
               </div>
               {allow.map(([value, label]) => (

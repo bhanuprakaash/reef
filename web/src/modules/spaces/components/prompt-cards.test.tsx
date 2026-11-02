@@ -48,7 +48,7 @@ describe('PromptCards', () => {
     expect(markup).toContain('Allow once');
     expect(markup).toContain('Allow always');
     expect(markup).toContain('Deny');
-    expect(markup).not.toContain('No answer in time');
+    expect(markup).not.toContain('Denied:');
   });
 
   it('posts the answer each button stands for', () => {
@@ -78,7 +78,7 @@ describe('PromptCards', () => {
 
     const markup = render();
 
-    expect(markup).toContain('No answer in time — denied');
+    expect(markup).toContain('Denied: no answer from the user');
     expect(markup).toContain('Allow once');
     expect(markup).toContain('Allow always');
     expect(markup).not.toContain('Deny');
