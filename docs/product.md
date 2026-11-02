@@ -337,6 +337,7 @@ Numbers are never reused: code and docs cite them. A row marked Replaced or Amen
 | 155 | Reef has no users yet: develop the new model against a fresh database, without a legacy Team migration or compatibility program. This clean break does not waive preservation of histories created by the new runtime, session replacement, Project deletion or workspace cleanup | Avoid preserving an obsolete model while protecting future user history. |
 | 156 | Failed CI wakes the active Space coordinator by Bot identity. Approved-owner routing belongs to the assignment execution work. Supersedes the named-developer recipient in 48 | A global Bot name is not a role alias. |
 | 157 | Approved work whose repositories are ready starts at once; there is no concurrency limit, so Queued holds approved work only while admission waits (no ready repository, or owner missing); order, reorder and review-feedback-first apply among waiting items | Ordering without a limit would only delay ready work. |
+| 158 | A turn that posted with `post_to_space` posts the text it wrote after its last successful post as one more message; the text before it stays on the turn. A turn whose post is its answer ends with the post and has nothing more posted. Amends the rule that a posted turn's plain reply is never posted | A Bot posts progress ("Reading the notes now."), then writes its answer as plain text; the old rule hid that answer from the Space |
 
 ## Contract checklist and implementation choices
 

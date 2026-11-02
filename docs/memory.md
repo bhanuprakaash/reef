@@ -256,7 +256,8 @@ open`. Once connected, a write, read or deadline failure instead fails with `bro
 answer: <error>`.
 
 `post_to_space` is how a bot speaks in the Space besides its reply. When a turn
-posts, its plain reply stays on the turn and is not a second message. `reef serve`
+posts, the text it wrote before its last post stays on the turn, and the text after it is
+posted as one more message (decision 158). `reef serve`
 routes the message when the poster's turn ends: every `@role` at the start of a line of the body
 (and each `@role` of an unbroken run there) wakes that bot, and a post that hands off to
 nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
@@ -327,7 +328,7 @@ compaction; later turns carry only the request and what changed.
      woke. A public message that wakes you starts with `[Space N, message N]` or `[Space N,
      message N, thread N]`; your plain reply goes where the header says (a top-level reply starts
      your own thread), and `post_to_space` takes the header's `thread` as its `parent` when there
-     is one. After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
+     is one. Only text written after the role's last `post_to_space` is posted too, so it ends with the post when that is the answer. After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
      Space since the role's last turn began, such as a rollback note (see
      [server.md](server.md#spaces-live)). The prompt does not explain them. It also asks a role
      to publish one concise outcome with `post_to_space` when a direct exchange ends with

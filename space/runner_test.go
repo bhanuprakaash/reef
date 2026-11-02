@@ -223,12 +223,13 @@ func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
 }
 
 func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
-	script := func(tool string, isError bool) []agent.Event {
+	script := func(tool string, isError bool, before, after string) []agent.Event {
 		return []agent.Event{
 			{Kind: agent.KindSession, SessionID: "s1"},
+			{Kind: agent.KindText, Text: before},
 			{Kind: agent.KindToolCall, ToolID: "t1", ToolName: tool},
 			{Kind: agent.KindToolResult, ToolID: "t1", IsError: isError},
-			{Kind: agent.KindText, Text: "plain reply"},
+			{Kind: agent.KindText, Text: after},
 			{Kind: agent.KindTurnEnd},
 		}
 	}
@@ -239,9 +240,11 @@ func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 		messages []string
 		kept     string
 	}{
-		{"posted", script(post, false), []string{"architect: posted"}, "plain reply"},
-		{"post failed", script(post, true), []string{"architect: plain reply"}, ""},
-		{"other tool", script("mcp__reef__remember", false), []string{"architect: plain reply"}, ""},
+		{"posted", script(post, false, "plain reply", ""), []string{"architect: posted"}, "plain reply"},
+		{"posted then answered", script(post, false, "Reading now.", "\n\nThe answer.\n"),
+			[]string{"architect: posted", "architect: The answer."}, "Reading now."},
+		{"post failed", script(post, true, "", "plain reply"), []string{"architect: plain reply"}, ""},
+		{"other tool", script("mcp__reef__remember", false, "", "plain reply"), []string{"architect: plain reply"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -252,7 +255,7 @@ func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.kept != "" {
+			if tc.messages[0] == "architect: posted" {
 				_, err := st.CreateMessage(ctx, store.Message{
 					SpaceID: ch.ID, Author: "architect", Body: "posted",
 				})

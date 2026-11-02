@@ -178,7 +178,7 @@ func (r *Runner) Run(
 	var reply strings.Builder
 	toolRows := map[string]int64{}
 	postCalls := map[string]bool{}
-	posted := false
+	posted, postedAt := false, 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -224,7 +224,9 @@ func (r *Runner) Run(
 				toolRows[ev.ToolID] = tc.ID
 				postCalls[ev.ToolID] = ev.ToolName == _postTool
 			case agent.KindToolResult:
-				posted = posted || (postCalls[ev.ToolID] && !ev.IsError)
+				if postCalls[ev.ToolID] && !ev.IsError {
+					posted, postedAt = true, reply.Len()
+				}
 				if id, ok := toolRows[ev.ToolID]; ok {
 					if err := r.st.SetToolCallResult(wctx, id, ev.Output); err != nil {
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
@@ -249,10 +251,18 @@ func (r *Runner) Run(
 				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if (posted && r.direct == nil) || r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil) {
-					turn.Reply = reply.String()
-				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
-					return r.abort(wctx, turn, err, err.Error(), "", parent)
+				text, keep := reply.String(), true
+				switch {
+				case r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil):
+					turn.Reply, keep = text, false
+				case posted && r.direct == nil:
+					turn.Reply, text = text[:postedAt], strings.TrimSpace(text[postedAt:])
+					keep = text != ""
+				}
+				if keep {
+					if err := r.keepReply(wctx, text, parent, _replyDone); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), "", parent)
+					}
 				}
 				turn.Status = "done"
 				if _, err := r.st.EndTurn(wctx, turn); err != nil {
