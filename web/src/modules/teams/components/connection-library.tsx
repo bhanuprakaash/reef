@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useBots } from '@/lib/api/get-bots';
 import {
   useConnections,
   useDeleteConnection,
@@ -54,6 +55,7 @@ function ConnectionForm({ initial, onDone }: { initial?: Connection; onDone: () 
   return (
     <form
       className="flex flex-col gap-2 py-3"
+      aria-label={initial ? `Edit ${initial.name}` : 'Add connection'}
       onSubmit={(e) => {
         e.preventDefault();
         submit();
@@ -99,6 +101,11 @@ function ConnectionForm({ initial, onDone }: { initial?: Connection; onDone: () 
             value={env}
             onChange={(e) => setEnv(e.target.value)}
           />
+          {initial && (
+            <p className="text-xs text-muted">
+              Saved secrets show as ****; leave them to keep the stored value.
+            </p>
+          )}
         </>
       ) : (
         <TextField
@@ -113,18 +120,16 @@ function ConnectionForm({ initial, onDone }: { initial?: Connection; onDone: () 
         <Button type="submit" variant="primary" disabled={!ready} loading={save.isPending}>
           {initial ? 'Save connection' : 'Add connection'}
         </Button>
-        {initial && (
-          <Button type="button" onClick={onDone}>
-            Cancel
-          </Button>
-        )}
+        <Button type="button" variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
         {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
       </div>
     </form>
   );
 }
 
-function ConnectionRow({ connection }: { connection: Connection }) {
+function ConnectionRow({ connection, used }: { connection: Connection; used: number }) {
   const [editing, setEditing] = useState(false);
   const remove = useDeleteConnection();
   if (editing) {
@@ -136,21 +141,39 @@ function ConnectionRow({ connection }: { connection: Connection }) {
   }
   return (
     <li className="py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[13px]">{connection.name}</span>
-        <span className="min-w-0 flex-1 truncate text-xs text-muted">
-          {connection.url ? 'HTTP' : 'Local process'} · {connectionLabel(connection)}
+      <div className="flex items-center gap-3">
+        <span className="size-2 shrink-0 rounded-full bg-done" aria-hidden="true" />
+        <span className="min-w-0 flex-1">
+          <span className="block font-mono text-[13px]">{connection.name}</span>
+          <span className="block truncate text-xs text-muted">
+            {connection.url ? 'HTTP' : 'Local process'} · {connectionLabel(connection)}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs text-muted">
+          {used} {used === 1 ? 'Bot' : 'Bots'}
         </span>
         <Button size="sm" aria-label={`Edit ${connection.name}`} onClick={() => setEditing(true)}>
           Edit
         </Button>
         <Button
-          size="sm"
+          size="iconSm"
+          variant="ghost"
           aria-label={`Delete ${connection.name}`}
           loading={remove.isPending}
           onClick={() => remove.mutate(connection.id)}
         >
-          Delete
+          <svg
+            className="size-3.5"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+          </svg>
         </Button>
       </div>
       {remove.isError && <p className="mt-1 text-sm text-danger">{remove.error.message}</p>}
@@ -160,25 +183,31 @@ function ConnectionRow({ connection }: { connection: Connection }) {
 
 export function ConnectionLibrary() {
   const connections = useConnections();
+  const bots = useBots();
+  const [adding, setAdding] = useState(false);
   return (
-    <section aria-label="Connections" className="flex flex-col gap-3">
-      <div>
-        <h2 className="text-[15px]">Connections</h2>
-        <p className="mt-1 text-[13px] text-muted">
-          Tools a Bot can use, from a local process or an HTTP server. A Bot only gets the ones you
-          select for it. A connection listens for nothing and sends nothing on its own. Changes
-          reach new chats and chats you Refresh. Saved secrets show as ****; leave them to keep the
-          stored value.
-        </p>
-      </div>
+    <div className="flex flex-col gap-3">
       {connections.isError && <p className="text-sm text-danger">{connections.error.message}</p>}
       {connections.data?.length === 0 && <p className="text-sm text-muted">No connections yet.</p>}
       <ul className="flex flex-col divide-y divide-hairline">
         {connections.data?.map((c) => (
-          <ConnectionRow key={c.id} connection={c} />
+          <ConnectionRow
+            key={c.id}
+            connection={c}
+            used={bots.data?.filter((b) => b.connections.includes(c.id)).length ?? 0}
+          />
         ))}
       </ul>
-      <ConnectionForm key={connections.data?.length ?? 0} onDone={() => undefined} />
-    </section>
+      {adding ? (
+        <ConnectionForm onDone={() => setAdding(false)} />
+      ) : (
+        <div>
+          <Button size="sm" onClick={() => setAdding(true)}>
+            Add connection
+          </Button>
+        </div>
+      )}
+      <p className="text-xs text-muted">Changes reach new chats and chats you Refresh.</p>
+    </div>
   );
 }

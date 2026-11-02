@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { connectionLabel } from '@/modules/teams/utils/connections';
 import type { Connection } from '@/types/api';
 import { Toggle } from '@/components/toggle';
@@ -17,7 +18,13 @@ export function ConnectionPicker({ label, selected, available, onChange }: Props
         <span className="text-xs text-muted">{selected.length} selected</span>
       </div>
       {available?.length === 0 && (
-        <p className="text-xs text-muted">Add connections on the Bots page.</p>
+        <p className="text-xs text-muted">
+          Add connections in{' '}
+          <Link to="/settings?section=connections" className="underline">
+            Settings
+          </Link>
+          .
+        </p>
       )}
       <div>
         {available?.map((c) => (

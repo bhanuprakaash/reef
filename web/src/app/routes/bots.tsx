@@ -8,8 +8,6 @@ import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { NewBotDialog } from '@/modules/teams/components/new-bot-dialog';
-import { ConnectionLibrary } from '@/modules/teams/components/connection-library';
-import { SkillLibrary } from '@/modules/teams/components/skill-library';
 import { RoleRow } from '@/modules/teams/components/role-row';
 import { BotPanel } from '@/modules/teams/components/bot-panel';
 import { Button } from '@/components/button';
@@ -64,8 +62,6 @@ export function BotsPage() {
           />
         ))}
       </section>
-      <ConnectionLibrary />
-      <SkillLibrary />
       {current && (
         <BotPanel
           key={current.id}

@@ -718,6 +718,16 @@ async function phone() {
   await shot('settings');
   const settingsScroll = await overflow();
   check(settingsScroll.page <= 0 && settingsScroll.main <= 0, 'settings has no horizontal scroll at 390 px', `page ${settingsScroll.page}, main ${settingsScroll.main}`);
+  const settingsNav = main.getByRole('navigation', { name: 'Settings sections' });
+  await settingsNav.getByRole('button', { name: /^Skills/ }).click();
+  await main.getByLabel('Skill list').waitFor();
+  check(!(await settingsNav.isVisible()), 'on a phone a Settings section opens on its own');
+  await shot('settings-skills');
+  const skillsScroll = await overflow();
+  check(skillsScroll.page <= 0 && skillsScroll.main <= 0, 'Settings Skills has no horizontal scroll at 390 px', `page ${skillsScroll.page}, main ${skillsScroll.main}`);
+  await main.getByRole('button', { name: '‹ Settings' }).click();
+  await settingsNav.waitFor();
+  check(await settingsNav.isVisible(), 'the back link returns to the Settings list');
 
   const noScroll = async (step) => {
     const o = await overflow();
@@ -1908,8 +1918,8 @@ async function skills() {
   const library = async () => getJson('/skills/library');
   await addProject();
   const lead = (await getJson('/bots')).find((b) => b.name === 'lead');
-  await page.goto(`${base}/bots?bot=${lead.id}`);
-  const lib = main.getByRole('region', { name: 'Skills library' });
+  await page.goto(`${base}/settings?section=skills`);
+  const lib = main.getByRole('region', { name: 'Skills' });
   await lib.getByRole('button', { name: 'New skill' }).click();
   const form = lib.getByRole('form', { name: 'New skill' });
   await form.getByLabel('Skill name').fill('editor-skill');
@@ -1922,7 +1932,6 @@ async function skills() {
   await lib.getByRole('button', { name: 'Edit editor-skill' }).waitFor();
   let made = (await library()).find((s) => s.name === 'editor-skill');
   check(made?.version === 1 && made.sourceKind === 'reef', 'a skill written in the editor is saved at version 1', JSON.stringify(made));
-  await lib.getByRole('button', { name: 'View files of editor-skill' }).click();
   await lib.locator('summary', { hasText: 'notes/a.md' }).click();
   check((await lib.getByText('EDITOR-NOTE-1').count()) === 1, 'the supporting file contents can be inspected');
   await lib.getByRole('button', { name: 'Edit editor-skill' }).click();
@@ -1950,7 +1959,7 @@ async function skills() {
   await send('DRAFT A SKILL');
   await card.waitFor({ timeout: 60000 });
   check((await card.getByRole('button', { name: 'Save as new version triage' }).count()) === 1, 'a draft named like a library skill offers Save as new version');
-  await page.goto(`${base}/bots`);
+  await page.goto(`${base}/settings?section=skills`);
   await lib.getByRole('heading', { name: 'Drafts' }).waitFor();
   await shot('drafts-in-library');
   await lib.getByRole('button', { name: 'Reject triage' }).click();
@@ -1974,7 +1983,8 @@ async function skills() {
   const imp = await (await post('/skills/import', { path: imported })).json();
   const runSh = (await getJson(`/skills/${imp.id}`)).files.find((f) => f.path === 'scripts/run.sh');
   check(runSh && (await (await post(`/skills/${imp.id}/update`, {})).json()).version === 2, 'importing a folder keeps the execute bit and the REST update works', JSON.stringify(runSh));
-  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await page.goto(`${base}/settings?section=skills`);
+  await lib.getByLabel('Skill list').getByRole('button', { name: /^imported-skill/ }).click();
   await lib.getByRole('button', { name: 'Update imported-skill' }).click();
   await page.waitForFunction(async (id) => (await (await fetch(`/skills/library`)).json()).find((s) => s.id === id).version === 3, imp.id);
   check(true, 'the Update button in the window saves the next version (no 415)');
@@ -2114,19 +2124,44 @@ async function workshop() {
 
   await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
-  await skills.getByRole('button', { name: 'Claude Code' }).click();
-  await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
-  const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
+  const skillList = skills.getByLabel('Skill list');
+  await skills.getByRole('button', { name: /^Claude Code/ }).click();
+  await skillList.getByRole('button', { name: /workshop-skill/ }).waitFor();
+  const claudeGroup = await skillList.innerText();
+  await page.waitForTimeout(500);
   await shot('settings-skills');
-  await skills.getByRole('button', { name: 'Codex' }).click();
-  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
+  await skills.getByRole('button', { name: /^Codex/ }).click();
+  const codexGroup = await skillList.innerText();
   check(claudeGroup.includes('workshop-skill') && claudeGroup.includes('Picked in the workshop scenario.'), 'Settings lists the project\'s Claude skill with its description', claudeGroup.replace(/\s+/g, ' ').slice(0, 160));
   check(!codexGroup.includes('workshop-skill'), 'Settings keeps the Claude skill out of the Codex group', codexGroup.replace(/\s+/g, ' ').slice(0, 160));
-  await skills.getByRole('button', { name: 'Claude Code' }).click();
+  await skills.getByRole('button', { name: /^Claude Code/ }).click();
   await skills.getByLabel('Filter skills').fill('workshop');
-  const filtered = await skills.getByRole('group', { name: 'Claude Code' }).getByRole('listitem').allInnerTexts();
+  const filtered = await skillList.getByRole('listitem').allInnerTexts();
   await shot('settings-skills-filter');
   check(filtered.length === 1 && filtered[0].includes('workshop-skill'), 'the skills filter keeps only the matching skill', filtered.join(' | '));
+
+  await page.goto(`${base}/settings?section=connections`);
+  const conns = main.getByRole('region', { name: 'Connections' });
+  await conns.getByText('verify-conn', { exact: true }).waitFor();
+  const connRow = (await conns.getByRole('listitem').filter({ hasText: 'verify-conn' }).innerText()).replace(/\s+/g, ' ');
+  await page.waitForTimeout(500);
+  await shot('settings-connections');
+  check(/Local process · true/.test(connRow) && /1 Bot\b/.test(connRow), 'Settings lists the connection with its kind, command and the Bots that use it', connRow);
+  await page.goto(`${base}/bots`);
+  await main.getByRole('heading', { name: 'Bots', level: 1 }).waitFor();
+  check((await main.getByRole('region', { name: /^(Connections|Skills library)$/ }).count()) === 0, 'the Bots page no longer holds the connection and skill libraries');
+
+  await page.goto(`${base}/settings?section=profile`);
+  const nameField = page.getByLabel('Your name');
+  await nameField.fill('Renamed');
+  await nameField.blur();
+  await main.getByText('Saved', { exact: true }).waitFor();
+  check((await getJson('/profile')).name === 'Renamed', 'Profile saves the name when the field is left without a Save button', JSON.stringify(await getJson('/profile')));
+  await main.getByRole('button', { name: 'Founder' }).click();
+  await page.waitForFunction(async () => (await (await fetch('/profile')).json()).occupation === 'Founder');
+  check((await main.getByRole('button', { name: 'Save', exact: true }).count()) === 0, 'Profile has no Save button');
+  await page.waitForTimeout(500);
+  await shot('settings-profile');
 }
 
 async function pr() {
