@@ -5,6 +5,7 @@ import { Menu, MenuItem, MenuSeparator } from '@/components/menu';
 import { ProjectTile } from '@/components/project-tile';
 import { useCurrentProject } from '@/lib/current-project';
 import { useDismiss } from '@/lib/use-dismiss';
+import { ProjectIconPicker } from '@/modules/projects/components/project-icon-picker';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
 import type { Project } from '@/types/api';
 import { projectTile } from '@/utils/project-tile';
@@ -36,10 +37,14 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
   const [current, onPick] = useCurrentProject(projects);
   const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [picking, setPicking] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
-  useDismiss(open, ref, () => setOpen(false));
+  useDismiss(open || picking, ref, () => {
+    setOpen(false);
+    setPicking(false);
+  });
 
   function pick(project: Project | null) {
     onPick(project);
@@ -89,14 +94,24 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
           ))}
           <MenuSeparator />
           {current && (
-            <MenuItem
-              onClick={() => {
-                void navigate(`/projects/${current.id}`);
-                setOpen(false);
-              }}
-            >
-              Open project
-            </MenuItem>
+            <>
+              <MenuItem
+                onClick={() => {
+                  void navigate(`/projects/${current.id}`);
+                  setOpen(false);
+                }}
+              >
+                Open project
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  setPicking(true);
+                  setOpen(false);
+                }}
+              >
+                Change icon
+              </MenuItem>
+            </>
           )}
           <MenuItem
             onClick={() => {
@@ -108,6 +123,7 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
           </MenuItem>
         </Menu>
       )}
+      {picking && current && <ProjectIconPicker project={current} />}
       <Dialog open={adding} onClose={() => setAdding(false)} title="New project">
         {adding && <AddProjectForm onClose={() => setAdding(false)} onCreated={pick} />}
       </Dialog>

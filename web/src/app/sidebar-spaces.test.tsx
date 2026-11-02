@@ -34,6 +34,8 @@ const project: Project = {
   path: '/reef',
   purpose: '',
   baseBranch: 'main',
+  icon: '',
+  colour: '',
   createdAt: '',
 };
 

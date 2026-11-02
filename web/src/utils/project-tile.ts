@@ -1,6 +1,6 @@
 import type { Project } from '@/types/api';
 
-const palette = [
+export const palette = [
   '#B84E22',
   '#1F7A6F',
   '#6A59E0',
@@ -11,7 +11,7 @@ const palette = [
   '#5E6B78',
 ];
 
-export const projectTile = (p: Pick<Project, 'id' | 'name'>) => ({
-  letter: p.name.trim()[0]?.toUpperCase() ?? '?',
-  colour: palette[p.id % palette.length],
+export const projectTile = (p: Pick<Project, 'id' | 'name' | 'icon' | 'colour'>) => ({
+  letter: p.icon || (p.name.trim()[0]?.toUpperCase() ?? '?'),
+  colour: p.colour || palette[p.id % palette.length],
 });

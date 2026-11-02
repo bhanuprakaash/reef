@@ -4,6 +4,8 @@ export type Project = {
   path: string;
   purpose: string;
   baseBranch: string;
+  icon: string;
+  colour: string;
   createdAt: string;
 };
 

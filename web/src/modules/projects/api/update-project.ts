@@ -5,7 +5,12 @@ import type { Project } from '@/types/api';
 export function useUpdateProject(project: Project) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (patch: { baseBranch?: string; purpose?: string }) =>
+    mutationFn: (patch: {
+      baseBranch?: string;
+      purpose?: string;
+      icon?: string;
+      colour?: string;
+    }) =>
       api<Project>(`/projects/${project.id}`, {
         method: 'PUT',
         body: JSON.stringify({
@@ -13,6 +18,8 @@ export function useUpdateProject(project: Project) {
           path: project.path,
           purpose: project.purpose,
           baseBranch: project.baseBranch,
+          icon: project.icon,
+          colour: project.colour,
           ...patch,
         }),
       }),

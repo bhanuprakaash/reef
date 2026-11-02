@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
@@ -6,16 +6,20 @@ import { Card } from '@/components/card';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { EmptyState } from '@/components/empty-state';
+import { ProjectTile } from '@/components/project-tile';
+import { useDismiss } from '@/lib/use-dismiss';
 import { useSpaces } from '@/lib/api/get-spaces';
 import { useBots } from '@/lib/api/get-bots';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { ProjectIconPicker } from '@/modules/projects/components/project-icon-picker';
 import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
 import { ProjectPurposeForm } from '@/modules/projects/components/project-purpose-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
 import { memberFaces } from '@/utils/role-faces';
+import { projectTile } from '@/utils/project-tile';
 import { rowTime } from '@/utils/row-time';
 
 const rowClass = 'flex min-h-10 items-center gap-2.5 hover:text-fg';
@@ -27,6 +31,10 @@ export function ProjectPage() {
   const spaces = useSpaces(id);
   const bots = useBots();
   const [dialog, setDialog] = useState<'work-item' | 'space' | null>(null);
+  const [picking, setPicking] = useState(false);
+  const iconRef = useRef<HTMLDivElement>(null);
+
+  useDismiss(picking, iconRef, () => setPicking(false));
 
   if (projects.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (projects.isError) return <p className="text-sm text-danger">{projects.error.message}</p>;
@@ -40,12 +48,26 @@ export function ProjectPage() {
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 py-6">
       <header className="flex flex-wrap items-end gap-3.5">
-        <div className="min-w-[300px] flex-1">
-          <div className="-ml-2 flex items-center gap-1 font-mono text-[12.5px] text-muted">
-            <BackButton fallback="/" />
-            {project.path}
+        <div className="flex min-w-[300px] flex-1 items-center gap-3.5">
+          <div ref={iconRef} className="relative flex-none">
+            <button
+              type="button"
+              aria-label="Change icon"
+              aria-expanded={picking}
+              onClick={() => setPicking(!picking)}
+              className="block rounded-lg focus-visible:ring-3 focus-visible:ring-ring"
+            >
+              <ProjectTile {...projectTile(project)} size={44} />
+            </button>
+            {picking && <ProjectIconPicker project={project} />}
           </div>
-          <h1 className="mt-1 text-[32px] font-normal tracking-[-0.02em]">{project.name}</h1>
+          <div className="min-w-0">
+            <div className="-ml-2 flex items-center gap-1 font-mono text-[12.5px] text-muted">
+              <BackButton fallback="/" />
+              {project.path}
+            </div>
+            <h1 className="mt-1 text-[32px] font-normal tracking-[-0.02em]">{project.name}</h1>
+          </div>
         </div>
         <Button type="button" onClick={() => setDialog('space')}>
           New free Space
