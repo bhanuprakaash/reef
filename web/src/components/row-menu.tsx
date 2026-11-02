@@ -11,6 +11,7 @@ const MENU_HEIGHT = 140;
 export function RowMenu({ items, children }: { items: Item[]; children: ReactNode }) {
   const [at, setAt] = useState<{ x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
   const close = useCallback(() => setAt(null), []);
 
   useDismiss(at !== null, ref, close);
@@ -26,6 +27,7 @@ export function RowMenu({ items, children }: { items: Item[]; children: ReactNod
     >
       {children}
       <Button
+        ref={button}
         type="button"
         variant="ghost"
         size="iconSm"
@@ -60,6 +62,7 @@ export function RowMenu({ items, children }: { items: Item[]; children: ReactNod
               destructive={item.destructive}
               onClick={() => {
                 close();
+                button.current?.focus();
                 item.onClick();
               }}
             >

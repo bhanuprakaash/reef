@@ -15,7 +15,7 @@ export function SpaceProjects({ spaceId, projects, readOnly }: Props) {
       <h2 className="mb-1.5 text-[13px] text-muted">Projects</h2>
       {associated.isError && <p className="text-sm text-danger">{associated.error.message}</p>}
       {associated.isSuccess && current.length === 0 && (
-        <p className="text-[13.5px] text-muted">No Project linked to this Space yet.</p>
+        <p className="text-[13.5px] text-muted">No Project linked yet.</p>
       )}
       <ul>
         {current.map((p) => (

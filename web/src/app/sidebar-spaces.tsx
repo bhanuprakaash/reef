@@ -47,30 +47,34 @@ function Section({
 
 export function SidebarSpaces({ project }: { project?: Project }) {
   const spaces = useQuery({ ...spacesQuery(project?.id), refetchInterval: 5000 });
+  const everything = useQuery({ ...spacesQuery(), refetchInterval: 5000 });
   const items = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
   const pins = usePins().data ?? [];
   const [creating, setCreating] = useState<'space' | 'conversation' | null>(null);
 
-  const mine = spaces.data ?? [];
   const handedOver = (c: SpacePreview) => {
     const status = items.data?.find((f) => f.id === c.workItemId)?.status;
     return status === 'review' || status === 'done' || status === 'dropped';
   };
-  const pinnedFirst = (a: SpacePreview, b: SpacePreview) => {
-    const isPinned = (c: SpacePreview) =>
-      pins.some((p) => p.kind === pinKindOf(c) && p.id === c.id);
-    return Number(isPinned(b)) - Number(isPinned(a)) || byRecent(a, b);
-  };
-  const live = mine
+  const isPinned = (c: SpacePreview) => pins.some((p) => p.kind === pinKindOf(c) && p.id === c.id);
+  const pinnedFirst = (a: SpacePreview, b: SpacePreview) =>
+    Number(isPinned(b)) - Number(isPinned(a)) || byRecent(a, b);
+  const mine = spaces.data ?? [];
+  const pool = [
+    ...mine,
+    ...(everything.data ?? []).filter((c) => isPinned(c) && !mine.some((m) => m.id === c.id)),
+  ];
+  const live = pool
     .filter(
       (c) =>
         c.kind !== 'conversation' &&
-        c.kind !== 'consultation' &&
-        c.closedAt === null &&
-        !handedOver(c),
+        (isPinned(c) || (c.kind !== 'consultation' && c.closedAt === null && !handedOver(c))),
     )
     .sort(pinnedFirst);
-  const conversations = mine.filter((c) => c.kind === 'conversation').sort(pinnedFirst);
+  const conversations = pool
+    .filter((c) => c.kind === 'conversation')
+    .sort(pinnedFirst)
+    .filter((c, i) => i < RECENT_CONVERSATIONS || isPinned(c));
 
   return (
     <section aria-label={project?.name ?? 'All projects'} className="flex flex-col gap-0.5">
@@ -88,7 +92,7 @@ export function SidebarSpaces({ project }: { project?: Project }) {
         addLabel="New conversation"
         onAdd={() => setCreating('conversation')}
         empty="No conversations yet"
-        spaces={conversations.slice(0, RECENT_CONVERSATIONS)}
+        spaces={conversations}
       />
       <Dialog
         open={creating !== null}

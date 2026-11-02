@@ -1838,8 +1838,8 @@ async function skills() {
   check((await getJson(`/bots/${lead.id}`)).skills.length === 0, 'saving and rejecting drafts gives no Bot a skill');
 
   await page.goto(`${base}/bots?bot=${lead.id}`);
-  await main.getByRole('button', { name: / add skill$/ }).click();
-  await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option', { name: /^triage · Reef/ }).click();
+  await main.getByRole('button', { name: 'Add skill', exact: true }).click();
+  await page.getByRole('listbox', { name: / add skill options$/ }).getByRole('option', { name: /^triage · Reef/ }).click();
   await main.getByRole('button', { name: 'Save Bot' }).click();
   await page.getByText('Saved', { exact: true }).waitFor();
   await shot('picked');
@@ -1862,8 +1862,8 @@ async function skills() {
   await page.getByRole('menuitem', { name: 'All projects', exact: true }).click();
   await aside.getByRole('region', { name: 'All projects' }).waitFor();
   await page.goto(`${base}/bots?bot=${lead.id}`);
-  await main.getByRole('button', { name: / add skill$/ }).click();
-  const offered = await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option').allInnerTexts();
+  await main.getByRole('button', { name: 'Add skill', exact: true }).click();
+  const offered = await page.getByRole('listbox', { name: / add skill options$/ }).getByRole('option').allInnerTexts();
   await shot('picker-all-projects');
   check(offered.some((o) => o.startsWith('imported-skill · Reef')), 'under All projects the picker lists library skills', offered.join(' | '));
 }
@@ -1876,6 +1876,8 @@ async function workshop() {
   sql(`update bot set connections = '${connBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["claude:ghost-skill"]' where name = 'developer'`, true);
   mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
   writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
+  mkdirSync(path.join(projectDir, '.claude/skills/runtime-skill'), { recursive: true });
+  writeFileSync(path.join(projectDir, '.claude/skills/runtime-skill/SKILL.md'), '---\nname: runtime-skill\ndescription: Runs a script from the plugin root.\n---\nRun ${CLAUDE_PLUGIN_ROOT}/run.sh\n');
 
   const section = await addProject();
   const projectId = sql('select max(id) from project');
@@ -1896,19 +1898,21 @@ async function workshop() {
   const ghost = main.getByText('claude:ghost-skill').locator('..');
   check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
   await main.getByRole('button', { name: 'Remove claude:ghost-skill', exact: true }).click();
-  const addSkill = page.getByRole('listbox', { name: `${mate} add skill`, exact: true });
-  await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
+  const addSkill = page.getByRole('listbox', { name: `${mate} add skill options`, exact: true });
+  await main.getByRole('button', { name: 'Add skill', exact: true }).click();
   const offered = await addSkill.getByRole('option').allInnerTexts();
   check(offered.some((o) => o.startsWith('workshop-skill')), "the claude skill picker offers the project's skill", `${offered.length} offered`);
   await addSkill.getByRole('option', { name: /^workshop-skill/ }).click();
-  await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
+  await main.getByRole('button', { name: 'Done', exact: true }).click();
   check(!(await main.getByText('workshop-skill').locator('..').innerText()).includes('missing'), 'a picked skill that is on disk is not missing');
   await pick(`${mate} backend`, 'Codex', main);
   check((await main.getByLabel(`${mate} tool Read`).count()) === 0, 'the tool picker is hidden on a Codex Bot');
-  await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
+  await main.getByRole('button', { name: 'Add skill', exact: true }).click();
   const codexOffered = await addSkill.getByRole('option').allInnerTexts();
   const codexPicked = await addSkill.getByRole('option', { name: /^workshop-skill/ }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-selected')));
   check(codexPicked.join() === 'true', 'a Codex Bot lists the picked Claude skill as picked, not as a new pick', `${codexOffered.length} offered, workshop-skill selected=${codexPicked.join()}`);
+  const codexRuntime = codexOffered.find((o) => o.startsWith('runtime-skill')) ?? '';
+  check(codexRuntime.includes('not usable here'), 'a Codex Bot lists a skill that uses a CLAUDE_ variable as "not usable here"', codexRuntime);
   await page.keyboard.press('Escape');
   await pick(`${mate} backend`, 'Claude Code', main);
   await pick(`${mate} permission mode`, 'acceptEdits', main);
@@ -1981,11 +1985,11 @@ async function workshop() {
   await page.goto(`${base}/spaces/${cid}`);
   await main.getByRole('button', { name: 'Bots', exact: true }).click();
   const botsPanel = page.getByRole('complementary', { name: 'Bots' });
-  await botsPanel.getByText('Apply to open chats to adopt edits').waitFor();
+  await botsPanel.getByText('Apply here to adopt edits').waitFor();
   const adopted = await botsPanel.innerText();
   await shot('team-panel-adopted');
   check(adopted.includes('Model') && !adopted.includes('workshop-edited-model'), "the Bots panel shows the adopted settings, not the Bot's edited model", adopted.replace(/\s+/g, ' ').slice(0, 200));
-  check(adopted.includes('Bot settings changed. Apply to open chats to adopt edits.'), 'the Bots panel says the Bot changed and Apply to open chats adopts it');
+  check(adopted.includes('Bot settings changed. Apply here to adopt edits.'), 'the Bots panel says the Bot changed and Apply here adopts it');
 
   await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
@@ -3226,7 +3230,7 @@ async function mention() {
   check(url.pathname === '/bots' && url.searchParams.get('bot') === String(devBot.id), 'Edit opens /bots with the developer Bot selected', page.url());
   const panel = page.getByRole('complementary', { name: 'Bot' }).or(page.locator('[aria-label=Bot]'));
   await panel.first().waitFor({ timeout: 5000 });
-  const row = main.getByRole('button', { name: /^developer(?! add skill)/ });
+  const row = main.getByRole('button', { name: /^developer/ });
   check((await row.getAttribute('aria-pressed')) === 'true' && (await panel.first().getByLabel('developer name').inputValue()) === 'developer', 'the developer row is selected and its role panel is open');
   check((await main.getByRole('button', { name: /^lead/ }).getAttribute('aria-pressed')) === 'false', 'no other role is selected');
   check((await row.locator('svg').first().innerHTML()) === devFace && devFace !== leadFace, "the card's creature is the one the team page shows for developer, and differs from the lead's");
@@ -4476,6 +4480,9 @@ async function navigate() {
   const kit = await make('/bots', { name: `kit-${suffix}`, backend: 'claude' });
   const chat = await make('/spaces', { projectId: project.id, name: `chat-${suffix}`, botId: sam.id, kind: 'conversation' });
   const room = await make('/spaces', { projectId: project.id, name: `room-${suffix}`, botIds: [sam.id, kit.id], coordinatorBotId: sam.id });
+  const ivy = await make('/bots', { name: 'ivy', backend: 'claude' });
+  await page.waitForTimeout(1100);
+  const later = await make('/spaces', { projectId: project.id, name: 'later chat', botId: ivy.id, kind: 'conversation' });
   const item = await make('/work-items', { projectId: project.id, title: `item-${suffix}` });
   const pins = async () => (await getJson('/pins')).map((p) => `${p.kind}:${p.id}`).sort().join();
   const spaceCount = async () => (await getJson('/spaces')).length;
@@ -4502,6 +4509,9 @@ async function navigate() {
   await row.getByRole('button', { name: 'More actions' }).click();
   check((await page.getByRole('menuitem', { name: 'Unpin', exact: true }).count()) === 1, 'the pins survive a reload');
   await page.keyboard.press('Escape');
+  const conversations = aside.locator('h4').filter({ hasText: 'Conversations' }).locator('xpath=../following-sibling::ul[1]');
+  const listed = (await conversations.locator('li').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  check(listed[0].includes(chat.name) && listed.some((t) => t.includes(later.name)), 'a pinned older chat is the first Conversations row, above a newer unpinned one', listed.join(' | '));
   await shot('pinned');
 
   // Search finds all four kinds by name; a result opens its resource.
@@ -4534,6 +4544,39 @@ async function navigate() {
   await main.getByRole('button', { name: 'Unpin', exact: true }).first().click();
   for (let i = 0; i < 20 && (await pins()).includes('bot:'); i++) await page.waitForTimeout(250);
   check(!(await pins()).includes('bot:') && (await pins()).split(',').length === 2, 'Unpin removes the Bot pin and keeps the other two', await pins());
+
+  // The row menu renames and deletes; a Bot pins from its sidebar row.
+  await page.goto(`${base}/spaces/${later.id}`);
+  const laterRow = rowOf(later.name).first();
+  await laterRow.hover();
+  await laterRow.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
+  const renameBox = page.getByRole('dialog', { name: 'Rename' }).getByRole('textbox', { name: 'Name' });
+  await renameBox.fill(`renamed-${suffix}`);
+  await page.getByRole('dialog', { name: 'Rename' }).getByRole('button', { name: 'Rename', exact: true }).click();
+  await rowOf(`renamed-${suffix}`).first().waitFor();
+  check(sql(`select name from space where id=${later.id}`) === `renamed-${suffix}`, 'Rename in the row menu renames the Space in the store', sql(`select name from space where id=${later.id}`));
+
+  const doomed = await make('/spaces', { projectId: project.id, name: `doomed-${suffix}`, botIds: [kit.id], coordinatorBotId: kit.id });
+  await page.goto(`${base}/spaces/${doomed.id}/bots/${kit.id}`);
+  const doomedRow = rowOf(doomed.name).first();
+  await doomedRow.hover();
+  await doomedRow.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Delete' }).getByRole('button', { name: 'Delete', exact: true }).click();
+  await page.waitForURL((u) => !u.pathname.startsWith(`/spaces/${doomed.id}`));
+  await rowOf(doomed.name).first().waitFor({ state: 'detached' });
+  check(sql(`select count(*) from space where id=${doomed.id}`) === '0', 'Delete with confirm removes the Space and its row, and leaves its page', page.url());
+
+  const botsSection = aside.getByRole('region', { name: 'Bots' });
+  const firstBot = async () => (await botsSection.locator('li').first().innerText()).trim();
+  check((await firstBot()).includes(ivy.name), 'before pinning, the Bot of the newest chat is the first Bots row', await firstBot());
+  const samRow = botsSection.locator('div.group').filter({ hasText: sam.name }).first();
+  await samRow.hover();
+  await samRow.getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
+  for (let i = 0; i < 20 && !(await firstBot()).includes(sam.name); i++) await page.waitForTimeout(250);
+  check((await firstBot()).includes(sam.name) && (await pins()).includes(`bot:${sam.id}`), "pinning a Bot from its sidebar row menu sorts it first", await firstBot());
 
   // The coordinator changes without changing anything else of the Space.
   const members = async () => (await getJson(`/spaces/${room.id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).sort().join();
