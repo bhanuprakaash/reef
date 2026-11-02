@@ -70,7 +70,7 @@ export function MentionCardsProvider({
   function card(name: string) {
     const role = members.data?.find((r) => r.name === name);
     if (!role) return null;
-    return <MentionCard role={role} working={working.includes(role.botId)} />;
+    return { look: role, card: <MentionCard role={role} working={working.includes(role.botId)} /> };
   }
 
   return <MentionCards.Provider value={card}>{children}</MentionCards.Provider>;

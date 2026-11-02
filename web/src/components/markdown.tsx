@@ -1,9 +1,10 @@
-import { createContext, type ReactNode, useContext } from 'react';
+import { createContext, type CSSProperties, type ReactNode, useContext } from 'react';
 import type { PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { bodyColour, Creature, type Look } from '@/components/creature';
 import { Hovercard } from '@/components/hovercard';
 import { Link } from 'react-router';
 import { splitMentions } from '@/utils/split-mentions';
@@ -48,7 +49,7 @@ const style = [
   '[&_h6]:mt-[0.5em] [&_h6]:text-[14.5px] [&_h6]:font-medium [&_h6]:text-muted',
 
   '[&_strong]:font-semibold',
-  '[&_.mention]:text-[color:var(--mention,var(--color-mention))]',
+  '[&_.mention]:text-[color:var(--mention,var(--bot,var(--color-mention)))]',
   '[&_p]:my-0 [&_li>p]:my-0',
 
   '[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5',
@@ -81,21 +82,30 @@ function numeric(children: ReactNode) {
   return typeof children === 'string' && number.test(children);
 }
 
-// Gives the card for an @mention of a known name, or null to leave the mention plain.
-export const MentionCards = createContext<(name: string) => ReactNode>(() => null);
+// Gives the Bot an @mention names, with the card to show for it, or null to leave the mention plain.
+export const MentionCards = createContext<(name: string) => { look: Look; card: ReactNode } | null>(
+  () => null,
+);
 
 function Mention({ children }: { children: ReactNode }) {
-  const card = useContext(MentionCards)(String(children).slice(1));
-  if (card === null) return <span className="mention">{children}</span>;
+  const name = String(children).slice(1);
+  const bot = useContext(MentionCards)(name);
+  if (bot === null) return <span className="mention">{children}</span>;
   return (
-    <Hovercard content={card}>
+    <Hovercard content={bot.card}>
       {(trigger) => (
         <span
-          className="mention rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="mention inline-flex items-center gap-[0.3em] whitespace-nowrap rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={
+            {
+              '--bot': `color-mix(in oklab, ${bodyColour(bot.look)} 75%, var(--color-fg))`,
+            } as CSSProperties
+          }
           tabIndex={0}
           {...trigger}
         >
-          {children}
+          <Creature look={bot.look} size={18} />
+          {name.charAt(0).toUpperCase() + name.slice(1)}
         </span>
       )}
     </Hovercard>

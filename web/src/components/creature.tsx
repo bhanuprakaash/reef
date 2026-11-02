@@ -349,13 +349,15 @@ function eyes([a, b]: readonly [Eye, Eye], state: CreatureState) {
   );
 }
 
+export function bodyColour(look?: Look): string {
+  return look?.colour && Object.hasOwn(bodyColours, look.colour)
+    ? bodyColours[look.colour as keyof typeof bodyColours]
+    : drawings[creatureName(look?.face)].colors.body;
+}
+
 function Body({ look, state }: { look?: Look; state: CreatureState }) {
   const d: Drawing = drawings[creatureName(look?.face)];
-  const hex =
-    look?.colour && Object.hasOwn(bodyColours, look.colour)
-      ? bodyColours[look.colour as keyof typeof bodyColours]
-      : undefined;
-  const p = state === 'asleep' ? asleep : hex ? { ...d.colors, body: hex } : d.colors;
+  const p = state === 'asleep' ? asleep : { ...d.colors, body: bodyColour(look) };
   return (
     <g className={d.motion}>
       {d.shapes(p)}

@@ -3136,10 +3136,13 @@ async function mention() {
     return `${name} ${backend} · ${model} Edit ${role.description.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools}`;
   };
   const sameCard = (shown, want) => shown.toLowerCase() === want.toLowerCase();
-  const lead = at('@lead');
-  const developer = at('@developer');
+  const lead = at('Lead');
+  const developer = at('Developer');
   const nobody = at('@nobody');
-  check((await team.roles.every((r) => r.name !== 'nobody')) && (await lead.count()) === 1 && (await nobody.count()) === 1, 'the message shows @lead, @developer, @nobody and @tester as mentions, and the team has no nobody');
+  check((await team.roles.every((r) => r.name !== 'nobody')) && (await lead.count()) === 1 && (await nobody.count()) === 1, 'the message shows Lead, Developer, @nobody and Tester as mentions, and the team has no nobody');
+  const leadLook = await lead.evaluate((el) => ({ text: el.textContent, svgs: el.querySelectorAll('svg').length, bot: el.style.getPropertyValue('--bot') }));
+  check(leadLook.text === 'Lead' && leadLook.svgs === 1 && leadLook.bot !== '' && (await nobody.evaluate((el) => el.querySelectorAll('svg').length)) === 0, 'a Bot mention is its creature and name in the Bot colour with no @, and @nobody stays plain text', JSON.stringify(leadLook));
+  await shot('mention');
 
   await page.waitForTimeout(3500);
   await away();
@@ -3244,7 +3247,7 @@ async function mention() {
     if ((await pane.count()) === 0) await main.getByRole('button', { name: replyButtonName }).first().click();
     await pane.waitFor();
     let best = null;
-    for (const name of ['@lead', '@developer', '@tester']) {
+    for (const name of ['Lead', 'Developer', 'Tester']) {
       const el = pane.locator('.mention', { hasText: name }).first();
       const box = await el.boundingBox();
       if (!best || box.x + box.width > best.box.x + best.box.width) best = { el, name, box };
@@ -3260,7 +3263,7 @@ async function mention() {
   const width = 1280;
   check(tm.x + tm.width + 8 + tt.width > width, `the ${near.name} mention in the Thread pane is so near the right edge that a card on its right would run off the window`, `mention right ${tm.x + tm.width}, card ${tt.width} wide`);
   check(tt.x >= 0 && tt.x + tt.width <= width && tt.x + tt.width <= tm.x, 'the card flipped to the mention left and stays inside the window', `card ${tt.x}..${tt.x + tt.width}, mention left ${tm.x}`);
-  const edgeRole = near.name.slice(1);
+  const edgeRole = near.name.toLowerCase();
   check(sameCard(await flat(), await expected(edgeRole)), `${near.name} card matches /teams/full`, await flat());
   await shot('edge-dark');
   await away();
@@ -3276,6 +3279,7 @@ async function mention() {
   await contrast('mention card');
   await away();
   await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  await shot('mention-light');
   await lead.hover();
   await tip.waitFor();
   await page.waitForTimeout(300);
@@ -3293,7 +3297,7 @@ async function mention() {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${base}/spaces/${cid}`);
-  const phoneLead = main.locator('.mention', { hasText: '@lead' }).first();
+  const phoneLead = main.locator('.mention', { hasText: 'Lead' }).first();
   await phoneLead.waitFor();
   await phoneLead.hover();
   await page.waitForTimeout(900);

@@ -83,16 +83,25 @@ describe('Markdown mentions', () => {
 });
 
 describe('Markdown mention cards', () => {
-  it('gives a mention with a card a focus stop and leaves other mentions plain', () => {
+  it('shows a known Bot as its creature and capitalised name without the @, and leaves other mentions plain', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
-        <MentionCards.Provider value={(name) => (name === 'lead' ? <p>card</p> : null)}>
-          <Markdown>{'@lead, @nobody'}</Markdown>
+        <MentionCards.Provider
+          value={(name) =>
+            name === 'architect'
+              ? { look: { face: 'whale', colour: 'violet' }, card: <p>card</p> }
+              : null
+          }
+        >
+          <Markdown>{'@architect, @nobody'}</Markdown>
         </MentionCards.Provider>
       </MemoryRouter>,
     );
 
-    expect(html).toMatch(/<span class="mention [^"]*" tabindex="0">@lead<\/span>/);
+    expect(html).toMatch(
+      /<span class="mention [^"]*" style="[^"]*#8B5CF6[^"]*" tabindex="0"><svg[^>]*>.*<\/svg>Architect<\/span>/,
+    );
+    expect(html).not.toContain('@architect');
     expect(html).toContain('<span class="mention">@nobody</span>');
   });
 });
