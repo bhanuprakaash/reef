@@ -33,7 +33,6 @@ export function SearchPicker({
       <Button
         type="button"
         size="sm"
-        aria-label={name}
         aria-expanded={open}
         disabled={disabled}
         onClick={() => setOpen(!open)}
@@ -59,7 +58,7 @@ export function SearchPicker({
           <div
             role="listbox"
             aria-multiselectable="true"
-            aria-label={name}
+            aria-label={`${name} options`}
             className="max-h-56 overflow-y-auto rounded-field border border-line p-1"
           >
             {shown.map((o) => {

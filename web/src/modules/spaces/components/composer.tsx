@@ -181,9 +181,11 @@ export function Composer({
       : parent !== undefined
         ? 'Reply in thread'
         : roles
-          ? narrow || conversation
+          ? narrow
             ? 'Message, @ to mention'
-            : 'Message the Space, @ to mention'
+            : conversation
+              ? 'Message the conversation, @ to mention'
+              : 'Message the Space, @ to mention'
           : 'Message';
 
   return (
