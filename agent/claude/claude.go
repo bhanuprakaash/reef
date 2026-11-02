@@ -355,7 +355,7 @@ func (a *Agent) emit(ev agent.Event) bool {
 	}
 }
 
-func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
+func mcpJSON(servers map[string]agent.MCPServer) ([]byte, error) {
 	entries := make(map[string]mcpEntry, len(servers))
 	for name, s := range servers {
 		e := mcpEntry{MCPServer: s}
@@ -364,7 +364,11 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 		}
 		entries[name] = e
 	}
-	b, err := json.Marshal(mcpFile{MCPServers: entries})
+	return json.Marshal(mcpFile{MCPServers: entries})
+}
+
+func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
+	b, err := mcpJSON(servers)
 	if err != nil {
 		return "", err
 	}

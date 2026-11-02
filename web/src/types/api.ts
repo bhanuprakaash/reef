@@ -278,6 +278,8 @@ export type Connection = {
   createdAt: string;
 };
 
+export type ConnectionLogin = { backend: string; ok: boolean; output: string };
+
 export type AvailableConnection = {
   source: string;
   name: string;

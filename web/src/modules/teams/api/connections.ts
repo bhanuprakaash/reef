@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import { availableConnectionsKey, connectionsKey } from '@/lib/query-keys';
-import type { AvailableConnection, Connection } from '@/types/api';
+import type { AvailableConnection, Connection, ConnectionLogin } from '@/types/api';
 
 export type ConnectionInput = Omit<Connection, 'id' | 'createdAt'>;
 
@@ -56,5 +56,12 @@ export function useImportConnection() {
     mutationFn: (input: { source: string; name: string; projectId?: number }) =>
       api<Connection>('/connections/import', { method: 'POST', body: JSON.stringify(input) }),
     onSuccess: refresh,
+  });
+}
+
+export function useLoginConnection() {
+  return useMutation({
+    mutationFn: (id: number) =>
+      api<ConnectionLogin[]>(`/connections/${id}/login`, { method: 'POST', body: '{}' }),
   });
 }

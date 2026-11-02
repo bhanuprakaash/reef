@@ -364,16 +364,25 @@ MCP config injection
   its own `config.toml` (`CODEX_HOME` aware) and the project's `.codex/config.toml`; it does not
   replace them. So after `initialize` the adapter sends `config/read`, which answers with
   every server codex would load, and sets `{"enabled":false}` on the thread for each one the caller did not pass.
+  That covers only `mcp_servers`: enabled plugins bring servers of their own (`cua_repl` from
+  `unified-computer-use`) and the ChatGPT apps run as `codex_apps`. So the thread also gets
+  `plugins.<id>.enabled = false` for every plugin `config/read` shows enabled, and
+  `features.apps = false`. An `{"enabled":false}` entry for a name codex has no transport for fails
+  `thread/start` ("invalid transport"), so only names from `config/read` get one.
   The user's servers stay in their config; the session just does not start them. A `config/read` that fails fails `Start`.
 - Sign-in (an HTTP server that answers 401 and needs OAuth). A session cannot sign in: headless
-  `claude -p` shows the server as `needs-auth` and has no `authenticate` tool, and codex fails its
-  startup with "not logged in. Run `codex mcp login NAME`". Both keep the token outside the
-  config they were given: claude in `~/.claude/.credentials.json` (the keychain on macOS), under
-  `NAME|` and the first 16 hex of the SHA-256 of `{"type","url","headers"}` (the `oauth` settings are
-  not in it); codex in `$CODEX_HOME/.credentials.json` (or the keyring) under the same key. A session whose server has the same name, url and headers as one the
-  user signed in to finds the token and connects; a different name, or other headers, finds none. So a sign-in
-  is done once, by the user, in a session that has that exact server: claude, interactive `claude --strict-mcp-config
-  --mcp-config FILE` then `/mcp`; codex, `codex mcp login NAME` with the server in its config. Reef does not sign in for the user.
+  `claude -p` shows the server as `needs-auth`, and codex fails its startup with "not logged in".
+  Both keep the token outside the config they were given, keyed by the server's name and url
+  (claude: and headers; `~/.claude/.credentials.json` or the keychain; codex:
+  `$CODEX_HOME/.credentials.json` or the keyring). A session whose server has the same name, url
+  and headers as one signed in finds the token. `claude.Login` and `codex.Login` sign the user in
+  to one server that way, under a pseudo-terminal from `script(1)` (both refuse to run without
+  one), opening the browser: claude `--settings '{"enableAllProjectMcpServers":true}' mcp login
+  NAME` in a temporary folder whose `.mcp.json` holds only that server, encoded as a session's
+  file is (`mcp login` knows only configured servers and ignores `--mcp-config`; the settings
+  approve the project server); codex `mcp login NAME -c mcp_servers.NAME.url=...` with the client
+  id. Neither changes the user's config. A token from the user's own setup (the Slack plugin is
+  `plugin:slack:slack`) is under another name, so a Reef connection signs in once of its own.
 
 Session and thread ids
 - Claude `session_id` is on every line. `--resume ID` keeps the same id (no new id without

@@ -2,14 +2,18 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -143,5 +147,77 @@ func TestConnectionHeaders(t *testing.T) {
 	}
 	if oa.Headers["Authorization"] != "Bearer abc" || oa.Headers["X-N"] != "2" {
 		t.Errorf("headers = %v, want the stored Authorization kept and X-N=2", oa.Headers)
+	}
+}
+
+func TestLoginConnection(t *testing.T) {
+	st, err := openStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := t.Context()
+	for _, c := range []store.Connection{
+		{Name: "slack", URL: "https://mcp.slack.com/mcp", OAuth: &agent.OAuth{ClientID: "id1", CallbackPort: 3118}},
+		{Name: "keyed", URL: "http://h/mcp", Headers: map[string]string{"Authorization": "Bearer k"}},
+		{Name: "local", Command: "db-mcp"},
+		{Name: "lonely", URL: "https://x.io/mcp"},
+	} {
+		if _, err := st.CreateConnection(ctx, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, b := range []store.Bot{
+		{Name: "msg", Backend: "claude", Connections: []int64{1}},
+		{Name: "rev", Backend: "codex", Connections: []int64{1}},
+		{Name: "dev", Backend: "claude", Connections: []int64{1}},
+	} {
+		if _, err := st.CreateBot(ctx, b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var calls []string
+	dir := t.TempDir()
+	h := newHandler(st, nil, dir, space.NewTrees(dir), nil, func(s *server) {
+		s.login = func(_ context.Context, backend, name string, srv agent.MCPServer) (string, error) {
+			calls = append(calls, backend+" "+name+" "+srv.URL)
+			if backend == "codex" {
+				return "", errors.New("not registered")
+			}
+			return "Authentication successful", nil
+		}
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	tests := []struct {
+		name   string
+		id     string
+		status int
+		want   string
+		calls  []string
+	}{
+		{"each backend of its Bots once", "1", 200,
+			`[{"backend":"claude","ok":true,"output":"Authentication successful"},` +
+				`{"backend":"codex","ok":false,"output":"not registered"}]`,
+			[]string{"claude slack https://mcp.slack.com/mcp", "codex slack https://mcp.slack.com/mcp"}},
+		{"claude when no Bot selects it", "4", 200, `[{"backend":"claude","ok":true`,
+			[]string{"claude lonely https://x.io/mcp"}},
+		{"headers sign in by themselves", "2", 400, "only a url connection without headers", nil},
+		{"a command has no sign-in", "3", 400, "only a url connection without headers", nil},
+		{"unknown connection", "9", 404, "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls = nil
+			status, body := do(t, http.MethodPost, ts.URL+"/connections/"+tt.id+"/login", "")
+			if status != tt.status || !strings.Contains(body, tt.want) {
+				t.Errorf("login %s = %d %s, want %d containing %s", tt.id, status, body, tt.status, tt.want)
+			}
+			if !slices.Equal(calls, tt.calls) {
+				t.Errorf("logins = %v, want %v", calls, tt.calls)
+			}
+		})
 	}
 }

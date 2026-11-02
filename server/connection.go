@@ -10,6 +10,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/agent/claude"
+	"github.com/bhanuprakaash/reef/agent/codex"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -21,6 +24,7 @@ func (s *server) connectionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/connections", methodNotAllowed)
 	mux.HandleFunc("PUT /connections/{id}", s.putConnection)
 	mux.HandleFunc("DELETE /connections/{id}", s.deleteConnection)
+	mux.HandleFunc("POST /connections/{id}/login", s.loginConnection)
 	mux.HandleFunc("/connections/{id}", methodNotAllowed)
 }
 
@@ -302,4 +306,63 @@ func nonNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+// loginResult is one backend's sign-in: what it printed, and whether it ended well.
+type loginResult struct {
+	Backend string `json:"backend"`
+	OK      bool   `json:"ok"`
+	Output  string `json:"output"`
+}
+
+// loginConnection signs the user in to an HTTP connection for each backend whose Bots select it,
+// or for claude when none does yet. Each backend keeps its own token, so each signs in once. The
+// request lasts until the user finishes in the browser.
+func (s *server) loginConnection(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	c, err := s.st.Connection(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if c.URL == "" || len(c.Headers) > 0 {
+		writeError(w, fmt.Errorf("%w: connection %s: only a url connection without headers signs in",
+			store.ErrInvalid, c.Name))
+		return
+	}
+	bots, err := s.st.Bots(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var backends []string
+	for _, b := range bots {
+		if slices.Contains(b.Connections, id) && !slices.Contains(backends, b.Backend) {
+			backends = append(backends, b.Backend)
+		}
+	}
+	if len(backends) == 0 {
+		backends = []string{"claude"}
+	}
+	slices.Sort(backends)
+	out := make([]loginResult, 0, len(backends))
+	for _, backend := range backends {
+		text, err := s.login(r.Context(), backend, c.Name, c.Server())
+		if err != nil && text == "" {
+			text = err.Error()
+		}
+		out = append(out, loginResult{Backend: backend, OK: err == nil, Output: text})
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func backendLogin(ctx context.Context, backend, name string, s agent.MCPServer) (string, error) {
+	if backend == "codex" {
+		return codex.Login(ctx, "", name, s)
+	}
+	return claude.Login(ctx, "", name, s)
 }

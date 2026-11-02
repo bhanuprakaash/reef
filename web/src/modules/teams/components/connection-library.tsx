@@ -3,9 +3,11 @@ import { useBots } from '@/lib/api/get-bots';
 import {
   useConnections,
   useDeleteConnection,
+  useLoginConnection,
   useSaveConnection,
   type ConnectionInput,
 } from '@/modules/teams/api/connections';
+import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { connectionLabel, pairsText, parsePairs } from '@/modules/teams/utils/connections';
 import type { Connection } from '@/types/api';
 import { AvailableConnections } from '@/modules/teams/components/available-connections';
@@ -140,6 +142,8 @@ function ConnectionForm({ initial, onDone }: { initial?: Connection; onDone: () 
 function ConnectionRow({ connection, used }: { connection: Connection; used: number }) {
   const [editing, setEditing] = useState(false);
   const remove = useDeleteConnection();
+  const login = useLoginConnection();
+  const signsIn = Boolean(connection.url) && Object.keys(connection.headers ?? {}).length === 0;
   if (editing) {
     return (
       <li>
@@ -159,6 +163,16 @@ function ConnectionRow({ connection, used }: { connection: Connection; used: num
         <span className="shrink-0 text-xs text-muted">
           {used} {used === 1 ? 'Bot' : 'Bots'}
         </span>
+        {signsIn && (
+          <Button
+            size="sm"
+            aria-label={`Sign in to ${connection.name}`}
+            loading={login.isPending}
+            onClick={() => login.mutate(connection.id)}
+          >
+            {login.isPending ? 'Finish in browser…' : 'Sign in'}
+          </Button>
+        )}
         <Button size="sm" aria-label={`Edit ${connection.name}`} onClick={() => setEditing(true)}>
           Edit
         </Button>
@@ -184,6 +198,14 @@ function ConnectionRow({ connection, used }: { connection: Connection; used: num
         </Button>
       </div>
       {remove.isError && <p className="mt-1 text-sm text-danger">{remove.error.message}</p>}
+      {login.isError && <p className="mt-1 text-sm text-danger">{login.error.message}</p>}
+      {login.data?.map((r) => (
+        <p key={r.backend} className={`mt-1 text-xs ${r.ok ? 'text-muted' : 'text-danger'}`}>
+          {r.ok
+            ? `Signed in for ${backendLabel(r.backend)}`
+            : `${backendLabel(r.backend)}: ${r.output.split('\n').at(-1)}`}
+        </p>
+      ))}
     </li>
   );
 }
