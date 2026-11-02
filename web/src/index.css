@@ -204,9 +204,37 @@
     text-rendering: optimizeLegibility;
   }
 
+  button,
+  [role='button'],
+  [role='menuitem'],
+  [role='tab'],
+  label {
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable] {
+    user-select: text;
+  }
+
   a,
   img {
     -webkit-user-drag: none;
+  }
+
+  button,
+  a,
+  summary,
+  [role='button'],
+  [role='menuitem'],
+  [role='option'],
+  label:has(input[type='checkbox']) {
+    cursor: pointer;
+  }
+
+  :disabled {
+    cursor: not-allowed;
   }
 
   :focus-visible {

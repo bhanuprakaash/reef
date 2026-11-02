@@ -19,7 +19,7 @@ Spaces live), product decisions 145 and 150.
 
 ## How to get to it (user POV)
 
-- Window: the sidebar's project switcher, All projects at its top; a Bot's page (`/bots/{id}`) with Resume chat and New chat; the + menu's New conversation and New Space.
+- Window: the sidebar's project switcher, All projects at its top; a Bot's page (`/bots/{id}`) with Resume chat and New chat; the Conversations and Spaces section +.
 - REST: `POST /spaces {"name":"...","botId":1,"kind":"conversation"}` (no `projectId`), `GET /spaces/{id}/projects`, `GET /spaces?project=ID`, `PUT|DELETE /spaces/{id}/projects/{projectId}`.
 
 ## Driving it with verify-reef

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useRefreshBot } from '@/modules/spaces/api/refresh-bot';
 import { useRemoveMember } from '@/modules/spaces/api/remove-member';
@@ -13,6 +13,7 @@ import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
+import { claudeModelOptions } from '@/utils/models';
 import { Creature, type CreatureState } from '@/components/creature';
 
 type Props = {
@@ -35,28 +36,68 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
+function Detail({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <>
+      <dt>{label}</dt>
+      <dd className="min-w-0 break-words text-soft">{children}</dd>
+    </>
+  );
+}
+
+function Collapsed({ values, noun }: { values: string[]; noun: string }) {
+  const [open, setOpen] = useState(false);
+  if (values.length <= 3) return values.join(', ');
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="h-5 rounded-pill bg-bubble px-2.5 text-[11px] text-soft hover:bg-hover"
+      >
+        {values.length} {noun}
+      </button>
+      {open && <span className="mt-1 block">{values.join(', ')}</span>}
+    </>
+  );
+}
+
 function SessionSummary({ session }: { session: RoleSession }) {
   const incompatible = session.skills.filter((s) => !s.compatible);
-  const facts = [
-    session.model || 'default model',
-    session.permissionMode || 'default permissions',
-    session.write ? 'can write' : 'read-only',
-    session.tools.length > 0 ? `tools: ${session.tools.join(', ')}` : '',
-    session.skills.length > 0 ? `skills: ${session.skills.map((s) => s.ref).join(', ')}` : '',
-    session.connections.length > 0 ? `connections: ${session.connections.join(', ')}` : '',
-  ].filter(Boolean);
   return (
     <div className="basis-full pl-[42px] text-[12.5px] text-muted">
-      <p>Session runs with {facts.join(' · ')}</p>
+      <dl className="grid grid-cols-[84px_1fr] gap-y-1">
+        <Detail label="Model">{session.model || 'default model'}</Detail>
+        <Detail label="Permissions">
+          {session.permissionMode || 'default permissions'} ·{' '}
+          {session.write ? 'can write' : 'read-only'}
+        </Detail>
+        {session.tools.length > 0 && (
+          <Detail label="Tools">
+            <Collapsed values={session.tools} noun="tools" />
+          </Detail>
+        )}
+        {session.skills.length > 0 && (
+          <Detail label="Skills">
+            <Collapsed values={session.skills.map((s) => s.ref)} noun="skills" />
+          </Detail>
+        )}
+        {session.connections.length > 0 && (
+          <Detail label="Connections">
+            <Collapsed values={session.connections} noun="connections" />
+          </Detail>
+        )}
+      </dl>
       {incompatible.map((s) => (
         <p key={s.ref}>
           {s.ref} is not available here: {s.reason}
         </p>
       ))}
       {session.refreshPending ? (
-        <p>Refresh applies before this Bot's next turn.</p>
+        <p>Apply here runs before this Bot's next turn.</p>
       ) : (
-        session.stale && <p>Bot settings changed. Refresh to adopt edits.</p>
+        session.stale && <p>Bot settings changed. Apply here to adopt edits.</p>
       )}
     </div>
   );
@@ -112,6 +153,10 @@ export function TeamPanel({
             </svg>
           </button>
         </div>
+        <p className="mb-2 text-xs text-muted">
+          Changes apply to new chats. Apply here restarts this Bot's session in this chat with the
+          new settings and keeps its history.
+        </p>
         <ul className="space-y-0.5">
           {roles.map((role) => {
             const state = stateOf(role);
@@ -133,7 +178,11 @@ export function TeamPanel({
                     {role.lead && <Chip className="h-5 px-2 text-[11px]">coordinator</Chip>}
                   </span>
                   <span className="block text-[12.5px] text-muted">
-                    {[backendLabel[shown.backend] ?? shown.backend, stateLabel[state]]
+                    {[
+                      backendLabel[shown.backend] ?? shown.backend,
+                      stateLabel[state],
+                      usage && `${formatTokens(usage.inputTokens + usage.outputTokens)} tokens`,
+                    ]
                       .filter(Boolean)
                       .join(' · ')}
                   </span>
@@ -148,27 +197,34 @@ export function TeamPanel({
                     Make coordinator
                   </Button>
                 )}
-                {usage && (
-                  <span className="text-[12.5px] tabular-nums text-muted">
-                    {formatTokens(usage.inputTokens + usage.outputTokens)} tokens
-                  </span>
-                )}
                 {role.session && <SessionSummary session={role.session} />}
                 <div className="flex basis-full flex-wrap items-center gap-2 pl-[42px]">
-                  <TextField
-                    aria-label={`Model for ${role.name}`}
-                    placeholder={shown.model || 'model'}
-                    value={models[role.botId] ?? ''}
-                    onChange={(e) => setModels({ ...models, [role.botId]: e.target.value })}
-                    className="w-36"
-                  />
+                  {shown.backend === 'claude' ? (
+                    <Select
+                      variant="pill"
+                      aria-label={`Model for ${role.name}`}
+                      value={models[role.botId] ?? shown.model ?? ''}
+                      options={claudeModelOptions(shown.model ?? '').filter(
+                        (o) => o.value || !shown.model,
+                      )}
+                      onChange={(model) => setModels({ ...models, [role.botId]: model })}
+                    />
+                  ) : (
+                    <TextField
+                      aria-label={`Model for ${role.name}`}
+                      placeholder={shown.model || 'model'}
+                      value={models[role.botId] ?? ''}
+                      onChange={(e) => setModels({ ...models, [role.botId]: e.target.value })}
+                      className="w-36"
+                    />
+                  )}
                   <Button
                     variant="ghost"
                     size="sm"
                     disabled={refresh.isPending}
                     onClick={() => refresh.mutate({ botId: role.botId, model: models[role.botId] })}
                   >
-                    Refresh
+                    Apply here
                   </Button>
                   {roles.length > 1 &&
                     (role.leaving ? (
@@ -214,8 +270,8 @@ export function TeamPanel({
         {refresh.isSuccess && (
           <p className="mt-1.5 text-sm text-muted">
             {refresh.data.pending
-              ? "Refresh applies before this Bot's next turn."
-              : 'Refresh requested: the next message starts a new session.'}
+              ? "Apply here runs before this Bot's next turn."
+              : 'Applied: the next message starts a new session.'}
           </p>
         )}
         {remove.isError && <p className="mt-1.5 text-sm text-danger">{remove.error.message}</p>}

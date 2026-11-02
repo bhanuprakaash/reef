@@ -53,7 +53,7 @@ export function SpaceHeader({
   onTeam,
 }: Props) {
   return (
-    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4 in-data-desktop:pr-[88px]!">
+    <header className="flex min-h-14 select-none flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4 in-data-desktop:pr-[88px]!">
       <Link
         to="/spaces"
         aria-label="Back"
@@ -82,10 +82,7 @@ export function SpaceHeader({
         <GroupAvatar roles={roles} faces={faces} size={26} working={working} />
       </button>
       <div className="flex min-w-0 flex-1 flex-col md:flex-none md:flex-row md:items-center md:gap-2.5">
-        <h1 className="truncate text-base font-normal">
-          <span aria-hidden="true">#</span>
-          {space.name}
-        </h1>
+        <h1 className="truncate text-base font-normal">{space.name}</h1>
         {space.workItemId === null ? (
           <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted">{scope}</span>
         ) : (

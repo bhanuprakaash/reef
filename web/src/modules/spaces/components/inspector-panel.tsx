@@ -116,10 +116,12 @@ function TurnRow({ turn, faces }: { turn: InspectorTurn; faces: Faces }) {
 
 export function InspectorPanel({
   spaceId,
+  conversation,
   faces,
   onClose,
 }: {
   spaceId: number;
+  conversation?: boolean;
   faces: Faces;
   onClose: () => void;
 }) {
@@ -150,7 +152,9 @@ export function InspectorPanel({
     <aside aria-label="Inspector" className="space-y-[18px]">
       <div className="flex items-center gap-2">
         <h2 className="text-[15px] font-normal">Inspector</h2>
-        <span className="text-[12.5px] text-muted">this Space</span>
+        <span className="text-[12.5px] text-muted">
+          {conversation ? 'this conversation' : 'this Space'}
+        </span>
         <button
           type="button"
           aria-label="Close inspector"

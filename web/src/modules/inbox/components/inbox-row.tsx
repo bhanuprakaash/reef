@@ -33,7 +33,7 @@ export function InboxRow({ item, space }: { item: InboxItem; space?: SpacePrevie
   const { spaceId, turnId } = item;
   const primary = item.kind === 'review' || item.kind === 'waiting';
   const where =
-    item.spaceId === 0 ? `Work item ${item.workItemId}` : `#${space?.name ?? `Space ${spaceId}`}`;
+    item.spaceId === 0 ? `Work item ${item.workItemId}` : (space?.name ?? `Space ${spaceId}`);
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">

@@ -75,7 +75,7 @@ describe('SpaceCard', () => {
       <SpaceCard space={space} workItem={workItem} members={members} working={[2]} waiting={[]} />,
     );
     expect(text(markup)).toBe(
-      ' #build Working Branch work-item/2 Changes 2 files +3 −1 lead idle developer working ',
+      ' build Working Branch work-item/2 Changes 2 files +3 −1 lead idle developer working ',
     );
     expect(useDiff).toHaveBeenCalledWith(2);
   });
@@ -91,7 +91,7 @@ describe('SpaceCard', () => {
         waiting={[]}
       />,
     );
-    expect(text(markup)).toBe(' #build Idle lead idle developer idle ');
+    expect(text(markup)).toBe(' build Idle lead idle developer idle ');
     expect(useDiff).not.toHaveBeenCalled();
   });
 
@@ -106,7 +106,7 @@ describe('SpaceCard', () => {
         waiting={[]}
       />,
     );
-    expect(text(markup)).toBe(' #build Working sally working sam idle ');
+    expect(text(markup)).toBe(' build Working sally working sam idle ');
   });
 
   it('says so when the Work item has no changes', () => {

@@ -25,6 +25,17 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('$0.0034');
   });
 
+  it('names a conversation in the header', () => {
+    useInspector.mockReturnValue({ isPending: false, isError: false, data });
+
+    const markup = renderToStaticMarkup(
+      <InspectorPanel spaceId={1} conversation faces={{}} onClose={() => {}} />,
+    );
+
+    expect(markup).toContain('this conversation');
+    expect(markup).not.toContain('this Space');
+  });
+
   it('shows n/a when cost is null', () => {
     useInspector.mockReturnValue({
       isPending: false,

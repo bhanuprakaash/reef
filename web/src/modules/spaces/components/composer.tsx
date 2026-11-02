@@ -19,6 +19,7 @@ import { Menu } from '@/components/menu';
 
 type Props = {
   spaceId: number;
+  conversation?: boolean;
   running: boolean;
   paused: boolean;
   parent?: number;
@@ -54,6 +55,7 @@ const icon = {
 
 export function Composer({
   spaceId,
+  conversation,
   running,
   paused,
   parent,
@@ -181,7 +183,9 @@ export function Composer({
         : roles
           ? narrow
             ? 'Message, @ to mention'
-            : 'Message the Space, @ to mention'
+            : conversation
+              ? 'Message the conversation, @ to mention'
+              : 'Message the Space, @ to mention'
           : 'Message';
 
   return (

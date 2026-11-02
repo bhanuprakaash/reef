@@ -19,7 +19,7 @@ export function MenuItem({
     <button
       type="button"
       role="menuitem"
-      className={`flex h-[34px] w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm hover:bg-hover ${destructive ? 'text-danger' : 'text-fg'} ${className ?? ''}`}
+      className={`flex h-[34px] max-md:h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm hover:bg-hover ${destructive ? 'text-danger' : 'text-fg'} ${className ?? ''}`}
       {...rest}
     />
   );
