@@ -24,6 +24,8 @@ const _keepAlive = 15 * time.Second
 
 const _nameTimeout = time.Minute
 
+const _secretNote = "A secret was removed from your message before it was stored or sent to a Bot."
+
 var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
@@ -277,6 +279,8 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: text is required", store.ErrInvalid))
 		return
 	}
+	var removed bool
+	in.Text, removed = store.RemoveSecrets(in.Text)
 	t := userTurn{kind: _message, text: in.Text, parent: in.Parent}
 	to, moves, err := s.moveTarget(r.Context(), id, in.Text)
 	if err != nil {
@@ -292,6 +296,13 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 	if err := s.startUserTurn(r.Context(), id, t); err != nil {
 		writeError(w, err)
 		return
+	}
+	if removed {
+		if _, err := s.st.CreateMessage(r.Context(), store.Message{
+			SpaceID: id, ParentID: in.Parent, Author: store.ReefAuthor, Body: _secretNote,
+		}); err != nil {
+			log.Printf("space %d: secret note: %v", id, err)
+		}
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
