@@ -3025,7 +3025,7 @@ async function hovercard() {
   for (let i = 0; i < 50 && (await flat()) !== (await expected()); i++) await page.waitForTimeout(100);
   const idleText = await flat();
   check(idleText === (await expected()), 'waiting Space: name, state, branch, changes and every role match REST and SQLite', idleText);
-  check(idleText.startsWith('hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
+  check(idleText.startsWith('hover chat idle') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a reply (FYI, not a question), so the card says idle; the diff has d.txt with its one added line', idleText);
   const [r, t] = [await row.boundingBox(), await tip.boundingBox()];
   check(t.x >= r.x + r.width, 'the card sits beside the row, not over it', `row right ${r.x + r.width}, card left ${t.x}`);
   const described = await row.getAttribute('aria-describedby');
