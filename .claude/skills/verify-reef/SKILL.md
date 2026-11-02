@@ -110,8 +110,9 @@ allow replays on as recorded, running the call's side effect then, not before. A
 `result` and prints it. Without the flag the same `tool_result` reads `This command requires
 approval`. `record` mode forwards every stdin line, `control_response` too, to the real claude and
 saves its `control_request` line like any other. The `prompt-outside` and `read-chat-folder`
-scenarios (`read the file outside`, `read the file in your folder`) are for these prompts; their
-recordings come from a `record` run.
+scenarios (`read the file outside`, which also takes the retry wake `I allowed your Read call that
+got no answer`, and `read the file in your folder`) are for these prompts; their recordings come from
+a `record` run (`features/permissions.md`).
 
 Add a scenario: a line in `fake/scenario.go`'s table (`{name, role, pattern}`, `role: ""` for
 any). Record or refresh its recording: run the same prompt once in `record` mode (a short one,
@@ -199,12 +200,12 @@ server per run, driven serially. Read the matching recipe file first.
 Launch:
 
 ```sh
-REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME]
+REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME] [--prompt-wait DUR]
 # serve: ready pid=... addr=127.0.0.1:PORT data=<scratch>/NAME in 0.4 s
 ```
 
 It picks a free 127.0.0.1 port, starts `reef serve --addr ... --data <scratch>/NAME` (default
-`data`), and waits up to 10 s for `GET /health` to answer 200. Otherwise it fails and prints the
+`data`; `--prompt-wait` is passed on), and waits up to 10 s for `GET /health` to answer 200. Otherwise it fails and prints the
 tail of `serve.log`. It refuses if this run's server is already up. While a server runs,
 `pgrep -fl 'reef serve'` also lists a `bash ... verify-reef serve-start` line: that is the
 wrapper that records the exit code, and it ends with the server.
@@ -363,6 +364,7 @@ REEF_VERIFY_RUN=<id> $H ui phone     # below 768 px the tab bar replaces the sid
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, picks a type, types, Enter shows Captured and clears the box, a Backlog Work item is stored; "Talk to a Bot" opens a conversation with the text as its first message; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (working, completed, stopped, failed, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `duo`)
 REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing Space width; Escape, outside click and X close it (needs `full`)
+REEF_VERIFY_RUN=<id> $H ui prompts # a permission prompt card with Allow once, Allow always and Deny, waiting on you, Allow once goes on to the reply; an expired card keeps Allow once, which runs the retry (needs `serve-start --prompt-wait 15s`, fake claude only)
 REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the Space member row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
 REEF_VERIFY_RUN=<id> $H ui subagent  # a claude Agent call shows as a subagent row with its nested tool calls, collapsed once it is done, and the same in the inspector (fake claude replay of `subagent-read`)
 REEF_VERIFY_RUN=<id> $H ui composer  # message box: one corner radius from 1 line to the height cap, no wrap of the placeholder, dropped or pasted files insert their path (stub desktop bridge) or their name, the clipboard chip, resize 1280 to 390
@@ -603,7 +605,7 @@ claude, above).
 | `run [--name N] [--stdin FILE] [--timeout S] -- ARGS` | one `reef-agent` drive, records evidence |
 | `interrupt --after S [--name N] -- ARGS` | drive with stdin held open, SIGINT after S seconds |
 | `mcp-server` | writes the test MCP server and `mcp.json`, prints its path |
-| `serve-start [--data-name NAME]` | starts `reef serve` on a free port, waits for `/health` |
+| `serve-start [--data-name NAME] [--prompt-wait DUR]` | starts `reef serve` on a free port, waits for `/health` |
 | `serve-stop [--kill]` | SIGINT (or SIGKILL) to the recorded server, prints exit code and seconds |
 | `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
 | `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |

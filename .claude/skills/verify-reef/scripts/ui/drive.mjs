@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share|prompts BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate, guidance, 'guidance-share': guidanceShare };
+const scenarios = { live, 'pending-memory': pendingMemory, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, skills, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, consult, 'space-ref': spaceRef, 'send-space': sendSpace, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'space-header': spaceHeader, sidebar, 'global-chats': globalChats, navigate, guidance, 'guidance-share': guidanceShare, prompts };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate|pending-memory|guidance|guidance-share|prompts BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -5065,6 +5065,52 @@ async function guidanceShare() {
   await linked.waitFor();
   await linked.scrollIntoViewIfNeeded();
   await shot('guidance-share');
+}
+
+// Needs a server started with a short --prompt-wait (under 60 s): the second prompt is left to expire.
+async function prompts() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const suffix = Date.now().toString(36);
+  mkdirSync('/tmp/reef-prompt-outside', { recursive: true });
+  writeFileSync('/tmp/reef-prompt-outside/note.txt', 'outside-word: walrus-58\n');
+  await addProject();
+  const bot = (await sendJson('POST', '/bots', { name: `dba-${suffix}`, backend: 'claude', write: false })).body;
+  const room = (await sendJson('POST', '/spaces', { name: `prompts-${suffix}`, botIds: [bot.id], coordinatorBotId: bot.id })).body;
+  const ask = 'Use the Read tool to read the file outside your folders at /tmp/reef-prompt-outside/note.txt and reply with its contents.';
+  const card = main.getByRole('listitem').filter({ hasText: ' wants to ' });
+  const button = (name) => card.getByRole('button', { name, exact: true });
+  const doneTurns = () => sql(`select count(*) from turn where space_id=${room.id} and status='done'`);
+
+  await page.goto(`${base}/spaces/${room.id}`);
+  await page.getByLabel('Message').waitFor();
+  await send(ask);
+  await card.waitFor({ timeout: 30000 });
+  const text = (await card.innerText()).replace(/\s+/g, ' ');
+  check(text.includes(`wants to Read`) && text.includes('/tmp/reef-prompt-outside/note.txt'), 'the prompt card names the Bot, the tool and the path', text);
+  check((await button('Allow once').count()) === 1 && (await button('Allow always').count()) === 1 && (await button('Deny').count()) === 1, 'the card has Allow once, Allow always and Deny');
+  await main.getByText('waiting on you').first().waitFor();
+  check(sql(`select status from turn where space_id=${room.id}`) === 'running', 'the Bot shows waiting on you and its turn is still running');
+  await shot('waiting');
+  await button('Allow once').click();
+  await card.waitFor({ state: 'hidden', timeout: 30000 });
+  await main.getByText('outside-word: walrus-58').first().waitFor({ timeout: 30000 });
+  for (let i = 0; i < 40 && doneTurns() !== '1'; i++) await page.waitForTimeout(250);
+  const turns = sql(`select count(*), group_concat(status) from turn where space_id=${room.id}`);
+  check(turns === '1|done', 'Allow once: the same turn goes on to done with the file in the reply', turns);
+  await shot('allowed');
+
+  await send(ask + ' (left unanswered)');
+  await card.waitFor({ timeout: 30000 });
+  await card.getByText('Denied: no answer from the user').waitFor({ timeout: 60000 });
+  for (let i = 0; i < 40 && doneTurns() !== '2'; i++) await page.waitForTimeout(250);
+  check(doneTurns() === '2' && (await button('Deny').count()) === 0 && (await button('Allow once').count()) === 1, 'an expired prompt stays as a card with Allow once and Allow always, no Deny, and its turn ended', `${doneTurns()} done turns`);
+  await shot('expired');
+  await button('Allow once').click();
+  await card.waitFor({ state: 'hidden', timeout: 30000 });
+  for (let i = 0; i < 80 && doneTurns() !== '3'; i++) await page.waitForTimeout(250);
+  const prompted = sql(`select count(*) from permission_prompt where space_id=${room.id}`);
+  check(doneTurns() === '3' && prompted === '2', 'Allow once on the expired card wakes the Bot, its retry ends done with no new prompt', `${doneTurns()} done turns, ${prompted} prompts`);
+  await shot('retried');
 }
 
 try {

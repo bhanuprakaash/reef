@@ -9,7 +9,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef mcp-server
        REEF_VERIFY_RUN=ID verify-reef run [--name N] [--stdin FILE] [--timeout S] -- REEF_AGENT_ARGS...
        REEF_VERIFY_RUN=ID verify-reef interrupt --after S [--name N] -- REEF_AGENT_ARGS...
-       REEF_VERIFY_RUN=ID verify-reef serve-start [--data-name NAME]
+       REEF_VERIFY_RUN=ID verify-reef serve-start [--data-name NAME] [--prompt-wait DUR]
        REEF_VERIFY_RUN=ID verify-reef serve-stop [--kill]
        REEF_VERIFY_RUN=ID verify-reef serve-second [--same-addr]
        REEF_VERIFY_RUN=ID verify-reef api [-H 'Name: value']... METHOD PATH [JSON]
@@ -318,9 +318,11 @@ cmd_serve_start() {
 	load_run
 	fake_claude_setup
 	name=data
+	wait_args=()
 	while [ $# -gt 0 ]; do
 		case $1 in
 		--data-name) [ $# -ge 2 ] || usage; name=$2; shift 2 ;;
+		--prompt-wait) [ $# -ge 2 ] || usage; wait_args=(--prompt-wait "$2"); shift 2 ;;
 		*) usage ;;
 		esac
 	done
@@ -342,7 +344,7 @@ cmd_serve_start() {
 	t0=$(now)
 	# The wrapper subshell outlives this call and records reef's exit code in serve.exit.
 	(
-		"$REEF_BIN" serve --addr "$addr" --data "$data" &
+		"$REEF_BIN" serve --addr "$addr" --data "$data" ${wait_args[@]+"${wait_args[@]}"} &
 		echo $! >"$SCR/serve.pid"
 		wait $!
 		echo $? >"$SCR/serve.exit"

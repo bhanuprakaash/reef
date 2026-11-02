@@ -100,7 +100,7 @@ var _scenarios = []scenario{
 	{"run-checks", "tester", pat(`run the checks`)},
 	{"webfetch-allowed", "", pat(`WebFetch tool again`)},
 	{"webfetch-denied", "", pat(`WebFetch tool to fetch`)},
-	{"prompt-outside", "", pat(`read the file outside`)},
+	{"prompt-outside", "", pat(`read the file outside|I allowed your Read call that got no answer`)},
 	{"read-chat-folder", "", pat(`read the file in your folder`)},
 	{"write-refused", "", pat(`file t\.txt containing the word nope`)},
 	{"write-d", "", pat(`file d\.txt containing the word yes`)},
