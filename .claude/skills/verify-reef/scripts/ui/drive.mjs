@@ -1115,22 +1115,44 @@ async function memory() {
   check(retired === 'retired|1', 'Retire sets retired_at and the item leaves the list', retired);
 
   const baseField = main.getByRole('textbox', { name: 'Base branch' });
-  const baseCard = main.getByRole('region', { name: 'Base branch' });
   check((await baseField.getAttribute('placeholder')) === 'default (origin HEAD)', 'the Base branch field shows the default as its placeholder');
+  check((await main.getByRole('button', { name: 'Save', exact: true }).count()) === 0, 'the Project page has no Save button');
   await baseField.fill('a b');
-  await baseCard.getByRole('button', { name: 'Save' }).click();
-  await baseCard.getByText('not a branch name').waitFor();
+  await baseField.blur();
+  await main.getByText('not a branch name').waitFor();
   check(sql(`select base_branch from project where id=${pid}`) === '', 'a base branch that is not a branch name is refused and not stored');
   await baseField.fill('dev');
-  await baseCard.getByRole('button', { name: 'Save' }).click();
-  await baseCard.getByText('Saved', { exact: true }).waitFor();
-  check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'saving the Base branch stores it', sql(`select id,base_branch from project where id=${pid}`));
+  await baseField.blur();
+  await main.getByText('Saved', { exact: true }).waitFor();
+  check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'leaving the Base branch field stores it', sql(`select id,base_branch from project where id=${pid}`));
   await page.reload();
   await baseField.waitFor();
   await page.waitForTimeout(500);
   await shot('base-branch');
   const baseValue = await baseField.inputValue();
   check(baseValue === 'dev', 'the saved base branch survives a reload', baseValue);
+
+  const purposeField = main.getByRole('textbox', { name: 'Purpose' });
+  await purposeField.fill('Job-queue platform that runs customer pipelines.');
+  await purposeField.blur();
+  await main.getByText('Saved', { exact: true }).waitFor();
+  check(
+    sql(`select purpose from project where id=${pid}`) === 'Job-queue platform that runs customer pipelines.',
+    'leaving the Purpose field stores it',
+    sql(`select purpose from project where id=${pid}`),
+  );
+  await page.reload();
+  await purposeField.waitFor();
+  check((await purposeField.inputValue()) === 'Job-queue platform that runs customer pipelines.', 'the saved Purpose survives a reload');
+
+  for (const n of [1, 2, 3, 4]) {
+    await newItem.fill(`Memory ${n}`);
+    await memoryCard.getByRole('button', { name: 'Add', exact: true }).click();
+    await memoryCard.getByText(`Memory ${n}`).waitFor();
+  }
+  check((await memoryCard.getByRole('listitem').count()) === 3, 'the project memory list shows 3 items of 4');
+  await memoryCard.getByRole('button', { name: 'Show all 4' }).click();
+  check((await memoryCard.getByRole('listitem').count()) === 4, 'Show all lists every item');
 
   await page.setViewportSize({ width: 1280, height: 800 });
   const headerTile = main.getByRole('button', { name: 'Change icon' });
@@ -1196,6 +1218,19 @@ async function memory() {
   await page.goto(`${base}/projects/${pid}`);
   await main.getByRole('link', { name: session }).waitFor();
   await shot('quick-session-listed');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(600);
+  await shot('project-page');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(600);
+  await shot('project-page-phone');
+  const projectOverflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(projectOverflow <= 0, 'the Project page has no horizontal scroll at 390 px', String(projectOverflow));
+  check(
+    (await main.getByRole('region', { name: 'Project memory' }).boundingBox()).y > (await main.getByRole('region', { name: 'Free Spaces' }).boundingBox()).y,
+    'on a phone the memory rail stacks under the main column',
+  );
+  await page.setViewportSize({ width: 1200, height: 1000 });
 
   const fid = sql(`select id from work_item where project_id=${pid} and title='Pp ${id}'`);
   const reefBin = process.env.REEF_UI_REEF;
