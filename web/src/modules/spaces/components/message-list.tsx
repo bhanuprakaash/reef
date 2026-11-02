@@ -25,6 +25,7 @@ type Props = {
   openId?: number;
   openChainId?: number;
   running?: boolean;
+  draft?: { author: string; botId?: number; text: string };
   turns: Turn[];
   checkpoints: Turn[];
   onOpen: (rootId: number) => void;
@@ -53,6 +54,7 @@ export function MessageList({
   openId,
   openChainId,
   running = false,
+  draft,
   turns,
   checkpoints,
   onOpen,
@@ -231,6 +233,12 @@ export function MessageList({
         );
       })}
       {after.map(item)}
+      {draft && (
+        <li className="mt-2.5 flex flex-col items-start gap-2.5">
+          <Author name={draft.author} look={faceOf(faces, draft.botId)} />
+          <Bubble className="draft">{draft.text}</Bubble>
+        </li>
+      )}
     </ul>
   );
 }

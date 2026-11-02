@@ -660,3 +660,24 @@ button.dock-water[aria-expanded='true'] {
 :is(button, input, textarea, select, a, [role='listbox'], [role='separator']) {
   -webkit-app-region: no-drag;
 }
+
+.draft p:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.17em;
+  background: var(--color-soft);
+  animation: caret 1.1s steps(1) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .draft p:last-child::after {
+    animation: none;
+  }
+}

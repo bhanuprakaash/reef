@@ -257,6 +257,28 @@ async function live() {
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
   await working();
+  // Mid-turn the streamed reply is a draft Bot bubble at the end of the thread. Once it shows, a DOM observer
+  // records every change in how many thread bubbles carry its text, to catch a gap or a duplicate on the hand-over.
+  const draftBubble = main.locator('ul > li .draft');
+  let draftSeen = '';
+  const sampler = (async () => {
+    while ((await page.getByText('is working').count()) > 0) {
+      if ((await draftBubble.count()) > 0) {
+        draftSeen = (await draftBubble.first().innerText()).trim().slice(0, 30);
+        await shot('draft');
+        await page.evaluate((text) => {
+          const counts = [];
+          const count = () => [...document.querySelectorAll('main ul > li .peer')].filter((el) => el.textContent.includes(text)).length;
+          const note = () => { const n = count(); if (counts.at(-1) !== n) counts.push(n); };
+          note();
+          new MutationObserver(note).observe(document.body, { subtree: true, childList: true, characterData: true });
+          window.__draftCounts = counts;
+        }, draftSeen);
+        return;
+      }
+      await page.waitForTimeout(100);
+    }
+  })();
   await openSteps();
   await steps.locator('details summary').first().waitFor({ timeout: 120000 });
   await page.waitForTimeout(1000);
@@ -275,6 +297,15 @@ async function live() {
   const rows = await turnPanel.locator('details summary').count();
   check(rows >= 1, 'tool rows shown in the turn panel while the turn runs', `${rows} rows, first: ${await turnPanel.locator('details summary').first().innerText()}`);
   await idle();
+  await sampler;
+  await page.waitForTimeout(500);
+  const counts = draftSeen ? await page.evaluate(() => window.__draftCounts) : [];
+  check(draftSeen !== '', 'mid-turn the streamed reply shows in the thread as a draft Bot bubble', `draft: ${JSON.stringify(draftSeen)}`);
+  check(
+    (await draftBubble.count()) === 0 && counts.length > 0 && counts.every((n) => n === 1),
+    'after the turn the stored message shows once, with no draft, no duplicate and no gap on the hand-over',
+    counts.join(','),
+  );
   await shot('final');
   const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
   check(lead === '1', 'reply stored as one lead message', `message rows:\n${sql(`select id,author,substr(body,1,100) from message where space_id=${cid}`)}`);

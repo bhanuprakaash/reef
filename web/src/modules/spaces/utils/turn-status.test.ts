@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveTurn, Tool } from './fold-events';
-import { recentTools, toolCount } from './turn-status';
+import { draftText, recentTools, toolCount } from './turn-status';
 
 const tool = (id: string, name: string, input: unknown, children: Tool[] = []): Tool => ({
   id,
@@ -39,5 +39,24 @@ describe('toolCount', () => {
         ]),
       ),
     ).toBe(3);
+  });
+});
+
+describe('draftText', () => {
+  const items: LiveTurn['items'] = [
+    { type: 'text', text: 'Looking.' },
+    { type: 'tool', tool: tool('a', 'Read', {}) },
+    { type: 'text', text: 'Found it.' },
+  ];
+
+  it('joins the streamed text of a running or finishing turn', () => {
+    expect(draftText(turn(items))).toBe('Looking.\n\nFound it.');
+    expect(draftText({ ...turn(items), status: 'done' })).toBe('Looking.\n\nFound it.');
+  });
+
+  it('is empty before any text, for a direct turn and for a failed turn', () => {
+    expect(draftText(turn([{ type: 'tool', tool: tool('a', 'Read', {}) }]))).toBe('');
+    expect(draftText({ ...turn(items), directMessageId: 1 })).toBe('');
+    expect(draftText({ ...turn(items), status: 'failed' })).toBe('');
   });
 });

@@ -11,3 +11,8 @@ export function toolCount(turn: LiveTurn): number {
 export function recentTools(turn: LiveTurn, n: number): Tool[] {
   return turn.items.flatMap((i) => (i.type === 'tool' ? [i.tool] : [])).slice(-n);
 }
+
+export function draftText(turn: LiveTurn): string {
+  if (turn.directMessageId || (turn.status !== 'running' && turn.status !== 'done')) return '';
+  return turn.items.flatMap((i) => (i.type === 'text' ? [i.text] : [])).join('\n\n');
+}

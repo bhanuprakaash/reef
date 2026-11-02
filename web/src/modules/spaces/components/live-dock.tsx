@@ -136,8 +136,6 @@ function Steps({
         .map((entry) => {
           const direct = Boolean(entry.turn.directMessageId);
           const tools = toolCount(entry.turn);
-          const last = entry.turn.items.at(-1);
-          const text = !direct && last?.type === 'text' ? last.text : '';
           return (
             <div key={entry.turn.botId ?? entry.role} className="space-y-2">
               <div className="flex items-center gap-2.5">
@@ -154,11 +152,6 @@ function Steps({
                     <ToolRow key={tool.id} tool={tool} />
                   ))}
                 </div>
-              )}
-              {text && (
-                <p className="line-clamp-3 whitespace-pre-wrap text-[13px] leading-5 text-muted">
-                  {text}
-                </p>
               )}
             </div>
           );

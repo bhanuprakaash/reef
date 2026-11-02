@@ -41,6 +41,7 @@ import { checkpointAnchor, unanchoredCheckpoints } from '@/modules/spaces/utils/
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
+import { draftText } from '@/modules/spaces/utils/turn-status';
 import type { Project, SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { faceOf } from '@/components/creature';
@@ -114,6 +115,7 @@ export function SpaceView({
   const working = turn.role || space.role || 'agent';
   const look = faceOf(faces, workingBotId);
   const action = browserAction(turn);
+  const draft = draftText(turn);
   const last = messages.data?.at(-1);
   const { box, onScroll, atBottom, toBottom, hold } = useStickToBottom(
     last?.author === 'user' ? last.id : undefined,
@@ -246,6 +248,7 @@ export function SpaceView({
                   openId={thread?.root.id}
                   openChainId={chain?.id}
                   running={running}
+                  draft={draft ? { author: working, botId: workingBotId, text: draft } : undefined}
                   turns={turns}
                   checkpoints={rollbackable}
                   onOpen={(rootId) => openSide({ kind: 'thread', rootId })}

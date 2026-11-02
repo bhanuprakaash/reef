@@ -80,6 +80,29 @@ function render(
 }
 
 describe('MessageList', () => {
+  it('shows the draft reply as a named Bot bubble after the last message, and none without one', () => {
+    const list = (draft?: { author: string; botId?: number; text: string }) =>
+      renderToStaticMarkup(
+        <MessageList
+          spaceId={2}
+          threads={groupThreads(messages)}
+          chains={[]}
+          faces={{}}
+          draft={draft}
+          turns={[]}
+          checkpoints={[]}
+          onOpen={() => {}}
+          onOpenChain={() => {}}
+        />,
+      );
+    const markup = list({ author: 'lead', botId: 3, text: 'Drafting the plan' });
+
+    expect(markup.indexOf('On it')).toBeLessThan(markup.indexOf('Drafting the plan'));
+    expect(markup.match(/Drafting the plan/g)).toHaveLength(1);
+    expect(markup).toMatch(/draft"[^]*Drafting the plan/);
+    expect(list()).not.toContain('draft');
+  });
+
   it('shows a direct exchange as one item between the messages around it, with no bubble', () => {
     const markup = render([direct, { ...direct, id: 2, chainId: 1, replyToId: 1, status: 'done' }]);
 
