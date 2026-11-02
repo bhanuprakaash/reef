@@ -99,7 +99,7 @@ export function Sidebar() {
     ).length ?? 0;
 
   return (
-    <nav aria-label="Spaces" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
+    <nav aria-label="Spaces" className="flex h-full select-none flex-col px-3 pt-4 pb-3 text-sm">
       <div className="app-drag box-content flex h-8 items-center justify-end gap-1 pb-3.5">
         <Link to="/" aria-label="Today" className="flex items-center gap-1.5 pr-1">
           <Logo size={18} />

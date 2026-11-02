@@ -204,14 +204,16 @@
     text-rendering: optimizeLegibility;
   }
 
-  body {
+  button,
+  [role='button'],
+  [role='menuitem'],
+  [role='tab'],
+  label {
     user-select: none;
   }
 
   input,
   textarea,
-  pre,
-  code,
   [contenteditable] {
     user-select: text;
   }

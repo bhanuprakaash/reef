@@ -15,7 +15,7 @@ export function EmptyState({ title, body, face, compact, children }: Props) {
   );
   if (compact) {
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex select-none items-center gap-3">
         {creature}
         <div className="min-w-0">
           <div className="text-[13px] text-soft">{title}</div>
@@ -26,7 +26,7 @@ export function EmptyState({ title, body, face, compact, children }: Props) {
     );
   }
   return (
-    <div className="flex flex-col items-center gap-2.5 rounded-menu bg-main p-7 text-center">
+    <div className="flex select-none flex-col items-center gap-2.5 rounded-menu bg-main p-7 text-center">
       {creature}
       <div className="text-[15px]">{title}</div>
       {body && <div className="text-[13px] text-muted">{body}</div>}
