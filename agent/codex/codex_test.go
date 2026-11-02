@@ -305,6 +305,8 @@ func TestAgent_DisablesUserServers(t *testing.T) {
 		Params struct {
 			Config struct {
 				MCPServers map[string]map[string]any `json:"mcp_servers"`
+				Plugins    map[string]map[string]any `json:"plugins"`
+				Features   map[string]any            `json:"features"`
 			} `json:"config"`
 		} `json:"params"`
 	}
@@ -317,6 +319,13 @@ func TestAgent_DisablesUserServers(t *testing.T) {
 	}
 	if servers["user-two"]["command"] != "x" || servers["user-two"]["enabled"] != nil {
 		t.Errorf("user-two = %v, want the selected command and not disabled", servers["user-two"])
+	}
+	plugins := got.Params.Config.Plugins
+	if len(plugins) != 1 || plugins["on@x"]["enabled"] != false {
+		t.Errorf("plugins = %v, want only on@x with enabled=false", plugins)
+	}
+	if got.Params.Config.Features["apps"] != false {
+		t.Errorf("features = %v, want apps=false", got.Params.Config.Features)
 	}
 }
 

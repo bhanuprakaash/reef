@@ -307,11 +307,11 @@ func (a *Agent) handshake(method string, params map[string]any) error {
 	if err := a.write(map[string]any{"method": "initialized"}); err != nil {
 		return err
 	}
-	user, err := a.userServers(params["cwd"])
+	user, err := a.userConfig(params["cwd"])
 	if err != nil {
 		return err
 	}
-	disableServers(params, user)
+	disableUserTools(params, user)
 	res, err := a.call(method, params)
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
@@ -329,39 +329,61 @@ func (a *Agent) handshake(method string, params map[string]any) error {
 	return nil
 }
 
-// userServers names the MCP servers codex itself loads for cwd: its config.toml (CODEX_HOME
-// aware) and the project's .codex/config.toml.
-func (a *Agent) userServers(cwd any) ([]string, error) {
+// userTools is what codex itself would load for cwd besides the session's servers: the MCP
+// servers of its config.toml (CODEX_HOME aware) and the project's .codex/config.toml, and the
+// plugins enabled there, which bring MCP servers of their own.
+type userTools struct {
+	servers []string
+	plugins []string
+}
+
+func (a *Agent) userConfig(cwd any) (userTools, error) {
 	res, err := a.call("config/read", map[string]any{"cwd": cwd})
 	if err != nil {
-		return nil, fmt.Errorf("config/read: %w", err)
+		return userTools{}, fmt.Errorf("config/read: %w", err)
 	}
 	var read struct {
 		Config struct {
 			MCPServers map[string]json.RawMessage `json:"mcp_servers"`
+			Plugins    map[string]struct {
+				Enabled bool `json:"enabled"`
+			} `json:"plugins"`
 		} `json:"config"`
 	}
 	if err := json.Unmarshal(res, &read); err != nil {
-		return nil, fmt.Errorf("config/read result: %w", err)
+		return userTools{}, fmt.Errorf("config/read result: %w", err)
 	}
-	return slices.Collect(maps.Keys(read.Config.MCPServers)), nil
+	u := userTools{servers: slices.Collect(maps.Keys(read.Config.MCPServers))}
+	for name, p := range read.Config.Plugins {
+		if p.Enabled {
+			u.plugins = append(u.plugins, name)
+		}
+	}
+	return u, nil
 }
 
-// disableServers sets enabled=false on the thread for every server in names that the session
-// did not select: codex merges the thread's mcp_servers into its own config rather than
-// replacing it.
-func disableServers(params map[string]any, names []string) {
+// disableUserTools turns off, on the thread, every user server the session did not select,
+// every enabled plugin and the ChatGPT apps (codex_apps): codex merges the thread's config into
+// its own rather than replacing it. An enabled=false entry only works for a server codex
+// already knows; a new name with no transport fails thread/start.
+func disableUserTools(params map[string]any, u userTools) {
 	cfg, _ := params["config"].(map[string]any)
 	servers, ok := cfg["mcp_servers"].(map[string]mcpServer)
 	if !ok {
 		return
 	}
 	off := false
-	for _, name := range names {
+	for _, name := range u.servers {
 		if _, ok := servers[name]; !ok {
 			servers[name] = mcpServer{Enabled: &off}
 		}
 	}
+	plugins := make(map[string]any, len(u.plugins))
+	for _, name := range u.plugins {
+		plugins[name] = map[string]bool{"enabled": false}
+	}
+	cfg["plugins"] = plugins
+	cfg["features"] = map[string]bool{"apps": false}
 }
 
 func (a *Agent) call(method string, params any) (json.RawMessage, error) {

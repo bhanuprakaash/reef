@@ -6,7 +6,7 @@ read -r line
 echo '{"id":1,"result":{"userAgent":"fake"}}'
 read -r line
 read -r line
-echo '{"id":2,"result":{"config":{"mcp_servers":{"user-one":{},"user-two":{}}}}}'
+echo '{"id":2,"result":{"config":{"mcp_servers":{"user-one":{},"user-two":{}},"plugins":{"on@x":{"enabled":true},"off@x":{"enabled":false}}}}}'
 read -r line
 [ -n "$FAKE_CODEX_THREAD" ] && echo "$line" >"$FAKE_CODEX_THREAD"
 if [ "$FAKE_CODEX" = failstart ]; then
