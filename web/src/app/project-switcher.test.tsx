@@ -28,3 +28,7 @@ it('shows the stored project, or the first one when nothing is stored', () => {
   expect(render('2')).toContain('site');
   expect(render(null)).toContain('reef');
 });
+
+it('shows the project initial in its tile', () => {
+  expect(render('2')).toContain('>S<');
+});

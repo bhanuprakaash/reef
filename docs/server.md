@@ -71,27 +71,31 @@ embeds `web/dist` as it was at build time. A Space's agent is the `claude` or `c
 logged in and on `PATH`.
 
 - Sidebar: a top row with the brand (it opens Today), search, the project switcher, then Inbox with
-  its count, Board, Bots, Spaces and Conversations. Each section label has a + for a new Bot, Space or
-  conversation, and the Board row has a + for a new Work item. The switcher lists All projects first and then each project; the choice is a
+  its count, Board, Bots, Spaces and Conversations. Inbox and Board are one-line rows. Each section label
+  has a + for a new Bot, Space or conversation, and the Board row has a + for a new Work item. A chevron
+  on the section label collapses the section (the choice is kept in the browser, and the count shows
+  while it is collapsed). Each section lists at most eight one-line rows and a See all N link to its
+  full list: all pinned rows, then the newest others. The switcher shows the project as a coloured
+  initial tile (All projects is a grid tile) and lists All projects first and then each project; the choice is a
   filter only. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
   associated with that project; under All projects it reads `GET /spaces`. Switching never changes a
   Space's projects, context or sessions, and starts no chat. New Space and New conversation under
   All projects send `POST /spaces` with no `projectId`; New Work item needs a project (its + is
   disabled until one is picked). Spaces lists the free
   Spaces and the Spaces of Work items that are not yet
-  in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
-  eight newest conversations with the Bot's creature; its header opens `/conversations`. There is no Pinned
-  section: pinned Bots, chats and Spaces (`GET /pins`) sort to the top of their own section, under every
-  filter. Bots lists the Bots of the five newest chats under the filter plus pinned Bots, each opening
+  in Review, Done or Dropped; its See all link opens `/spaces`, which lists them all. Conversations lists the
+  conversations, newest first, with the Bot's creature; its See all link opens `/conversations`. There is no Pinned
+  section: pinned Bots, chats and Spaces (`GET /pins`) show a pin mark and sort to the top of their own section, under every
+  filter. Bots lists the Bots of the newest chats under the filter, pinned Bots first, then the other Bots; its See all link opens `/bots`, and each row opens
   `/bots/ID/chat`. A Space or chat row has a … button and a right-click menu with Rename, Pin or Unpin
   and Delete; a Bot row's menu has only Pin or Unpin. The Bot page and its chat rows also pin and unpin. Typing in
   search replaces the list with `GET /find` results (Bots, chats, Spaces, Work items); a result opens
   `/bots/ID/chat`, `/spaces/ID` or `/work-items/ID`. `/bots/ID/chat` opens the Bot's latest chat under
   the selected project (`?resumable=1&project=N&limit=1`) or overall, and with none opens the Bot page, whose New
   chat starts one; the Bot page lists the chats 20 at a time with Load more. A Space loads its newest
-  50 messages and a Load earlier messages button fetches the page before the oldest shown; a live refetch asks `after` the id 50 from the newest, so nothing loaded drops out, and a reply whose root is not loaded gets it with `?before=ROOT+1&limit=1`. Each row
-  shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
-  fixed and shows your name beside the Bots, Teams and Settings links. Below 768 px the sidebar is
+  50 messages and a Load earlier messages button fetches the page before the oldest shown; a live refetch asks `after` the id 50 from the newest, so nothing loaded drops out, and a reply whose root is not loaded gets it with `?before=ROOT+1&limit=1`. Each Space row
+  shows its time. The list scrolls; the foot is
+  fixed and shows your name beside the Bots and Settings links. Below 768 px the sidebar is
   a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,
   Escape or a tap outside closes it, and a Space opens full screen.
 - Today (`/`): what waits on you, the project's work items, and capture.

@@ -20,26 +20,22 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { itemPath } from '@/utils/anchors';
 import { initials } from '@/utils/initials';
 
-function IconCircle({ children, dot }: { children: ReactNode; dot?: boolean }) {
+function NavIcon({ children }: { children: ReactNode }) {
   return (
-    <span className="relative flex size-[30px] flex-none items-center justify-center rounded-full bg-bubble">
-      <svg
-        width="15"
-        height="15"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        {children}
-      </svg>
-      {dot && (
-        <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-sidebar bg-needs-you" />
-      )}
-    </span>
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className="text-muted"
+    >
+      {children}
+    </svg>
   );
 }
 
@@ -142,10 +138,10 @@ export function Sidebar() {
               to="/inbox"
               active={pathname === '/inbox'}
               avatar={
-                <IconCircle dot={waiting.length > 0}>
+                <NavIcon>
                   <path d="M22 12h-6l-2 3h-4l-2-3H2" />
                   <path d="M5.5 5h13L22 12v7H2v-7z" />
-                </IconCircle>
+                </NavIcon>
               }
               title="Inbox"
               aside={
@@ -153,21 +149,24 @@ export function Sidebar() {
                   <CountBadge count={waiting.length} label={`${waiting.length} waiting`} />
                 )
               }
-              preview={waiting[0]?.text ?? 'Nothing waiting'}
             />
             <div className="group relative">
               <Row
                 to="/board"
                 active={pathname === '/board'}
                 avatar={
-                  <IconCircle>
+                  <NavIcon>
                     <rect x="3" y="4" width="5" height="16" rx="1.5" />
                     <rect x="10" y="4" width="5" height="10" rx="1.5" />
                     <rect x="17" y="4" width="4" height="13" rx="1.5" />
-                  </IconCircle>
+                  </NavIcon>
                 }
                 title="Board"
-                preview={`${openItems} open`}
+                aside={
+                  <span className="text-[12.5px] md:group-focus-within:invisible md:group-hover:invisible">
+                    {openItems}
+                  </span>
+                }
               />
               <Button
                 type="button"
@@ -177,7 +176,7 @@ export function Sidebar() {
                 title={current ? 'New Work item' : 'Pick a project first'}
                 disabled={!current}
                 onClick={() => setAddingItem(true)}
-                className="absolute right-2 bottom-1.5 opacity-0 group-hover:opacity-100 hover:text-fg focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring max-md:right-0 max-md:bottom-1/2 max-md:size-11 max-md:translate-y-1/2 max-md:opacity-100 pointer-coarse:opacity-100"
+                className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 group-hover:opacity-100 hover:text-fg focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring max-md:right-0 max-md:size-11 max-md:opacity-100 pointer-coarse:opacity-100"
               >
                 <svg
                   width="14"
@@ -222,11 +221,6 @@ export function Sidebar() {
           <BarLink to="/bots" label="Bots" active={pathname.startsWith('/bots')}>
             <circle cx="12" cy="8" r="4" />
             <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
-          </BarLink>
-          <BarLink to="/teams" label="Crews" active={pathname.startsWith('/teams')}>
-            <circle cx="9" cy="9" r="4" />
-            <circle cx="17" cy="11" r="3" />
-            <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5M15.5 15.5c2.6 0 4.7 1.3 5.5 4.5" />
           </BarLink>
           <BarLink to="/settings" label="Settings" active={pathname === '/settings'}>
             <circle cx="12" cy="12" r="3" />

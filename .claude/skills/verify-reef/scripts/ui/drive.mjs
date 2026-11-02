@@ -697,12 +697,12 @@ async function phone() {
   check(badge === String(needsYou), 'the Needs you tab badge counts only needs-you items, as REST does', `badge ${badge}, REST ${needsYou}`);
   await visit('board', /^Board/, main.getByRole('link', { name: /phone check/ }));
   await tabs.getByRole('button', { name: 'Menu' }).click();
-  await aside.getByRole('link', { name: 'Crews', exact: true }).click();
-  await page.getByRole('heading', { name: 'Crews', level: 1 }).waitFor();
+  await aside.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
   check(!(await aside.isVisible()), 'the sidebar sheet closes when a link in it is followed');
-  await shot('teams');
-  const teamsScroll = await overflow();
-  check(teamsScroll.page <= 0 && teamsScroll.main <= 0, 'crews has no horizontal scroll at 390 px', `page ${teamsScroll.page}, main ${teamsScroll.main}`);
+  await shot('settings');
+  const settingsScroll = await overflow();
+  check(settingsScroll.page <= 0 && settingsScroll.main <= 0, 'settings has no horizontal scroll at 390 px', `page ${settingsScroll.page}, main ${settingsScroll.main}`);
 
   const noScroll = async (step) => {
     const o = await overflow();
@@ -3628,28 +3628,28 @@ async function sidebar() {
   const link = (name) => aside.getByRole('link', { name, exact: typeof name === 'string' });
   const y = async (loc) => (await loc.boundingBox()).y;
   const x = async (loc) => (await loc.boundingBox()).x;
-  const topDown = [search, link(/^Inbox/), link(/^Board/), link('Spaces'), link('Conversations')];
+  const toggle = (name) => aside.getByRole('button', { name: new RegExp(`^${name}`) });
+  const seeAll = section.getByRole('link', { name: /^See all/ });
+  const topDown = [search, link(/^Inbox/), link(/^Board/), toggle('Bots'), toggle('Spaces'), toggle('Conversations')];
   const ys = [];
   for (const loc of topDown) ys.push(await y(loc));
-  const bottom = [link('Bots').last(), link('Crews'), link('Settings')];
+  const bottom = [link('Bots').last(), link('Settings')];
   const bottomY = await y(bottom[0]);
   const bottomX = [];
   for (const loc of bottom) bottomX.push(await x(loc));
   check(
     ys.every((v, i) => i === 0 || v > ys[i - 1]) && ys[ys.length - 1] < bottomY && bottomX.every((v, i) => i === 0 || v > bottomX[i - 1]),
-    'the sidebar lists Search, Inbox, Board, Spaces, Conversations top to bottom, then Bots, Crews, Settings at the bottom',
+    'the sidebar lists Search, Inbox, Board, Bots, Spaces, Conversations top to bottom, then Bots, Settings at the bottom',
     `y: ${ys.join(',')}; bottom y ${bottomY}; bottom x: ${bottomX.join(',')}`,
   );
+  check((await link('Crews').count()) === 0, 'the bottom bar has no Crews link');
   check((await aside.getByRole('link', { name: /^Tasks/ }).count()) === 0 && (await aside.getByText('New channel').count()) === 0, 'no Tasks link and no New channel in the sidebar');
   await shot('desktop');
 
   const visits = [
     [link(/^Inbox/), '/inbox', 'Inbox'],
     [link(/^Board/), '/board', 'Board'],
-    [link('Spaces'), '/spaces', 'Spaces'],
-    [link('Conversations'), '/conversations', 'Conversations'],
     [link('Bots').last(), '/bots', 'Bots'],
-    [link('Crews'), '/teams', 'Crews'],
     [link('Settings'), '/settings', 'Settings'],
   ];
   for (const [loc, route, heading] of visits) {
@@ -3685,9 +3685,16 @@ async function sidebar() {
   await call('PUT', `/spaces/${conversation.split('|')[0]}`, { name: 'sam chat' });
   const convoRow = section.getByRole('link', { name: /sam chat/ });
   await convoRow.waitFor({ timeout: 15000 });
-  const fromTop = async (loc) => (await y(loc)) > (await y(link('Conversations')));
+  const fromTop = async (loc) => (await y(loc)) > (await y(toggle('Conversations')));
   check(await fromTop(convoRow), 'the conversation is listed under Conversations', await convoRow.innerText());
   await shot('created');
+
+  for (const [i, route, heading] of [[0, '/spaces', 'Spaces'], [1, '/conversations', 'Conversations']]) {
+    await seeAll.nth(i).click();
+    await main.getByRole('heading', { name: heading, level: 1 }).waitFor();
+    check(urlPath() === route, `See all under ${heading} opens ${route}`, urlPath());
+  }
+  await aside.getByRole('link', { name: 'Today' }).click();
 
   await search.fill('zzz-no-match');
   await convoRow.waitFor({ state: 'hidden' });
@@ -3715,6 +3722,25 @@ async function sidebar() {
   await main.getByRole('link', { name: 'review room' }).waitFor();
   check(true, 'the Spaces page still lists it', String(room.id));
   await shot('left-spaces');
+
+  for (let i = 0; i < 9; i++) await call('POST', '/spaces', { projectId: project, name: `bulk-${i}`, botId: sam.id, kind: 'conversation' });
+  await page.reload();
+  const chatRows = aside.getByRole('link', { name: /^(bulk-\d|sam chat)/ });
+  await seeAll.nth(1).waitFor();
+  check((await chatRows.count()) === 8 && (await seeAll.nth(1).innerText()).trim() === 'See all 10', 'Conversations shows 8 of 10 rows and See all 10', `${await chatRows.count()} rows, ${await seeAll.nth(1).innerText()}`);
+  await page.waitForTimeout(500);
+  await shot('cap');
+  await toggle('Conversations').click();
+  check((await chatRows.count()) === 0 && (await toggle('Conversations').innerText()).replace(/\s+/g, ' ').trim() === 'Conversations 10', 'collapsing Conversations hides its rows and shows the count', await toggle('Conversations').innerText());
+  await shot('collapsed');
+  await page.reload();
+  await toggle('Conversations').waitFor();
+  check((await chatRows.count()) === 0 && (await toggle('Spaces').getAttribute('aria-expanded')) === 'true', 'the collapsed Conversations section stays collapsed after a reload and Spaces stays open');
+  await toggle('Conversations').click();
+  check((await chatRows.count()) === 8, 'expanding Conversations brings its rows back');
+  await aside.getByRole('button', { name: 'Switch project' }).click();
+  await shot('switcher');
+  await page.keyboard.press('Escape');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${base}/`);
