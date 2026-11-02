@@ -99,7 +99,7 @@ describe('Markdown mention cards', () => {
     );
 
     expect(html).toMatch(
-      /<span class="mention [^"]*" style="[^"]*#8B5CF6[^"]*" tabindex="0"><svg[^>]*>.*<\/svg>Architect<\/span>/,
+      /<span class="mention [^"]*" style="[^"]*#8B5CF6[^"]*" tabindex="0"><span[^>]*><svg[^>]*>.*<\/svg><\/span>Architect<\/span>/,
     );
     expect(html).not.toContain('@architect');
     expect(html).toContain('<span class="mention">@nobody</span>');
