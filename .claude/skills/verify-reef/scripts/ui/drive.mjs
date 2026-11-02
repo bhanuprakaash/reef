@@ -1617,6 +1617,7 @@ async function inboxGroups() {
     await groupOf('FYI').waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 0, `${width}x${height}: the inbox has no horizontal scroll`, `${overflow} px`);
+    await page.waitForTimeout(600);
     await shot(`groups-${width}x${height}`);
     for (const g of ['FYI']) {
       await groupOf(g).evaluate((el) => el.scrollIntoView({ block: 'start' }));
