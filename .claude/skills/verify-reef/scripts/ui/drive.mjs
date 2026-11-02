@@ -316,7 +316,9 @@ async function teamManagement() {
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await page.goto(base + '/teams');
-  await main.getByRole('heading', { name: 'Crews', level: 1 }).waitFor();
+  await page.waitForURL((url) => url.pathname === '/bots' && url.searchParams.get('tab') === 'crews');
+  await main.getByRole('heading', { name: 'Bots', level: 1 }).waitFor();
+  check(await main.getByRole('button', { name: 'Crews', exact: true }).getAttribute('aria-pressed') === 'true', '/teams redirects to the Crews tab of the Bots page');
 
   const name = `delivery-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New crew' }).click();
@@ -326,7 +328,7 @@ async function teamManagement() {
   await dialog.getByLabel('Description').fill('Own desktop releases.');
   await dialog.getByRole('button', { name: 'Create crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === name);
-  await main.getByLabel('Crew name').waitFor();
+  await main.getByRole('heading', { name, level: 2 }).waitFor();
 
   let saved = await getJson(`/teams/${name}`);
   check(
@@ -336,11 +338,29 @@ async function teamManagement() {
   );
   check(saved.responsibility === 'Own desktop releases.', 'the responsibility entered at creation round-trips', saved.responsibility);
 
+  check((await main.getByRole('button', { name: /^Save/ }).count()) === 0, 'the Crew editor has no Save button: it autosaves');
   await main.getByLabel('Description').fill('Own desktop releases and rollback.');
-  await main.getByRole('button', { name: 'Save crew' }).click();
+  await main.getByLabel('Description').blur();
   await main.getByText('Saved', { exact: true }).waitFor();
   saved = await getJson(`/teams/${name}`);
   check(saved.responsibility === 'Own desktop releases and rollback.', 'editing responsibility saves through REST', saved.responsibility);
+  const bots = main.getByRole('region', { name: 'Bots' });
+  await bots.getByRole('button', { name: 'developer answers first' }).click();
+  await bots.getByRole('button', { name: 'developer answers first', pressed: true }).waitFor();
+  saved = await getJson(`/teams/${name}`);
+  check(saved.roles.find((r) => r.name === 'developer').lead && !saved.roles.find((r) => r.name === 'lead').lead, 'the star makes another Bot answer first and saves at once', saved.roles.map((r) => `${r.name}${r.lead ? '*' : ''}`).join(', '));
+  await bots.getByRole('button', { name: 'lead answers first' }).click();
+  await bots.getByRole('button', { name: 'lead answers first', pressed: true }).waitFor();
+  await bots.getByRole('button', { name: 'Remove developer' }).click();
+  await bots.getByRole('button', { name: 'Remove developer' }).waitFor({ state: 'detached' });
+  check(!(await getJson(`/teams/${name}`)).roles.some((r) => r.name === 'developer'), 'x removes a Bot from the Crew and saves at once');
+  await bots.getByRole('button', { name: 'Add Bot' }).click();
+  await shot('team-add-1280x800');
+  await bots.getByRole('option', { name: /^developer/ }).click();
+  await bots.getByRole('button', { name: 'Remove developer' }).waitFor();
+  await bots.getByRole('button', { name: 'Done' }).click();
+  saved = await getJson(`/teams/${name}`);
+  check(saved.roles.some((r) => r.name === 'developer' && !r.lead) && saved.roles.some((r) => r.name === 'lead' && r.lead), 'Add Bot adds a Bot to the Crew and saves at once, the coordinator unchanged', saved.roles.map((r) => `${r.name}${r.lead ? '*' : ''}`).join(', '));
   await shot('team-1280x800');
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -348,6 +368,11 @@ async function teamManagement() {
   check(width <= 390, 'the Team editor has no horizontal scroll at 390x844', `${width} px`);
   await main.getByLabel('Description').scrollIntoViewIfNeeded();
   await shot('team-390x844');
+  await page.goto(`${base}/bots?tab=crews`);
+  await main.getByRole('navigation', { name: 'All crews' }).waitFor();
+  check(await main.getByRole('heading', { name, level: 2 }).count() === 0, 'on a phone the Crews tab opens on the list, not on a Crew');
+  await page.waitForTimeout(500);
+  await shot('team-list-390x844');
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await addWorkItem('Team run');
@@ -358,9 +383,12 @@ async function teamManagement() {
   const turn = sql(`select role || '|' || status from turn where space_id = ${id} order by id limit 1`);
   check(turn === 'lead|done', 'the new Team runs a Space', turn);
 
-  await page.goto(`${base}/teams?team=${encodeURIComponent(name)}`);
-  await main.getByLabel('Crew name').waitFor();
-  await main.getByRole('button', { name: 'Delete' }).click();
+  await page.goto(`${base}/teams/${encodeURIComponent(name)}`);
+  await main.getByRole('heading', { name, level: 2 }).waitFor();
+  await main.getByRole('button', { name: 'Crew actions' }).click();
+  await page.waitForTimeout(500);
+  await shot('team-menu-1280x800');
+  await page.getByRole('menuitem', { name: 'Delete crew…' }).click();
   const confirm = page.getByRole('dialog', { name: `Delete ${name}?` });
   await confirm.getByRole('button', { name: 'Delete crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === 'solo');
@@ -2149,13 +2177,14 @@ async function workshop() {
   check(row('bot.connections') === connBefore, "the Bot's selected connection is unchanged by the panel", row('bot.connections'));
 
   // Duplicate makes a new Crew `reef team list` (the same store) shows.
-  await page.goto(`${base}/teams?team=full`);
+  await page.goto(`${base}/bots?tab=crews&team=full`);
   const copyName = `workshop-copy-${Date.now().toString(36)}`;
-  await main.getByRole('button', { name: 'Duplicate' }).click();
+  await main.getByRole('button', { name: 'Crew actions' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click();
   const dup = page.getByRole('dialog', { name: 'New crew' });
   await dup.getByLabel('Name', { exact: true }).fill(copyName);
   await dup.getByRole('button', { name: 'Create crew' }).click();
-  await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
+  await main.getByRole('navigation', { name: 'All crews' }).getByRole('button', { name: new RegExp(`^${copyName}`) }).waitFor({ timeout: 15000 });
   await shot('copied');
   check(
     sql(`select count(*) from team where name = '${copyName}'`) === '1',
@@ -3730,35 +3759,35 @@ async function bots() {
   bot = await save();
   check(bot.description === `${description} Edited.` && bot.tools.join() === 'Read' && bot.model === 'sonnet', 'editing the description leaves model, tools and permission mode as they were', bot.description);
 
-  await page.goto(`${base}/teams`);
+  await page.goto(`${base}/bots?tab=crews`);
   await main.getByRole('button', { name: 'New crew' }).click();
   const newTeam = page.getByRole('dialog', { name: 'New crew' });
   await newTeam.getByLabel('Name', { exact: true }).fill(teamName);
   await newTeam.getByRole('button', { name: 'Create crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === teamName);
-  await main.getByLabel('Crew name').waitFor();
-  await main.getByRole('button', { name: 'Add a Bot' }).click();
-  const picker = page.getByRole('dialog', { name: 'Add a Bot' });
-  await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
+  await main.getByRole('heading', { name: teamName, level: 2 }).waitFor();
   const roles = main.getByRole('region', { name: 'Bots' });
-  const leadSwitch = roles.getByRole('switch', { name: `${mate} suggested coordinator` });
-  await leadSwitch.waitFor();
+  await roles.getByRole('button', { name: 'Add Bot' }).click();
+  await roles.getByRole('option', { name: new RegExp(`^${mate}`) }).click();
+  await roles.getByRole('button', { name: 'Done' }).click();
+  const leadStar = roles.getByRole('button', { name: `${mate} answers first` });
+  await leadStar.waitFor();
   const member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
   check(member && !member.lead && member.name === mate, 'adding a Bot from the picker puts it in the Team by Bot id', JSON.stringify(member && { botId: member.botId, name: member.name, lead: member.lead }));
-  const editable = await roles.locator('textarea, input:not([role=switch]), [role=combobox]').count();
+  const editable = await roles.locator('textarea, input, [role=combobox]').count();
   check(
     editable === 0 && (await roles.getByRole('switch', { name: `${mate} write` }).count()) === 0,
-    'the Team editor has no field, select or write switch for a member: only lead and Remove',
+    'the Team editor has no field, select or write switch for a member: only the answers-first star and Remove',
     `${editable} fields`,
   );
   await shot('team-editor-1280x800');
-  await roles.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
+  await roles.getByRole('link', { name: new RegExp(`^${mate}`) }).click();
   await page.waitForURL((url) => url.pathname === '/bots' && url.searchParams.get('bot') === String(id));
   check(true, "a member row opens the Bot's own editor at /bots?bot=ID");
   const tools = (await after()).tools.join();
   check(tools === 'Read', "opening the editor from the Team changed nothing on the Bot", tools);
 
-  for (const route of ['/bots', `/teams?team=${teamName}`, `/bots?bot=${id}`, `/bots/${id}`]) {
+  for (const route of ['/bots', `/bots?tab=crews&team=${teamName}`, `/bots?bot=${id}`, `/bots/${id}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Bots' })).first().waitFor();
@@ -3808,8 +3837,8 @@ async function creatures() {
   await shot('bots-1280x800');
 
   const faceIn = async (team, roleName) => {
-    await page.goto(`${base}/teams?team=${team}`);
-    const button = main.getByRole('region', { name: 'Bots' }).getByRole('button', { name: new RegExp(`^${roleName}`) });
+    await page.goto(`${base}/bots?tab=crews&team=${team}`);
+    const button = main.getByRole('region', { name: 'Bots' }).getByRole('link', { name: new RegExp(`^${roleName}`) });
     await button.waitFor();
     return button.locator('svg').first().innerHTML();
   };
@@ -3846,7 +3875,7 @@ async function creatures() {
   await main.getByText('Saved', { exact: true }).waitFor();
   check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Bot panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
 
-  for (const route of ['/bots', `/teams?team=${teamB}`]) {
+  for (const route of ['/bots', `/bots?tab=crews&team=${teamB}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).waitFor();

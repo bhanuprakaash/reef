@@ -1,21 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MemoryRouter } from 'react-router';
-import { describe, expect, it, vi } from 'vitest';
-import type { Role, Team } from '@/types/api';
+import { describe, expect, it } from 'vitest';
+import type { Role } from '@/types/api';
 import { RolePanel } from './role-panel';
-import { TeamEditor } from './team-editor';
-
-const { useDeleteTeam, useUpdateTeam } = vi.hoisted(() => ({
-  useDeleteTeam: vi.fn(() => ({ isPending: false, isError: false })),
-  useUpdateTeam: vi.fn(),
-}));
-
-vi.mock('@/modules/teams/api/delete-team', () => ({ useDeleteTeam }));
-vi.mock('@/modules/teams/api/add-member', () => ({
-  useAddMember: () => ({ isPending: false, isError: false }),
-}));
-vi.mock('@/lib/api/get-bots', () => ({ useBots: () => ({ data: [] }) }));
-vi.mock('@/modules/teams/api/update-team', () => ({ useUpdateTeam }));
 
 const role: Role = {
   botId: 1,
@@ -97,24 +83,5 @@ describe('RolePanel', () => {
     );
 
     expect(markup).not.toContain('Tools');
-  });
-});
-
-describe('TeamEditor', () => {
-  it('lists member Bots with coordinator suggestion and remove controls but no per-member settings', () => {
-    useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
-    const team: Team = { id: 1, name: 'solo', responsibility: '', roles: [role] };
-
-    const markup = renderToStaticMarkup(
-      <MemoryRouter>
-        <TeamEditor team={team} onSaved={() => {}} onDeleted={() => {}} onDuplicate={() => {}} />
-      </MemoryRouter>,
-    );
-
-    expect(markup).toContain('developer');
-    expect(markup).toContain('aria-label="developer suggested coordinator"');
-    expect(markup).toContain('Remove');
-    expect(markup).not.toContain('aria-label="developer name"');
-    expect(markup).not.toContain('aria-label="developer permission mode"');
   });
 });

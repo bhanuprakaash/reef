@@ -15,7 +15,7 @@ import { BotChatPage } from '@/app/routes/bot-chat';
 import { BotActivityPage } from '@/app/routes/bot-activity';
 import { BotPage } from '@/app/routes/bot';
 import { BotsPage } from '@/app/routes/bots';
-import { TeamsPage } from '@/app/routes/teams';
+import { TeamsRedirect } from '@/app/routes/crews';
 
 export const router = createBrowserRouter([
   { path: '/capture', element: <CapturePage /> },
@@ -33,7 +33,8 @@ export const router = createBrowserRouter([
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },
       { path: '/space-proposals/:id', element: <SpaceProposalPage /> },
-      { path: '/teams', element: <TeamsPage /> },
+      { path: '/teams', element: <TeamsRedirect /> },
+      { path: '/teams/:name', element: <TeamsRedirect /> },
       { path: '/bots', element: <BotsPage /> },
       { path: '/bots/:id', element: <BotPage /> },
       { path: '/bots/:id/chat', element: <BotChatPage /> },

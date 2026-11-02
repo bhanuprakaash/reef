@@ -96,7 +96,7 @@ export function BotPage() {
             {memberships.map(({ team, role }) => (
               <li key={team.name} className="border-t border-hairline">
                 <Link
-                  to={`/teams?team=${team.name}`}
+                  to={`/bots?tab=crews&team=${team.name}`}
                   className="flex flex-wrap items-center gap-2 px-6 py-3.5 text-sm"
                 >
                   <span>{team.name}</span>

@@ -10,9 +10,16 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { NewBotDialog } from '@/modules/teams/components/new-bot-dialog';
 import { RoleRow } from '@/modules/teams/components/role-row';
 import { BotPanel } from '@/modules/teams/components/bot-panel';
+import { BotsTabs } from '@/modules/teams/components/bots-tabs';
+import { CrewsTab } from '@/app/routes/crews';
 import { Button } from '@/components/button';
 
 export function BotsPage() {
+  const [params] = useSearchParams();
+  return params.get('tab') === 'crews' ? <CrewsTab /> : <BotsTab />;
+}
+
+function BotsTab() {
   const [params, setParams] = useSearchParams();
   const bots = useBots();
   const teams = useTeams();
@@ -47,6 +54,7 @@ export function BotsPage() {
           New Bot
         </Button>
       </header>
+      <BotsTabs />
       {bots.isPending && <p className="text-sm text-muted">Loading...</p>}
       {bots.isError && <p className="text-sm text-danger">{bots.error.message}</p>}
       <section aria-label="All bots" className="space-y-1.5">

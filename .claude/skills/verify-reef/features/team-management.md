@@ -12,8 +12,9 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=$id $H serve-start --data-name ui
 REEF_VERIFY_RUN=$id $H team-apply "$PWD/teams/full.json"
 ```
 
-`REEF_VERIFY_RUN=<id> $H ui team-management` creates a Team from `full` through the window,
-edits its responsibility, runs a Space whose lead completes a scripted turn, checks deletion,
+`REEF_VERIFY_RUN=<id> $H ui team-management` opens `/teams` (it must land on the Crews tab of `/bots`),
+creates a Team from `full` through the window, edits its responsibility (saved on leaving the field,
+no Save button), moves the star, removes and adds a Bot (each saves at once), runs a Space whose lead completes a scripted turn, checks deletion from the … menu,
 and captures the Team editor at 1280x800 and 390x844.
 
 For the deletion check, create a second Team through `POST /teams`, create a top-level Work
