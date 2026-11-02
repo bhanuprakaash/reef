@@ -35,6 +35,7 @@ export function useLiveTurn(spaceId: number): LiveTurn {
       const data: TurnData = JSON.parse(e.data);
       dispatch({ type: 'turn', ...data });
       void queryClient.invalidateQueries({ queryKey: ['turns'] });
+      void queryClient.invalidateQueries({ queryKey: ['prompts', spaceId] });
       void queryClient.invalidateQueries({ queryKey: ['direct-messages', spaceId] });
       if (data.status === 'done') {
         void refresh().then(() => dispatch('clear'));
@@ -53,6 +54,9 @@ export function useLiveTurn(spaceId: number): LiveTurn {
     });
     source.addEventListener('name', () => {
       void queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    });
+    source.addEventListener('prompt', () => {
+      void queryClient.invalidateQueries({ queryKey: ['prompts', spaceId] });
     });
     source.addEventListener('direct', () => {
       void queryClient.invalidateQueries({ queryKey: ['direct-messages', spaceId] });

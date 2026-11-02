@@ -17,7 +17,7 @@ export type StreamEvent =
       type: 'turn';
       role?: string;
       botId?: number;
-      status: 'idle' | 'running' | 'done' | 'failed';
+      status: 'idle' | 'running' | 'waiting' | 'done' | 'failed';
       error?: string;
       note?: string;
       directMessageId?: number;
@@ -120,6 +120,7 @@ function foldAgent(turn: LiveTurn, ev: AgentEvent): LiveTurn {
 export function foldEvent(turn: LiveTurn, ev: StreamEvent): LiveTurn {
   if (ev.type === 'agent') return foldAgent(turn, ev.event);
   if (ev.status === 'idle') return emptyTurn;
+  if (ev.status === 'waiting') return ev.botId === turn.botId ? emptyTurn : turn;
   if (ev.status === 'running')
     return {
       status: 'running',

@@ -6,6 +6,7 @@ import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
 import { useDirectMessages } from '@/modules/spaces/api/get-direct-messages';
 import { useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
+import { usePrompts } from '@/modules/spaces/api/get-prompts';
 import { useMessages } from '@/lib/api/get-messages';
 import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
@@ -27,6 +28,7 @@ import { LiveDock } from '@/modules/spaces/components/live-dock';
 import { MessageList } from '@/modules/spaces/components/message-list';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
+import { PromptCards } from '@/modules/spaces/components/prompt-cards';
 import { MemberProposalPanel } from '@/modules/spaces/components/member-proposal-panel';
 import { ProposalPanel } from '@/modules/spaces/components/proposal-panel';
 import { TeamPanel } from '@/modules/spaces/components/team-panel';
@@ -86,6 +88,7 @@ export function SpaceView({
 }: Props) {
   const messages = useMessages(space.id);
   const failedTurns = useFailedTurns(space.id);
+  const prompts = usePrompts(space.id);
   const direct = useDirectMessages(space.id);
   const turn = useLiveTurn(space.id);
   const wrap = useWrapSpace(space.id);
@@ -111,6 +114,12 @@ export function SpaceView({
   const members = useSpaceMembers(space.id);
   const roles = members.data ?? [];
   const faces = Object.fromEntries(roles.map((r) => [r.botId, r]));
+  const waiting = [
+    ...new Set((prompts.data ?? []).filter((p) => p.status === 'waiting').map((p) => p.botId)),
+  ].flatMap((botId) => {
+    const role = roles.find((r) => r.botId === botId);
+    return role ? [{ botId, role: role.name, look: role }] : [];
+  });
   const workingBotId = turn.botId ?? roles.find((r) => r.lead)?.botId;
   const working = turn.role || space.role || 'agent';
   const look = faceOf(faces, workingBotId);
@@ -264,6 +273,7 @@ export function SpaceView({
                 pillTurnId={failedRetryTarget(failedTurns.data ?? [], turn)?.id}
               />
               <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
+              <PromptCards spaceId={space.id} roles={roles} />
               <DeniedToolRows space={space} roles={roles} running={running} />
               <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
               <MemberProposalPanel spaceId={space.id} />
@@ -301,6 +311,7 @@ export function SpaceView({
               <LiveDock
                 spaceId={space.id}
                 entries={turn.status === 'idle' ? [] : [{ turn, role: working, look }]}
+                waiting={waiting}
                 paused={space.paused !== ''}
                 onOpenTurn={() => openSide({ kind: 'turn' })}
               />
