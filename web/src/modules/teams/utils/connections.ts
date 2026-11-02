@@ -1,3 +1,4 @@
+import { backendLabel } from '@/modules/teams/utils/backend-label';
 import type { AvailableConnection, Connection } from '@/types/api';
 
 export function connectionLabel(c: Connection) {
@@ -7,6 +8,30 @@ export function connectionLabel(c: Connection) {
   } catch {
     return c.url;
   }
+}
+
+export type SignInStatus = {
+  state: 'key' | 'signed_in' | 'needs_sign_in' | 'failed';
+  label: string;
+  detail?: string;
+};
+
+export function signInStatus(c: Connection): SignInStatus | null {
+  if (!c.url) return null;
+  if (Object.keys(c.headers ?? {}).length > 0) return { state: 'key', label: 'Key header' };
+  const entries = c.signIn ?? [];
+  const failed = entries.find((e) => e.state === 'failed');
+  if (failed) {
+    return {
+      state: 'failed',
+      label: 'Sign-in failed',
+      detail: `${backendLabel(failed.backend)}: ${failed.detail}`,
+    };
+  }
+  if (entries.length === 0 || entries.some((e) => e.state === 'needs_sign_in')) {
+    return { state: 'needs_sign_in', label: 'Sign in' };
+  }
+  return { state: 'signed_in', label: 'Signed in' };
 }
 
 export function availableLabel(a: AvailableConnection) {
