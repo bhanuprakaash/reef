@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ProviderRow } from './provider-list';
 
 describe('ProviderRow', () => {
-  it('shows a detected install with its path, version and models, and no Remove', () => {
+  it('shows a detected install as Ready with its path, version and models, and no Remove', () => {
     const markup = renderToStaticMarkup(
       <ProviderRow
         provider={{
@@ -17,14 +17,15 @@ describe('ProviderRow', () => {
       />,
     );
 
+    expect(markup).toContain('2.1.0 (Claude Code) · PATH');
+    expect(markup).toContain('Ready');
     expect(markup).toContain('/opt/bin/claude');
-    expect(markup).toContain('2.1.0 (Claude Code)');
-    expect(markup).toContain('Default, Opus, Sonnet, Haiku');
     expect(markup).toContain('Found on PATH');
+    expect(markup).toContain('Opus');
     expect(markup).not.toContain('Remove');
   });
 
-  it('shows an added install with its folder and a Remove button', () => {
+  it('shows an added install without a binary as not found, with a Remove button', () => {
     const markup = renderToStaticMarkup(
       <ProviderRow
         provider={{ name: 'lab', kind: 'codex', detected: false, folder: '/work/codex' }}
@@ -34,6 +35,7 @@ describe('ProviderRow', () => {
 
     expect(markup).toContain('/work/codex');
     expect(markup).toContain('Binary not found');
+    expect(markup).toContain('Any model, set on each Bot');
     expect(markup).toContain('aria-label="Remove lab"');
   });
 });
