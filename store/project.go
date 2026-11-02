@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"regexp"
+	"slices"
+	"strings"
 	"time"
 )
 
-var colourRE = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+// _tileColours are the colours a project tile can take, the palette of web/src/utils/project-tile.ts.
+var _tileColours = []string{"#B84E22", "#1F7A6F", "#6A59E0", "#B03E73", "#2F72C0", "#5F7A1E", "#8F6A12", "#5E6B78"}
 
 // Project is a repo folder Reef works in.
 type Project struct {
@@ -165,8 +167,8 @@ func (p Project) validate() error {
 	if p.Path == "" {
 		return fmt.Errorf("%w: project path is required", ErrInvalid)
 	}
-	if p.Colour != "" && !colourRE.MatchString(p.Colour) {
-		return fmt.Errorf("%w: project colour %q is not a #rrggbb colour", ErrInvalid, p.Colour)
+	if p.Colour != "" && !slices.ContainsFunc(_tileColours, func(c string) bool { return strings.EqualFold(c, p.Colour) }) {
+		return fmt.Errorf("%w: project colour %q is not one of %s", ErrInvalid, p.Colour, strings.Join(_tileColours, ", "))
 	}
 	return nil
 }

@@ -200,19 +200,27 @@ func TestInbox_Waiting(t *testing.T) {
 }
 
 func TestInbox_QuestionEndsInAQuestionMark(t *testing.T) {
-	e := newInboxEnv(t)
-	for body, kind := range map[string]string{
-		"which one?":               "question",
-		"**which one?**  \n":       "question",
-		"(which one?)":             "question",
-		"which one? I can do both": "reply",
-		"which one":                "reply",
-	} {
-		e.say(1, "lead", body)
-		items, err := e.s.Inbox(e.ctx)
-		if err != nil || len(items) != 1 || items[0].Kind != kind {
-			t.Errorf("Inbox after %q = %+v, %v, want one %s", body, items, err, kind)
-		}
+	tests := []struct {
+		name string
+		give string
+		want string
+	}{
+		{"plain", "which one?", "question"},
+		{"emphasis and trailing space", "**which one?**  \n", "question"},
+		{"parenthesis", "(which one?)", "question"},
+		{"inline code", "`which one?`", "question"},
+		{"text after the mark", "which one? I can do both", "reply"},
+		{"no mark", "which one", "reply"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newInboxEnv(t)
+			e.say(1, "lead", tt.give)
+			items, err := e.s.Inbox(e.ctx)
+			if err != nil || len(items) != 1 || items[0].Kind != tt.want {
+				t.Errorf("Inbox after %q = %+v, %v, want one %s", tt.give, items, err, tt.want)
+			}
+		})
 	}
 }
 

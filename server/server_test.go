@@ -262,6 +262,15 @@ func TestProjectRoundTrip(t *testing.T) {
 		fmt.Sprintf(`{"name":"reef2","path":%q,"colour":"blue"}`, secondPath)); status != 400 {
 		t.Fatalf("update with a bad colour = %d %s", status, body)
 	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"colour":"#000000"}`, secondPath)); status != 400 {
+		t.Fatalf("update with a colour outside the presets = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev","icon":"🚀","colour":"#2f72c0"}`, secondPath)); status != 200 ||
+		!strings.Contains(body, `"colour":"#2f72c0"`) {
+		t.Fatalf("update with a lower-case preset colour = %d %s", status, body)
+	}
 
 	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
 		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"a b"}`, secondPath)); status != 400 {

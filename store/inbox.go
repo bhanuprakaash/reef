@@ -56,10 +56,10 @@ SELECT kind, 0, work_item_id, text, created_at, NULL, NULL, id FROM inbox_fyi`
 // _inboxWaiting selects the Spaces that run no turn and whose newest message is from an
 // agent and held no wake: a message whose wake is paused is not waiting. Nor is the reply a
 // turn the user stopped kept, nor the message the user dismissed. A message that ends in a
-// question mark, ignoring trailing spaces and the marks *, _, ) and ", is a question; any
+// question mark, ignoring trailing spaces and the marks *, _, ), " and `, is a question; any
 // other is a reply.
 const _inboxWaiting = `
-SELECT CASE WHEN rtrim(m.body, ' ' || char(9) || char(10) || char(13) || '*_)"') LIKE '%?'
+SELECT CASE WHEN rtrim(m.body, ' ' || char(9) || char(10) || char(13) || char(96) || '*_)"') LIKE '%?'
 		THEN 'question' ELSE 'reply' END,
 	c.id, c.work_item_id, substr(m.body, 1, 2000), m.created_at, NULL, m.id, NULL
 FROM space c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE space_id = c.id)
@@ -75,8 +75,8 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 // Text ends with how many) or failed (a turn retry may run again that the user did not stop;
 // TurnID), review (a top-level Work item in review) or question (the Space ended on a message
 // of an agent that woke nobody and ends in a question mark; Text starts that message, MessageID
-// is its id). In FYI, Kind is reply (the same, with no question mark) or sub_item, proposed or started (a row of inbox_fyi; ID). An item of a
-// Work item has no Space: SpaceID is 0.
+// is its id). In FYI, Kind is reply (the same, with no question mark) or sub_item, proposed or
+// started (a row of inbox_fyi; ID). An item of a Work item has no Space: SpaceID is 0.
 type InboxItem struct {
 	Kind       string         `json:"kind"`
 	Group      string         `json:"group"`
