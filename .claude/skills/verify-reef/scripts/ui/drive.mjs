@@ -1321,6 +1321,20 @@ async function memory() {
     sql(`select count(*) from work_item where project_id=${pid} and title='Pp ${id}'`) === '1',
     'New Work item on the project page stores the work item and lists it',
   );
+  const workSection = main.getByRole('region', { name: 'Work items' });
+  const workCount = () => workSection.locator('h2 + span').innerText();
+  sql(`update work_item set status='done' where project_id=${pid} and title='Pp ${id}'`, true);
+  await page.reload();
+  await workSection.getByRole('button', { name: 'All' }).waitFor();
+  await workSection.getByText('No open Work items').waitFor();
+  check((await workCount()) === '0', 'the Work items list shows Open by default: a done item is hidden and the count follows', await workCount());
+  await workSection.getByRole('button', { name: 'All' }).click();
+  await workSection.getByRole('link', { name: `Pp ${id}` }).waitFor();
+  check((await workCount()) === '1', 'All lists the done item and the count follows', await workCount());
+  await shot('work-items-all');
+  sql(`update work_item set status='backlog' where project_id=${pid} and title='Pp ${id}'`, true);
+  await page.reload();
+  await workSection.getByRole('link', { name: `Pp ${id}` }).waitFor();
 
   const session = `quick-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New free Space' }).click();
@@ -1350,7 +1364,7 @@ async function memory() {
   );
   await page.setViewportSize({ width: 1200, height: 1000 });
 
-  const fid = sql(`select id from work_item where project_id=${pid} and title='Pp ${id}'`);
+  const fid = sql(`select id from work_item where project_id=${pid} and title='Pp ${id}'`, true);
   const reefBin = process.env.REEF_UI_REEF;
   const reefOut = execFileSync(reefBin, ['memory', '--data', data, 'add', 'fact', 'Tokens live in Keychain.', '--scope', `work_item:${fid}`, '--as', 'developer'], { encoding: 'utf8' });
   console.log(reefOut.trim());

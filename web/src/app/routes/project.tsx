@@ -6,6 +6,7 @@ import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { EmptyState } from '@/components/empty-state';
 import { ProjectTile } from '@/components/project-tile';
+import { SegmentedControl } from '@/components/segmented-control';
 import { StatusDot, type Status } from '@/components/status-dot';
 import { useDismiss } from '@/lib/use-dismiss';
 import { useSpaces } from '@/lib/api/get-spaces';
@@ -44,6 +45,7 @@ export function ProjectPage() {
   const bots = useBots();
   const [dialog, setDialog] = useState<'work-item' | 'space' | null>(null);
   const [picking, setPicking] = useState(false);
+  const [show, setShow] = useState<'open' | 'all'>('open');
   const iconRef = useRef<HTMLDivElement>(null);
 
   useDismiss(picking, iconRef, () => setPicking(false));
@@ -55,6 +57,10 @@ export function ProjectPage() {
 
   const projectSpaces = spaces.data ?? [];
   const projectWorkItems = workItems.data?.filter((f) => f.projectId === id) ?? [];
+  const shownWorkItems =
+    show === 'all'
+      ? projectWorkItems
+      : projectWorkItems.filter((f) => f.status !== 'done' && f.status !== 'dropped');
   const freeSpaces = projectSpaces.filter((c) => c.workItemId === null);
 
   return (
@@ -94,19 +100,33 @@ export function ProjectPage() {
           <section aria-label="Work items">
             <div className="flex items-center gap-2">
               <h2 className="text-[14.5px]">Work items</h2>
-              <span className="text-xs text-faint">{projectWorkItems.length}</span>
+              <span className="text-xs text-faint">{shownWorkItems.length}</span>
+              <SegmentedControl
+                label="Show Work items"
+                className="ml-auto"
+                options={[
+                  { value: 'open', label: 'Open' },
+                  { value: 'all', label: 'All' },
+                ]}
+                value={show}
+                onChange={setShow}
+              />
             </div>
             {workItems.isError && <p className="text-sm text-danger">{workItems.error.message}</p>}
-            {projectWorkItems.length === 0 && (
+            {shownWorkItems.length === 0 && (
               <EmptyState
-                title="No Work items yet"
-                body="Add one with New Work item."
+                title={projectWorkItems.length === 0 ? 'No Work items yet' : 'No open Work items'}
+                body={
+                  projectWorkItems.length === 0
+                    ? 'Add one with New Work item.'
+                    : 'Done and dropped ones show under All.'
+                }
                 face="whale"
                 compact
               />
             )}
             {COLUMNS.map(({ status, label }) => {
-              const group = projectWorkItems.filter((f) => f.status === status);
+              const group = shownWorkItems.filter((f) => f.status === status);
               if (group.length === 0) return null;
               return (
                 <div key={status}>
