@@ -233,10 +233,7 @@ export function SpaceHeader({
       </span>
       <div className="flex min-w-0 flex-1 flex-col md:gap-0.5">
         <div className="flex min-w-0 flex-col md:flex-row md:items-center md:gap-2.5">
-          <h1 className="truncate text-base font-normal">
-            <span aria-hidden="true">#</span>
-            {space.name}
-          </h1>
+          <h1 className="truncate text-base font-normal">{space.name}</h1>
           {!workItem && (
             <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted">{scope}</span>
           )}
