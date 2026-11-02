@@ -19,6 +19,10 @@ function tokens(usage: Pick<Usage, 'inputTokens' | 'outputTokens'>) {
   return formatTokens(usage.inputTokens + usage.outputTokens);
 }
 
+function cache(usage: Pick<Usage, 'cacheReadTokens' | 'cacheWriteTokens'>) {
+  return `${formatTokens(usage.cacheReadTokens)} / ${formatTokens(usage.cacheWriteTokens)}`;
+}
+
 function callLabel(call: InspectorToolCall) {
   let input: unknown;
   try {
@@ -73,7 +77,7 @@ function TurnRow({ turn, faces }: { turn: InspectorTurn; faces: Faces }) {
           {[turn.model, turn.status].filter(Boolean).join(' · ')}
         </span>
         <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums text-muted">
-          {tokens(usage)} · {cost(turn.costUsd)}
+          {tokens(usage)} · cache {cache(usage)} · {cost(turn.costUsd)}
         </span>
       </summary>
       <div className="space-y-2 px-3 pb-3">
@@ -85,6 +89,15 @@ function TurnRow({ turn, faces }: { turn: InspectorTurn; faces: Faces }) {
         </div>
         <details className="rounded-field bg-main">
           <summary className="cursor-pointer px-2.5 py-2 text-soft">Prompt</summary>
+          {turn.instructions && (
+            <>
+              <div className="px-2.5 text-xs text-faint">Instructions</div>
+              <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 pb-2.5 font-mono text-muted">
+                {turn.instructions}
+              </pre>
+              <div className="px-2.5 text-xs text-faint">Turn prompt</div>
+            </>
+          )}
           <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 pb-2.5 font-mono text-muted">
             {turn.prompt}
           </pre>
@@ -122,6 +135,13 @@ export function InspectorPanel({
     [
       'Tokens',
       formatTokens(roles.reduce((n, r) => n + r.usage.inputTokens + r.usage.outputTokens, 0)),
+    ],
+    [
+      'Cache read / write',
+      cache({
+        cacheReadTokens: roles.reduce((n, r) => n + r.usage.cacheReadTokens, 0),
+        cacheWriteTokens: roles.reduce((n, r) => n + r.usage.cacheWriteTokens, 0),
+      }),
     ],
     ['Turns', String(roles.reduce((n, r) => n + r.turns, 0))],
   ];
@@ -163,7 +183,7 @@ export function InspectorPanel({
       )}
       {data && roles.length > 0 && (
         <>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {totals.map(([label, value]) => (
               <div key={label} className="min-w-0 rounded-menu bg-field p-2.5">
                 <div className="text-xs text-muted">{label}</div>

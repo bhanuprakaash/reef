@@ -223,14 +223,19 @@ func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
 }
 
 func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
-	script := func(tool string, isError bool) []agent.Event {
-		return []agent.Event{
+	script := func(tool string, isError bool, before string, work bool, after string) []agent.Event {
+		evs := []agent.Event{
 			{Kind: agent.KindSession, SessionID: "s1"},
+			{Kind: agent.KindText, Text: before},
 			{Kind: agent.KindToolCall, ToolID: "t1", ToolName: tool},
 			{Kind: agent.KindToolResult, ToolID: "t1", IsError: isError},
-			{Kind: agent.KindText, Text: "plain reply"},
-			{Kind: agent.KindTurnEnd},
 		}
+		if work {
+			evs = append(evs,
+				agent.Event{Kind: agent.KindToolCall, ToolID: "t2", ToolName: "Read"},
+				agent.Event{Kind: agent.KindToolResult, ToolID: "t2"})
+		}
+		return append(evs, agent.Event{Kind: agent.KindText, Text: after}, agent.Event{Kind: agent.KindTurnEnd})
 	}
 	const post = "mcp__reef__post_to_space"
 	for _, tc := range []struct {
@@ -239,9 +244,12 @@ func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 		messages []string
 		kept     string
 	}{
-		{"posted", script(post, false), []string{"architect: posted"}, "plain reply"},
-		{"post failed", script(post, true), []string{"architect: plain reply"}, ""},
-		{"other tool", script("mcp__reef__remember", false), []string{"architect: plain reply"}, ""},
+		{"posted", script(post, false, "plain reply", false, ""), []string{"architect: posted"}, "plain reply"},
+		{"posted then said so", script(post, false, "", false, "posted"), []string{"architect: posted"}, "posted"},
+		{"posted then answered", script(post, false, "Reading now.", true, "\n\nThe answer.\n"),
+			[]string{"architect: posted", "architect: The answer."}, "Reading now."},
+		{"post failed", script(post, true, "", false, "plain reply"), []string{"architect: plain reply"}, ""},
+		{"other tool", script("mcp__reef__remember", false, "", false, "plain reply"), []string{"architect: plain reply"}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -252,7 +260,7 @@ func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.kept != "" {
+			if tc.messages[0] == "architect: posted" {
 				_, err := st.CreateMessage(ctx, store.Message{
 					SpaceID: ch.ID, Author: "architect", Body: "posted",
 				})

@@ -75,6 +75,16 @@ func (s *Store) ActiveBotSession(ctx context.Context, spaceID, botID int64) (Bot
 	return b, err
 }
 
+// BotSession returns the BotSession with the id, active or ended, or ErrNotFound.
+func (s *Store) BotSession(ctx context.Context, id int64) (BotSession, error) {
+	b, err := scanBotSession(s.db.QueryRowContext(ctx,
+		"SELECT "+_botSessionCols+" FROM bot_session WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return BotSession{}, fmt.Errorf("bot session %d: %w", id, ErrNotFound)
+	}
+	return b, err
+}
+
 // AdoptBotSession records the Bot's current settings as its active BotSession in the Space. A
 // BotSession that was active becomes replaced.
 func (s *Store) AdoptBotSession(ctx context.Context, spaceID, botID int64) (BotSession, error) {

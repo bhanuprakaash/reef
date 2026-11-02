@@ -52,7 +52,7 @@ func TestGetInspector(t *testing.T) {
 		`"cacheReadTokens":0,"cacheWriteTokens":0},"costUsd":0.05}]`
 	wantTurn := `"status":"done","model":"claude-opus-5-5",` +
 		`"usage":{"inputTokens":10,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0},` +
-		`"costUsd":0.05,"prompt":"do it","reply":"kept","toolCalls":[{"name":"Bash","input":"{\"command\":\"ls\"}",` +
+		`"costUsd":0.05,"instructions":"","prompt":"do it","reply":"kept","toolCalls":[{"name":"Bash","input":"{\"command\":\"ls\"}",` +
 		`"result":"a.txt\n"}]`
 	if !strings.Contains(body, wantRole) || !strings.Contains(body, `"turns":[{"id":1,"role":"architect","botId":null,"startedAt":"`) ||
 		!strings.Contains(body, wantTurn) {
@@ -154,6 +154,47 @@ func TestGetInspectorKeysRolesByBotID(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("body = %s, want it to contain %s", body, want)
 		}
+	}
+}
+
+func TestGetInspectorShowsAdoptedInstructions(t *testing.T) {
+	ctx := context.Background()
+	st, err := openStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
+	bot, err := st.CreateBot(ctx, store.Bot{Name: "sam", Backend: "claude", Description: "Review the plan."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bs, err := st.AdoptBotSession(ctx, 1, bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Description = "Write the code."
+	if _, err := st.UpdateBot(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, BotID: &bot.ID, BotSessionID: &bs.ID, Role: "sam", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/inspector", "")
+	if status != 200 {
+		t.Fatalf("status = %d, body = %s", status, body)
+	}
+	want := `You are a Bot working in Reef.`
+	if !strings.Contains(body, `"instructions":"`+want) || !strings.Contains(body, `\n\nReview the plan.","prompt":""`) ||
+		strings.Contains(body, "Write the code.") {
+		t.Errorf("body = %s, want the adopted Review the plan. instructions and not Write the code.", body)
 	}
 }
 

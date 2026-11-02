@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -38,6 +39,9 @@ type recordingAgent struct {
 	exitText string
 	// usage is sent as one usage event per model call of each turn.
 	usage []agent.Usage
+	// cost and totals are the running cost and usage of the session, sent with each turn end.
+	cost   *float64
+	totals *agent.Usage
 
 	cfg     agent.Config
 	started bool
@@ -105,7 +109,7 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	for _, u := range a.usage {
 		a.events <- agent.Event{Kind: agent.KindUsage, Usage: &u}
 	}
-	a.events <- agent.Event{Kind: agent.KindTurnEnd}
+	a.events <- agent.Event{Kind: agent.KindTurnEnd, CostUSD: a.cost, SessionUsage: a.totals}
 	return nil
 }
 
@@ -1275,6 +1279,86 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 	last, err := newestSessionTurn(ctx, st, ch.ID, s.leadID, *testBotSessionID(t, st, ch.ID, &s.leadID))
 	if err != nil || last.SessionID != "sess-lead" {
 		t.Errorf("session to resume = %q, %v, want sess-lead, not the wrap-up's sess-copy", last.SessionID, err)
+	}
+}
+
+func TestSession_WrapStoresOnlyItsOwnCostAndUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name                 string
+		parentCost           float64
+		parentUsage          agent.Usage
+		forkCost             float64
+		forkTotals, messages agent.Usage
+		wantCost, wantSpace  float64
+		wantUsage            agent.Usage
+		wantSpaceCacheRead   int64
+	}{
+		{
+			name:       "totals include the parent",
+			parentCost: 0.1920494, parentUsage: agent.Usage{CacheReadTokens: 192274},
+			forkCost: 0.1999677, forkTotals: agent.Usage{CacheReadTokens: 235337},
+			messages: agent.Usage{CacheReadTokens: 43063},
+			wantCost: 0.0079183, wantUsage: agent.Usage{CacheReadTokens: 43063},
+			wantSpace: 0.1999677, wantSpaceCacheRead: 235337,
+		},
+		{
+			name:       "totals are the fork's own",
+			parentCost: 0.188662, parentUsage: agent.Usage{InputTokens: 6, OutputTokens: 57, CacheReadTokens: 22960, CacheWriteTokens: 46446},
+			forkCost: 0.0265902, forkTotals: agent.Usage{InputTokens: 10, OutputTokens: 475, CacheReadTokens: 142602, CacheWriteTokens: 1890},
+			messages: agent.Usage{InputTokens: 10, OutputTokens: 475, CacheReadTokens: 142602, CacheWriteTokens: 1890},
+			wantCost: 0.0265902, wantUsage: agent.Usage{InputTokens: 10, OutputTokens: 475, CacheReadTokens: 142602, CacheWriteTokens: 1890},
+			wantSpace: 0.2152522, wantSpaceCacheRead: 165562,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			ch := sessionSpace(t, st, f, false)
+			lead := testBotID(t, st, "architect")
+			turn, err := st.CreateTurn(ctx, store.Turn{
+				SpaceID: ch.ID, Role: "architect", BotID: lead, BotSessionID: testBotSessionID(t, st, ch.ID, lead),
+				Backend: "claude", SessionID: "sess-lead", WakeText: "go",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn.Status, turn.CostUSD, turn.SessionCostUSD = "done", &tc.parentCost, &tc.parentCost
+			turn.Usage, turn.SessionUsage = tc.parentUsage, &tc.parentUsage
+			if _, err := st.EndTurn(ctx, turn); err != nil {
+				t.Fatal(err)
+			}
+			ag := newRecordingAgent()
+			ag.st, ag.spaceID, ag.propose, ag.session = st, ch.ID, true, "sess-copy"
+			ag.cost, ag.totals, ag.usage = &tc.forkCost, &tc.forkTotals, []agent.Usage{tc.messages}
+			s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+
+			if _, err := s.Wrap(ctx, discard); err != nil {
+				t.Fatal(err)
+			}
+			turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sum float64
+			var cacheRead int64
+			for _, tn := range turns {
+				sum += *tn.CostUSD
+				cacheRead += tn.Usage.CacheReadTokens
+			}
+			own := turns[len(turns)-1]
+			if math.Abs(*own.CostUSD-tc.wantCost) > 1e-9 || own.Usage != tc.wantUsage {
+				t.Errorf("wrap-up turn cost = %v, usage = %+v, want %v and %+v",
+					*own.CostUSD, own.Usage, tc.wantCost, tc.wantUsage)
+			}
+			if math.Abs(sum-tc.wantSpace) > 1e-9 || cacheRead != tc.wantSpaceCacheRead {
+				t.Errorf("Space cost = %v, cache read = %d, want %v and %d",
+					sum, cacheRead, tc.wantSpace, tc.wantSpaceCacheRead)
+			}
+		})
 	}
 }
 

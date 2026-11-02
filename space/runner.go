@@ -65,6 +65,8 @@ type Runner struct {
 	sessionID string
 	model     string
 	direct    *store.DirectMessage
+	// forkedFrom is the session this runner's session was copied from, until the copy has a turn.
+	forkedFrom string
 
 	sessionGone     bool
 	firstPromptSent bool
@@ -176,7 +178,7 @@ func (r *Runner) Run(
 	var reply strings.Builder
 	toolRows := map[string]int64{}
 	postCalls := map[string]bool{}
-	posted := false
+	posted, postedAt, workedAfter := false, 0, false
 	for {
 		select {
 		case <-ctx.Done():
@@ -221,8 +223,11 @@ func (r *Runner) Run(
 				}
 				toolRows[ev.ToolID] = tc.ID
 				postCalls[ev.ToolID] = ev.ToolName == _postTool
+				workedAfter = workedAfter || (posted && ev.ToolName != _postTool)
 			case agent.KindToolResult:
-				posted = posted || (postCalls[ev.ToolID] && !ev.IsError)
+				if postCalls[ev.ToolID] && !ev.IsError {
+					posted, postedAt, workedAfter = true, reply.Len(), false
+				}
 				if id, ok := toolRows[ev.ToolID]; ok {
 					if err := r.st.SetToolCallResult(wctx, id, ev.Output); err != nil {
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
@@ -247,10 +252,20 @@ func (r *Runner) Run(
 				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if (posted && r.direct == nil) || r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil) {
-					turn.Reply = reply.String()
-				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
-					return r.abort(wctx, turn, err, err.Error(), "", parent)
+				text, keep := reply.String(), true
+				switch {
+				case r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil):
+					turn.Reply, keep = text, false
+				case posted && r.direct == nil:
+					turn.Reply, keep = text, false
+					if tail := strings.TrimSpace(text[postedAt:]); workedAfter && tail != "" {
+						turn.Reply, text, keep = text[:postedAt], tail, true
+					}
+				}
+				if keep {
+					if err := r.keepReply(wctx, text, parent, _replyDone); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), "", parent)
+					}
 				}
 				turn.Status = "done"
 				if _, err := r.st.EndTurn(wctx, turn); err != nil {
@@ -348,8 +363,21 @@ func (r *Runner) RunDirect(
 // totals of the turn's whole session, so the turn's own cost and usage are each total minus the
 // one the session's earlier turns had. The totals are stored with the turn for the next one.
 func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event) error {
+	// A forked session's totals may or may not start at its parent's: they do when they still
+	// cover the turn's own per-message usage after the parent's is taken off.
+	sessionID := turn.SessionID
+	if parent := r.forkedFrom; parent != "" {
+		r.forkedFrom = ""
+		inherits, err := r.inheritsParent(ctx, parent, *turn, ev)
+		if err != nil {
+			return err
+		}
+		if inherits {
+			sessionID = parent
+		}
+	}
 	if ev.CostUSD != nil {
-		before, err := r.st.SessionCostBefore(ctx, turn.SessionID, turn.ID)
+		before, err := r.st.SessionCostBefore(ctx, sessionID, turn.ID)
 		if err != nil {
 			return err
 		}
@@ -357,7 +385,7 @@ func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event
 		turn.CostUSD, turn.SessionCostUSD = &own, ev.CostUSD
 	}
 	if ev.SessionUsage != nil {
-		before, err := r.st.SessionUsageBefore(ctx, turn.SessionID, turn.ID)
+		before, err := r.st.SessionUsageBefore(ctx, sessionID, turn.ID)
 		if err != nil {
 			return err
 		}
@@ -366,6 +394,32 @@ func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event
 		turn.Usage, turn.SessionUsage = own, ev.SessionUsage
 	}
 	return nil
+}
+
+// inheritsParent reports whether the totals ev reports for the first turn of a forked session
+// include those of the session parent it was forked from.
+func (r *Runner) inheritsParent(
+	ctx context.Context, parent string, turn store.Turn, ev agent.Event,
+) (bool, error) {
+	if ev.SessionUsage != nil {
+		before, err := r.st.SessionUsageBefore(ctx, parent, turn.ID)
+		if err != nil {
+			return false, err
+		}
+		return tokens(*ev.SessionUsage)-tokens(before) >= tokens(turn.Usage), nil
+	}
+	if ev.CostUSD != nil {
+		before, err := r.st.SessionCostBefore(ctx, parent, turn.ID)
+		if err != nil {
+			return false, err
+		}
+		return *ev.CostUSD >= before, nil
+	}
+	return false, nil
+}
+
+func tokens(u agent.Usage) int64 {
+	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens
 }
 
 func (r *Runner) wake(text string) string {

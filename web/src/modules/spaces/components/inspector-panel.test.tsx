@@ -100,6 +100,46 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('2 turns');
   });
 
+  it('shows cache tokens in the totals and the turn row, and the session instructions above the prompt', () => {
+    const cached = {
+      inputTokens: 1500,
+      outputTokens: 600,
+      cacheReadTokens: 322000,
+      cacheWriteTokens: 49000,
+    };
+    useInspector.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        roles: [{ role: 'architect', botId: null, turns: 1, usage: cached, costUsd: 0.2493 }],
+        turns: [
+          {
+            id: 3,
+            role: 'architect',
+            botId: null,
+            startedAt: '2026-10-20T10:00:00Z',
+            status: 'done',
+            model: 'claude-opus-5-5',
+            usage: cached,
+            costUsd: 0.2493,
+            instructions: 'You are a Bot working in Reef.',
+            prompt: '## You\nYou are architect.',
+            toolCalls: [],
+          },
+        ],
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <InspectorPanel spaceId={1} faces={{}} onClose={() => {}} />,
+    );
+
+    expect(markup).toContain('>322.0k / 49.0k<');
+    expect(markup).toContain('2.1k · cache 322.0k / 49.0k · $0.2493');
+    expect(markup).toContain('Instructions</div>');
+    expect(markup.indexOf('You are a Bot working in Reef.')).toBeLessThan(markup.indexOf('## You'));
+  });
+
   it('shows a subagent call by its type with its nested calls in a closed group', () => {
     useInspector.mockReturnValue({
       isPending: false,

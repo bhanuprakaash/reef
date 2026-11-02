@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -21,17 +22,18 @@ type inspectorRole struct {
 
 // inspectorTurn is one turn with what the inspector shows of it.
 type inspectorTurn struct {
-	ID        int64                `json:"id"`
-	Role      string               `json:"role"`
-	BotID     *int64               `json:"botId"`
-	StartedAt time.Time            `json:"startedAt"`
-	Status    string               `json:"status"`
-	Model     string               `json:"model"`
-	Usage     agent.Usage          `json:"usage"`
-	CostUSD   *float64             `json:"costUsd"`
-	Prompt    string               `json:"prompt"`
-	Reply     string               `json:"reply"`
-	ToolCalls []*inspectorToolCall `json:"toolCalls"`
+	ID           int64                `json:"id"`
+	Role         string               `json:"role"`
+	BotID        *int64               `json:"botId"`
+	StartedAt    time.Time            `json:"startedAt"`
+	Status       string               `json:"status"`
+	Model        string               `json:"model"`
+	Usage        agent.Usage          `json:"usage"`
+	CostUSD      *float64             `json:"costUsd"`
+	Instructions string               `json:"instructions"`
+	Prompt       string               `json:"prompt"`
+	Reply        string               `json:"reply"`
+	ToolCalls    []*inspectorToolCall `json:"toolCalls"`
 }
 
 // inspectorToolCall is one tool call; a subagent's calls are the Children of its Agent call.
@@ -72,6 +74,7 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 	roles := map[string]*inspectorRole{}
 	var order []string
 	turnViews := make([]inspectorTurn, 0, len(turns))
+	instructions := map[int64]string{}
 	for _, t := range turns {
 		key := "name:" + t.Role
 		if t.BotID != nil {
@@ -109,9 +112,23 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 				tcs = append(tcs, tc)
 			}
 		}
+		var sys string
+		if t.BotSessionID != nil {
+			var ok bool
+			if sys, ok = instructions[*t.BotSessionID]; !ok {
+				bs, err := s.st.BotSession(r.Context(), *t.BotSessionID)
+				if err != nil {
+					writeError(w, err)
+					return
+				}
+				sys = space.Instructions(bs.Apply(store.Role{}), bs.Skills)
+				instructions[*t.BotSessionID] = sys
+			}
+		}
 		turnViews = append(turnViews, inspectorTurn{
 			ID: t.ID, Role: t.Role, BotID: t.BotID, StartedAt: t.StartedAt, Status: t.Status,
-			Model: t.Model, Usage: t.Usage, CostUSD: t.CostUSD, Prompt: t.Prompt, Reply: t.Reply, ToolCalls: tcs,
+			Model: t.Model, Usage: t.Usage, CostUSD: t.CostUSD, Instructions: sys, Prompt: t.Prompt,
+			Reply: t.Reply, ToolCalls: tcs,
 		})
 	}
 	roleViews := make([]inspectorRole, len(order))

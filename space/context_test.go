@@ -424,8 +424,8 @@ func TestDeliveryIntro(t *testing.T) {
 		"thread N], and may end its header with \"Asked together:\" naming everyone asked: " +
 		"answer your part only. Your plain reply goes where the header says, a top-level one " +
 		"starting your own thread; pass thread as the parent of post_to_space when the header " +
-		"has one. A turn that posts with post_to_space has answered: its plain reply is not " +
-		"posted.\n"
+		"has one. Text you write after your last post_to_space is posted only when you did other " +
+		"work after that post.\n"
 	tests := []struct {
 		name string
 		team store.Team

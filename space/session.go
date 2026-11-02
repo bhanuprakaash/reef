@@ -609,6 +609,9 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, "")
 	m.run.botID, m.run.botSessID = &r.BotID, &bs.ID
 	m.run.sessionID = last.SessionID
+	if in.fork {
+		m.run.forkedFrom = last.SessionID
+	}
 	if last.SessionID != "" {
 		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, r.BotID, last.SessionID)
 		if err != nil {
@@ -643,7 +646,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			if err != nil {
 				return "", err
 			}
-			return handover(ctx, s.st, s.ms, ch, r.BotID, cwd, joined)
+			return handover(ctx, s.st, s.ms, ch, r, cwd, joined)
 		}
 	}
 	if refreshed {

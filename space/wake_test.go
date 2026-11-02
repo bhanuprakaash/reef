@@ -347,7 +347,7 @@ func TestWakeAs_NewSessionSkipsWhatTheBotAlreadyAnswered(t *testing.T) {
 	e.say("user", "next", nil)
 	e.say("user", "last", nil)
 
-	want := "[Space 1, message 4]\n1 older messages are not shown; read them with read_thread.\nNew in the Space:\nuser: next\n\nlast"
+	want := "[Space 1, message 4]\nNew in the Space:\nuser: next\n\nlast"
 	if got := e.wake("developer", "[Space 1, message 4]\nlast", nil, store.Scope{}); got != want {
 		t.Errorf("wake =\n%q\nwant\n%q", got, want)
 	}
