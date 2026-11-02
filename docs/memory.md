@@ -474,7 +474,8 @@ its first turn: a first message that goes to a specialist starts no lead.
   settled decisions, the completed and unfinished sub-items, the workspace folder and branch,
   the pull request, and the last five messages up to the Bot's newest top-level message, then
   the Bot's last reply that was not posted, each in full up to 2000 characters (the wake leaves
-  these out), then a line that points to
+  these out), then a line that says the list is what the chat already found, to use instead of
+  reading the same files or threads again, and points to
   `read_thread` and `search_sessions` for the rest. It is built from stored records only, never
   by asking the old session, so an old model that is gone does not matter, and it is sent
   with the first prompt only. A new backend context starts like this in three cases. A

@@ -154,7 +154,7 @@ func handover(
 		break
 	}
 	b.WriteString(handoverList("Last messages", lines))
-	b.WriteString("Read earlier messages with read_thread and search_sessions, and saved memory with recall.\n")
+	b.WriteString("What is listed above is what the chat already found; use it instead of reading the same files or threads again. Read earlier messages with read_thread and search_sessions, and saved memory with recall.\n")
 	return b.String(), nil
 }
 

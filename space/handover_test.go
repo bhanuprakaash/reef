@@ -239,7 +239,8 @@ func TestSession_NewcomerStartsFromAHandover(t *testing.T) {
 	}
 	for _, want := range []string{
 		"You joined this Space after it started", "Goal: Login",
-		"read_thread and search_sessions, and saved memory with recall",
+		"What is listed above is what the chat already found; use it instead of reading the same files or threads again. " +
+			"Read earlier messages with read_thread and search_sessions, and saved memory with recall",
 	} {
 		if !strings.Contains(ag.prompts[0], want) {
 			t.Errorf("prompt = %q, want %q", ag.prompts[0], want)
