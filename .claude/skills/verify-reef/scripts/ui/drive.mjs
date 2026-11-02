@@ -587,6 +587,13 @@ async function theme() {
     await page.goto(spaceUrl);
     await rootRow('architect').first().waitFor();
     await shot(`space-${mode}`);
+    const look = await rootRow('architect').first().evaluate((li) => {
+      const bubble = getComputedStyle(li.querySelector('.peer'));
+      const reply = li.querySelector('button[aria-label="Reply in thread"]');
+      return { bubble: bubble.backgroundColor, edge: bubble.borderTopWidth, page: getComputedStyle(document.body).backgroundColor, reply: reply && getComputedStyle(reply.parentElement.parentElement).opacity };
+    });
+    check(look.bubble !== look.page && look.edge === '1px', `a Bot bubble is a slight lift on the page with a 1px edge in ${mode}`, JSON.stringify(look));
+    check(look.reply === '1', `the Reply button is visible without hover in ${mode}`, JSON.stringify(look));
     await contrast('space');
     await page.goto(base + '/inbox');
     await main.getByRole('link', { name: 'Open', exact: true }).first().waitFor();
@@ -605,18 +612,18 @@ async function theme() {
   check(/Turn on notifications|On|Blocked/.test(notify), 'the Notifications section has the permission control', notify.replace(/\s+/g, ' '));
   await main.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Appearance' }).click();
   const dark = await bodyBg();
-  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
+  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(23, 23, 23)', 'Settings opens on Dark with the dark main colour', dark);
   await shot('settings-dark');
   await screens('dark');
 
   await page.goto(base + '/settings?section=appearance');
   await page.getByRole('radio', { name: 'Light' }).check();
   const light = await bodyBg();
-  check(light === 'rgb(255, 255, 255)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
+  check(light === 'rgb(248, 248, 249)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
   await shot('settings-light');
   await page.reload();
   const reloaded = await bodyBg();
-  check(reloaded === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
+  check(reloaded === 'rgb(248, 248, 249)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
   await screens('light');
 
   await page.goto(base + '/settings?section=appearance');
@@ -625,15 +632,15 @@ async function theme() {
   const followsLight = await bodyBg();
   await system('dark');
   const followsDark = await bodyBg();
-  check(followsLight === 'rgb(255, 255, 255)' && followsDark === 'rgb(33, 33, 33)', 'Match macOS follows prefers-color-scheme, both ways, without a reload', `light ${followsLight}, dark ${followsDark}`);
+  check(followsLight === 'rgb(248, 248, 249)' && followsDark === 'rgb(23, 23, 23)', 'Match macOS follows prefers-color-scheme, both ways, without a reload', `light ${followsLight}, dark ${followsDark}`);
   await system('light');
   await page.reload();
-  check((await bodyBg()) === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Match macOS' }).isChecked()), 'Match macOS survives a reload and follows the system', await bodyBg());
+  check((await bodyBg()) === 'rgb(248, 248, 249)' && (await page.getByRole('radio', { name: 'Match macOS' }).isChecked()), 'Match macOS survives a reload and follows the system', await bodyBg());
   await shot('settings-system-light');
 
   await page.getByRole('radio', { name: 'Dark' }).check();
   await system('light');
-  check((await bodyBg()) === 'rgb(33, 33, 33)', 'Dark stays dark while the system is light', await bodyBg());
+  check((await bodyBg()) === 'rgb(23, 23, 23)', 'Dark stays dark while the system is light', await bodyBg());
 }
 
 async function phone() {

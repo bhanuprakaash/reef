@@ -95,7 +95,7 @@ logged in and on `PATH`.
   a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,
   Escape or a tap outside closes it, and a Space opens full screen.
 - Today (`/`): what waits on you, the project's work items, and capture.
-- Space: bubbles with each author's creature, replies folded under their thread root with a
+- Space: bubbles with each author's creature (a Bot bubble is a slight lift on the page with a 1px edge) and an always-visible Reply button, replies folded under their thread root with a
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
   Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The running turn names its

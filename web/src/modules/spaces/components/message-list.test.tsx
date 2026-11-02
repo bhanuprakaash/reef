@@ -118,11 +118,12 @@ describe('MessageList', () => {
     expect(markup).not.toContain('Joined');
   });
 
-  it('offers reply as a hover icon on a bubble with no thread', () => {
+  it('shows a Reply button at all times on a bubble with no thread', () => {
     const markup = render([]);
 
     expect(markup).toContain('aria-label="Reply in thread"');
-    expect(markup).not.toContain('>Reply<');
+    expect(markup).toContain('Reply</button>');
+    expect(markup).not.toContain('opacity-0');
   });
 
   it('keeps the thread count as text on a bubble with replies', () => {

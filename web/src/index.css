@@ -3,9 +3,13 @@
 @theme {
   --color-sidebar: #1a1a1a;
   --color-column: #1a1a1a;
-  --color-main: #212121;
+  --color-main: #171717;
   --color-card: #2a2a2a;
   --color-bubble: #2e2e2e;
+  --color-bot-bubble: color-mix(in srgb, var(--color-fg) 4.5%, var(--color-main));
+  --color-bot-bubble-edge: color-mix(in srgb, var(--color-fg) 7%, var(--color-main));
+  --color-code: #e6b98a;
+  --color-well: rgb(0 0 0 / 0.24);
   --color-hairline: #2e2e2e;
   --color-line: #3a3a3a;
   --color-field: #262626;
@@ -82,7 +86,7 @@
   color-scheme: light;
   --color-sidebar: #f4f4f5;
   --color-column: #e8e8eb;
-  --color-main: #ffffff;
+  --color-main: #f8f8f9;
   --color-card: #f4f4f5;
   --color-bubble: #ececee;
   --color-hairline: #eeeef0;
@@ -106,6 +110,8 @@
   --color-working: #1a62c9;
   --color-mention: #1a62c9;
   --color-mention-on-pill: #5b9bff;
+  --color-code: #a24a1c;
+  --color-well: rgb(0 0 0 / 0.045);
   --color-needs-you: #d70015;
   --color-paused: #8a5a00;
   --color-paused-bg: #fff6db;
@@ -136,7 +142,7 @@
     color-scheme: light;
     --color-sidebar: #f4f4f5;
     --color-column: #e8e8eb;
-    --color-main: #ffffff;
+    --color-main: #f8f8f9;
     --color-card: #f4f4f5;
     --color-bubble: #ececee;
     --color-hairline: #eeeef0;
@@ -160,6 +166,8 @@
     --color-working: #1a62c9;
     --color-mention: #1a62c9;
     --color-mention-on-pill: #5b9bff;
+    --color-code: #a24a1c;
+    --color-well: rgb(0 0 0 / 0.045);
     --color-needs-you: #d70015;
     --color-paused: #8a5a00;
     --color-paused-bg: #fff6db;

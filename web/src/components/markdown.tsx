@@ -62,8 +62,8 @@ const style = [
   '[&_blockquote]:border-l-2 [&_blockquote]:border-current/25 [&_blockquote]:pl-3.5 [&_blockquote]:text-soft',
   '[&_hr]:my-1 [&_hr]:border-current/15',
 
-  '[&_:not(pre)>code]:rounded-md [&_:not(pre)>code]:bg-current/[0.09] [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.86em]',
-  '[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-current/10 [&_pre]:bg-current/[0.07] [&_pre]:px-3.5 [&_pre]:py-3 [&_pre]:font-mono [&_pre]:text-[12.5px] [&_pre]:leading-[1.55]',
+  '[&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.88em] [&_:not(pre)>code]:text-code [&_:not(pre)>code]:[overflow-wrap:anywhere]',
+  '[&_pre]:overflow-x-auto [&_pre]:rounded-[10px] [&_pre]:bg-well [&_pre]:px-4 [&_pre]:py-3 [&_pre]:font-mono [&_pre]:text-[12.5px] [&_pre]:leading-[1.55]',
 
   // Tables: row rules and a tinted header, not a four-sided grid on every cell.
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-[13px]',
