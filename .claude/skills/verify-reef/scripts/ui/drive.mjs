@@ -148,7 +148,7 @@ async function prepareWorkItem(team = 'solo', coordinator) {
   const removed = await fetch(`${base}/spaces/${starter.id}`, { method: 'DELETE' });
   if (!removed.ok) throw new Error(`delete starter Space: ${removed.status} ${await removed.text()}`);
 }
-// Starts a claude Space from the form in `box` and returns its id. The sidebar (`aside`) opens it from the + menu.
+// Starts a claude Space from the form in `box` and returns its id. The sidebar (`aside`) opens it from its section's +.
 let checkedWorkItemDialog = false;
 async function newSpace(box, openName, name, team, coordinator) {
   if (box === aside) await plus(openName);
@@ -1421,7 +1421,7 @@ async function inbox() {
   await shot('waiting-row');
   const rowText = (await waiting.textContent()) ?? '';
   check(
-    /#inbox room/.test(rowText) && (await waiting.getByRole('link', { name: 'Open' }).count()) === 1 && (await waiting.getByRole('button', { name: 'Dismiss' }).count()) === 1 && (await main.getByRole('button', { name: 'Approve' }).count()) === 0,
+    /inbox room/.test(rowText) && (await waiting.getByRole('link', { name: 'Open' }).count()) === 1 && (await waiting.getByRole('button', { name: 'Dismiss' }).count()) === 1 && (await main.getByRole('button', { name: 'Approve' }).count()) === 0,
     'the lead handed off to the architect with no approval; the answer shows as a waiting item with Open and Dismiss',
     rowText,
   );
@@ -1900,7 +1900,8 @@ async function workshop() {
   check((await main.getByLabel(`${mate} tool Read`).count()) === 0, 'the tool picker is hidden on a Codex Bot');
   await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
   const codexOffered = await addSkill.getByRole('option').allInnerTexts();
-  check(!codexOffered.some((o) => o.startsWith('workshop-skill')), 'a Codex Bot is not offered the Claude skills', `${codexOffered.length} offered`);
+  const codexPicked = await addSkill.getByRole('option', { name: /^workshop-skill/ }).evaluateAll((els) => els.map((e) => e.getAttribute('aria-selected')));
+  check(codexPicked.join() === 'true', 'a Codex Bot lists the picked Claude skill as picked, not as a new pick', `${codexOffered.length} offered, workshop-skill selected=${codexPicked.join()}`);
   await page.keyboard.press('Escape');
   await pick(`${mate} backend`, 'Claude Code', main);
   await pick(`${mate} permission mode`, 'acceptEdits', main);
@@ -3218,7 +3219,7 @@ async function mention() {
   check(url.pathname === '/bots' && url.searchParams.get('bot') === String(devBot.id), 'Edit opens /bots with the developer Bot selected', page.url());
   const panel = page.getByRole('complementary', { name: 'Bot' }).or(page.locator('[aria-label=Bot]'));
   await panel.first().waitFor({ timeout: 5000 });
-  const row = main.getByRole('button', { name: /^developer/ });
+  const row = main.getByRole('button', { name: /^developer(?! add skill)/ });
   check((await row.getAttribute('aria-pressed')) === 'true' && (await panel.first().getByLabel('developer name').inputValue()) === 'developer', 'the developer row is selected and its role panel is open');
   check((await main.getByRole('button', { name: /^lead/ }).getAttribute('aria-pressed')) === 'false', 'no other role is selected');
   check((await row.locator('svg').first().innerHTML()) === devFace && devFace !== leadFace, "the card's creature is the one the team page shows for developer, and differs from the lead's");
@@ -3711,7 +3712,7 @@ async function sidebar() {
   await tabs.getByRole('button', { name: 'Menu' }).click();
   await aside.waitFor();
   for (const [loc, , heading] of visits) check(await loc.isVisible(), `the phone sheet shows ${heading}`);
-  check(await search.isVisible() && (await aside.getByRole('button', { name: 'New', exact: true }).isVisible()), 'the phone sheet shows Search and the + menu');
+  check(await search.isVisible() && (await aside.getByRole('button', { name: 'New Space', exact: true }).isVisible()), "the phone sheet shows Search and the sections' +");
   const box = await aside.boundingBox();
   const sheet = await aside.evaluate((el) => ({ over: el.scrollWidth - el.clientWidth, fixed: getComputedStyle(el).position }));
   check(sheet.fixed === 'fixed' && box.x === 0 && box.y === 0 && box.height === 844 && box.width <= 390, 'the sidebar opens as a full-height sheet on the left', JSON.stringify(box));
@@ -3721,8 +3722,7 @@ async function sidebar() {
   await aside.waitFor({ state: 'hidden' });
   check(true, 'Escape closes the sheet');
   await tabs.getByRole('button', { name: 'Menu' }).click();
-  await aside.getByRole('button', { name: 'New', exact: true }).click();
-  await aside.getByRole('menuitem', { name: 'New Space' }).click();
+  await plus('New Space');
   await aside.getByLabel(/^Include /).first().check();
   await aside.getByRole('button', { name: 'Start' }).click();
   await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname));
