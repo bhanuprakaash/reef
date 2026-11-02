@@ -2968,7 +2968,7 @@ async function hovercard() {
     state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
     const n = files.length;
     const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
-    return `#hover chat ${state} branch work-item/${itemId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
+    return `hover chat ${state} branch work-item/${itemId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
   };
 
   await away();
@@ -2980,7 +2980,7 @@ async function hovercard() {
   for (let i = 0; i < 50 && (await flat()) !== (await expected()); i++) await page.waitForTimeout(100);
   const idleText = await flat();
   check(idleText === (await expected()), 'waiting Space: name, state, branch, changes and every role match REST and SQLite', idleText);
-  check(idleText.startsWith('#hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
+  check(idleText.startsWith('hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
   const [r, t] = [await row.boundingBox(), await tip.boundingBox()];
   check(t.x >= r.x + r.width, 'the card sits beside the row, not over it', `row right ${r.x + r.width}, card left ${t.x}`);
   const described = await row.getAttribute('aria-describedby');
@@ -3001,7 +3001,7 @@ async function hovercard() {
   await tip.waitFor();
   await shot('idle');
   const calm = await flat();
-  check(calm.startsWith('#hover chat idle branch') && calm === (await expected()), 'idle Space: once the waiting item is dismissed the card says idle and still matches REST', calm);
+  check(calm.startsWith('hover chat idle branch') && calm === (await expected()), 'idle Space: once the waiting item is dismissed the card says idle and still matches REST', calm);
   await page.keyboard.press('Escape');
   await tip.waitFor({ state: 'hidden', timeout: 1000 });
   check(true, 'Escape closes the card');

@@ -14,8 +14,8 @@ export function AddBotForm({ space, onClose }: { space: Space; onClose: () => vo
     <div className="space-y-3.5">
       <p className="-mt-2.5 text-[13px] text-muted">
         {space.kind === 'conversation'
-          ? `${space.role} writes a summary, and #${space.name} becomes a Space with both of them.`
-          : `The Bot joins #${space.name}.`}
+          ? `${space.role} writes a summary, and ${space.name} becomes a Space with both of them.`
+          : `The Bot joins ${space.name}.`}
       </p>
       {choices.length === 0 && <p className="text-sm text-muted">No other Bots yet</p>}
       <div className="grid grid-cols-2 gap-2">

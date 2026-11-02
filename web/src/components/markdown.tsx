@@ -138,7 +138,7 @@ const components: Components = {
 
 export function Markdown({ children }: { children: string }) {
   return (
-    <div className={style}>
+    <div className={`select-text ${style}`}>
       <ReactMarkdown remarkPlugins={plugins} components={components}>
         {spaceRefLinks(children)}
       </ReactMarkdown>

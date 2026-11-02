@@ -320,6 +320,7 @@ export function SpaceView({
               ) : (
                 <Composer
                   spaceId={space.id}
+                  conversation={space.kind === 'conversation'}
                   running={running}
                   paused={blocksUser(space.paused)}
                   reason={space.paused}
@@ -396,7 +397,12 @@ export function SpaceView({
               {turnOpen && <TurnPanel turn={turn} role={working} look={look} onClose={closeSide} />}
               {wide && diffPanel?.(closeSide)}
               {side?.kind === 'inspector' && (
-                <InspectorPanel spaceId={space.id} faces={faces} onClose={closeSide} />
+                <InspectorPanel
+                  spaceId={space.id}
+                  conversation={space.kind === 'conversation'}
+                  faces={faces}
+                  onClose={closeSide}
+                />
               )}
               {side?.kind === 'pr' && space.workItemId !== null && (
                 <PrPanel workItemId={space.workItemId} onClose={closeSide} />
@@ -410,7 +416,7 @@ export function SpaceView({
               <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
               <div className="mb-5 flex items-center gap-2.5 md:hidden">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xl">#{space.name}</div>
+                  <div className="truncate text-xl">{space.name}</div>
                   {space.team && <div className="text-[13px] text-muted">Crew · {space.team}</div>}
                 </div>
                 {space.workItemId !== null && !closed && (
