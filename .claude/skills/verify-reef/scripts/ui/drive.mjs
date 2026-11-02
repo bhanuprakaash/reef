@@ -596,7 +596,7 @@ async function theme() {
     check(look.reply === '1', `the Reply button is visible without hover in ${mode}`, JSON.stringify(look));
     await contrast('space');
     await page.goto(base + '/inbox');
-    await main.getByRole('link', { name: 'Open', exact: true }).first().waitFor();
+    await main.getByRole('button', { name: /theme room/ }).first().waitFor();
     await shot(`inbox-${mode}`);
     await contrast('inbox');
     await page.goto(`${base}/work-items/${fid}`);
@@ -690,7 +690,7 @@ async function phone() {
   await visit('spaces', /^Spaces/, page.getByRole('heading', { name: 'Spaces', level: 1 }));
   const row = main.getByRole('link', { name: /phone room/ });
   check(await row.isVisible(), 'the Spaces tab lists the Space', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
-  await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
+  await visit('needs-you', /^Needs you/, main.getByRole('button', { name: /phone room/ }).first());
   const needsYou = (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length;
   const badges = tabs.getByLabel(/waiting$/);
   const badge = needsYou > 0 ? await badges.textContent() : String(await badges.count());
@@ -1406,11 +1406,11 @@ async function inbox() {
   const waitWaiting = async (cid, since) => {
     const end = Date.now() + 120000;
     while (Date.now() < end) {
-      const item = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid));
+      const item = (await getJson('/inbox')).find((i) => i.kind === 'reply' && String(i.spaceId) === String(cid));
       if (item && item.at !== since) return item;
       await page.waitForTimeout(1000);
     }
-    throw new Error('no new waiting item');
+    throw new Error('no new reply item');
   };
   const sendApi = (cid, text) =>
     fetch(`${base}/spaces/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
@@ -1423,13 +1423,14 @@ async function inbox() {
   await aside.getByRole('link', { name: /^Inbox/ }).click();
   await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
   check(page.url().endsWith('/inbox'), 'the Needs you link opens /inbox', page.url());
-  const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
+  const waiting = main.getByRole('listitem').filter({ hasText: /inbox room.*Replied/i });
   await waiting.waitFor({ timeout: 240000 });
   await shot('waiting-row');
+  await waiting.hover();
   const rowText = (await waiting.textContent()) ?? '';
   check(
     /inbox room/.test(rowText) && (await waiting.getByRole('link', { name: 'Open' }).count()) === 1 && (await waiting.getByRole('button', { name: 'Dismiss' }).count()) === 1 && (await main.getByRole('button', { name: 'Approve' }).count()) === 0,
-    'the lead handed off to the architect with no approval; the answer shows as a waiting item with Open and Dismiss',
+    'the lead handed off to the architect with no approval; the answer shows as a reply with Open and Dismiss on hover',
     rowText,
   );
   check(
@@ -1437,12 +1438,12 @@ async function inbox() {
     'the turns are lead done, architect done and no approval row exists',
     sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`),
   );
-  const group = (await getJson('/inbox')).find((i) => i.kind === 'waiting')?.group;
+  const group = (await getJson('/inbox')).find((i) => i.kind === 'reply')?.group;
   const badges = await aside.getByLabel(/waiting$/).count();
-  check(group === 'fyi' && badges === 0, 'a waiting item is FYI, so the Inbox link shows no needs-you badge', `group ${group}, ${badges} badges`);
+  check(group === 'fyi' && badges === 0, 'a reply is FYI, so the Inbox link shows no needs-you badge', `group ${group}, ${badges} badges`);
   await page.waitForTimeout(3000);
   const fired = await notes();
-  check(fired.length === 1 && /^Waiting: inbox room$/.test(fired[0].title), 'one notification fired for the item', JSON.stringify(fired));
+  check(fired.length === 1 && /^Replied: inbox room$/.test(fired[0].title), 'one notification fired for the item', JSON.stringify(fired));
 
   await page.evaluate(() => window.__notes[0].note.onclick());
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
@@ -1450,11 +1451,12 @@ async function inbox() {
   check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'clicking the notification opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await aside.getByRole('link', { name: /^Inbox/ }).click();
   await waiting.waitFor();
-  const before = (await getJson('/inbox')).find((i) => i.kind === 'waiting').at;
+  const before = (await getJson('/inbox')).find((i) => i.kind === 'reply').at;
+  await waiting.hover();
   await waiting.getByRole('link', { name: 'Open' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   landed = await landedOn('latest-message');
-  check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a waiting item opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a reply opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await shot('waiting-opened-space');
 
   await sendApi(cid, 'Say ok in one word. Use no tools.');
@@ -1468,7 +1470,7 @@ async function inbox() {
   await waitWaiting(cid, visible.at);
   await page.waitForTimeout(3000);
   const whileHidden = await notes();
-  check(whileHidden.length === 2 && /^Waiting: inbox room$/.test(whileHidden[1].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
+  check(whileHidden.length === 2 && /^Replied: inbox room$/.test(whileHidden[1].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
 
   await page.goto(base + '/inbox');
   await waiting.waitFor();
@@ -1476,15 +1478,16 @@ async function inbox() {
   const afterReload = await notes();
   check(afterReload.length === 0, 'items present at load fire no notification', JSON.stringify(afterReload));
 
-  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid));
+  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'reply' && String(i.spaceId) === String(cid));
   await shot('before-dismiss');
+  await waiting.hover();
   await waiting.getByRole('button', { name: 'Dismiss' }).click();
   await waiting.waitFor({ state: 'hidden', timeout: 30000 });
   await shot('dismissed');
   check(
-    !(await getJson('/inbox')).some((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid)) &&
+    !(await getJson('/inbox')).some((i) => i.kind === 'reply' && String(i.spaceId) === String(cid)) &&
       sql(`select dismissed_message_id from Space where id=${cid}`) === String(dismissed.messageId),
-    'Dismiss on a waiting item removes it and stores the message it was pressed on',
+    'Dismiss on a reply removes it and stores the message it was pressed on',
     sql(`select dismissed_message_id from Space where id=${cid}`),
   );
   await page.reload();
@@ -1568,6 +1571,10 @@ async function inboxGroups() {
   sql(`insert into message (space_id, author, body, created_at) values (${held.id}, 'lead', '@architect plan it', ${now})`, true);
   sql(`insert into approval (space_id, from_role, to_role, message_id, text, status, kind, created_at) select ${held.id}, 'lead', 'architect', max(id), 'plan it', 'pending', 'hold', ${now} from message where space_id=${held.id}`, true);
   sql(`update space set paused='hop cap: 6 agent hops without a user message' where id=${held.id}`, true);
+  const asked = await call('POST', '/spaces', { projectId: pid, name: 'asked room' });
+  sql(`insert into message (space_id, author, body, created_at) values (${asked.id}, 'lead', 'Which database do you want?', ${now})`, true);
+  const told = await call('POST', '/spaces', { projectId: pid, name: 'told room' });
+  sql(`insert into message (space_id, author, body, created_at) values (${told.id}, 'lead', 'Plan posted: **schema first**, tests after.', ${now})`, true);
   const failedRoom = await call('POST', '/spaces', { projectId: pid, name: 'failed room' });
   sql(`insert into turn (space_id, role, backend, status, error, started_at, ended_at, wake_text) values (${failedRoom.id}, 'lead', 'claude', 'failed', 'server restarted', ${now}, ${now}, 'build it')`, true);
   const sub = await call('POST', '/work-items', { projectId: pid, parentId: item.id, title: 'Schema' });
@@ -1579,46 +1586,71 @@ async function inboxGroups() {
   const rowOf = (group, text) => groupOf(group).getByRole('listitem').filter({ hasText: text });
   const items = await getJson('/inbox');
   const listed = (g) => items.filter((i) => i.group === g).map((i) => i.kind).sort().join(',');
-  check(listed('needs_you') === 'failed,held,paused' && listed('review') === 'review' && listed('fyi').includes('proposed') && listed('fyi').includes('started') && listed('fyi').includes('sub_item'),
-    'GET /inbox groups the seven causes: failed, held and paused in needs_you, review in review, started, sub_item and proposed in fyi', JSON.stringify(items.map((i) => `${i.group}/${i.kind}`)));
+  check(listed('needs_you') === 'failed,held,paused,question,review' && listed('fyi').includes('reply') && listed('fyi').includes('proposed') && listed('fyi').includes('started') && listed('fyi').includes('sub_item'),
+    'GET /inbox groups the causes: failed, held, paused, question and review in needs_you; reply, started, sub_item and proposed in fyi', JSON.stringify(items.map((i) => `${i.group}/${i.kind}`)));
   for (const [width, height] of [[1280, 800], [390, 844]]) {
     await page.setViewportSize({ width, height });
     await page.goto(`${base}/inbox`);
     await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
     await groupOf('Needs you').waitFor();
-    await groupOf('Review').waitFor();
     await groupOf('FYI').waitFor();
+    check((await main.getByRole('region', { name: /^Review/ }).count()) === 0, `${width}x${height}: there is no separate Review group`);
     const needs = (await groupOf('Needs you').innerText()).replace(/\s+/g, ' ');
-    const review = (await groupOf('Review').innerText()).replace(/\s+/g, ' ');
     const fyi = (await groupOf('FYI').innerText()).replace(/\s+/g, ' ');
     check(/Paused.*token budget of 1000000 used/i.test(needs) && /Held.*hop cap: 6 agent hops without a user message \(1 wake held\)/i.test(needs) && /Failed.*lead failed: server restarted/i.test(needs), `${width}x${height}: Needs you shows the paused, held and failed items`, needs.slice(0, 160));
-    check(/Review.*Review me/.test(review), `${width}x${height}: Review shows the item in review`, review.slice(0, 160));
+    check(/Review.*Review me/i.test(needs) && /asked room.*Question.*Which database do you want\?/i.test(needs), `${width}x${height}: Needs you shows the item in review and the question`, needs.slice(0, 260));
+    for (const [text, action] of [[/failed room/, 'Retry'], [/capped room/, 'Continue'], [/held room/, 'Continue'], [/Review me/, 'Review'], [/asked room/, 'Reply']]) {
+      check((await rowOf('Needs you', text).getByRole(action === 'Review' || action === 'Reply' ? 'link' : 'button', { name: action, exact: true }).count()) === 1, `${width}x${height}: the ${action} row of Needs you shows ${action}`);
+    }
+    check(/told room.*Replied.*Plan posted: schema first, tests after\./i.test(fyi) && !/\*\*/.test(fyi), `${width}x${height}: the reply row shows one cleaned line without markdown`, fyi.slice(0, 200));
+    check((await groupOf('Needs you').getByRole('img', { name: 'Not opened yet' }).count()) >= 3, `${width}x${height}: unopened Needs you rows have a dot`);
     check(/Started.*Started from the queue: Review me/i.test(fyi) && /Sub-item.*added sub-item \d+ to work item \d+: Schema/i.test(fyi) && /Proposed.*proposed work item \d+: Slow deploy/i.test(fyi), `${width}x${height}: FYI shows the started, sub-item and proposed items`, fyi.slice(0, 200));
-    check((await groupOf('Needs you').getByRole('button', { name: 'Dismiss' }).count()) === 0 && (await groupOf('Review').getByRole('button', { name: 'Dismiss' }).count()) === 0 && (await groupOf('FYI').getByRole('button', { name: 'Dismiss' }).count()) >= 3,
-      `${width}x${height}: only the FYI rows have Dismiss`);
+    await rowOf('Needs you', /failed room/).getByRole('button', { name: /failed room/ }).click();
+    await rowOf('Needs you', /Review me/).getByRole('button', { name: /Review me/ }).click();
+    await rowOf('FYI', /Slow deploy/).getByRole('button', { name: /Slow deploy|Work item/ }).click();
+    check((await groupOf('Needs you').getByRole('button', { name: 'Dismiss', exact: true }).count()) === 0 && (await groupOf('FYI').getByRole('button', { name: 'Dismiss', exact: true }).count()) === 1,
+      `${width}x${height}: opening rows shows Dismiss on the FYI row only`);
+    check((await groupOf('Needs you').getByRole('button', { name: /failed room/ }).getAttribute('aria-expanded')) === 'true' && (await rowOf('Needs you', /failed room/).getByText('lead failed: server restarted').count()) === 1,
+      `${width}x${height}: a row opens in place to its message`);
+    await shot(`groups-expanded-${width}x${height}`);
+    await page.reload();
+    await groupOf('FYI').waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 0, `${width}x${height}: the inbox has no horizontal scroll`, `${overflow} px`);
     await shot(`groups-${width}x${height}`);
-    for (const g of ['Review', 'FYI']) {
+    for (const g of ['FYI']) {
       await groupOf(g).evaluate((el) => el.scrollIntoView({ block: 'start' }));
       await shot(`groups-${g.toLowerCase()}-${width}x${height}`);
     }
   }
 
-  const paused = items.find((i) => i.kind === 'paused');
-  const res = await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paused) });
-  const body = await res.text();
-  check(res.status === 409 && /a paused item cannot be dismissed/.test(body), 'REST refuses to dismiss a Needs you item', `${res.status} ${body}`);
+  for (const kind of ['paused', 'question']) {
+    const res = await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items.find((i) => i.kind === kind)) });
+    const body = await res.text();
+    check(res.status === 409 && new RegExp(`a ${kind} item cannot be dismissed`).test(body), `REST refuses to dismiss a Needs you ${kind} item`, `${res.status} ${body}`);
+  }
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${base}/inbox`);
+  await rowOf('FYI', /Slow deploy/).hover();
   await rowOf('FYI', /Slow deploy/).getByRole('button', { name: 'Dismiss' }).click();
   await rowOf('FYI', /Slow deploy/).waitFor({ state: 'hidden' });
   await shot('groups-dismissed');
   await page.reload();
   await groupOf('FYI').waitFor();
-  check((await rowOf('FYI', /Slow deploy/).count()) === 0 && sql("select count(*) from inbox_fyi where kind='proposed'") === '0' && (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length === 3,
+  check((await rowOf('FYI', /Slow deploy/).count()) === 0 && sql("select count(*) from inbox_fyi where kind='proposed'") === '0' && (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length === 5,
     'Dismiss on an FYI item removes its row for good, the Needs you items stay', sql('select kind from inbox_fyi'));
+  const dot = (text) => rowOf('FYI', text).getByRole('img', { name: 'Not opened yet' });
+  check((await dot(/told room/).count()) === 1 && (await groupOf('FYI').getByRole('button', { name: /^Dismiss all seen/ }).count()) === 0, 'an unopened FYI row has a dot and Dismiss all seen is not offered yet');
+  await rowOf('FYI', /told room/).getByRole('button', { name: /told room/ }).click();
+  check((await rowOf('FYI', /told room/).locator('strong').count()) === 1 && (await dot(/told room/).count()) === 0, 'opening an FYI row renders its message and clears its dot');
+  await rowOf('FYI', /told room/).getByRole('button', { name: /told room/ }).click();
+  await page.reload();
+  await groupOf('FYI').waitFor();
+  check((await dot(/told room/).count()) === 0 && (await dot(/sub-item/).count()) === 1, 'the opened state survives a reload, other rows keep their dots', `${await dot(/told room/).count()} ${await dot(/sub-item/).count()}`);
+  await groupOf('FYI').getByRole('button', { name: 'Dismiss all seen (1)' }).click();
+  await rowOf('FYI', /told room/).waitFor({ state: 'hidden' });
+  check(!(await getJson('/inbox')).some((i) => i.kind === 'reply' && i.spaceId === told.id) && (await rowOf('FYI', /sub-item/).count()) === 1, 'Dismiss all seen dismisses the opened FYI rows only');
 }
 
 async function wrap() {
@@ -2977,7 +3009,7 @@ async function hovercard() {
     const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
     const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
     const kinds = (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid).map((i) => i.kind);
-    state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
+    state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('question') ? 'waiting for you' : 'idle';
     const n = files.length;
     const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
     return `hover chat ${state} branch work-item/${itemId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
@@ -3005,7 +3037,7 @@ async function hovercard() {
   await tip.waitFor({ state: 'hidden', timeout: 2000 });
   check((await row.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
 
-  for (const i of (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid && i.kind === 'waiting')) {
+  for (const i of (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid && i.kind === 'reply')) {
     await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(i) });
   }
   await row.getByRole('img', { name: 'needs you' }).waitFor({ state: 'hidden', timeout: 15000 });

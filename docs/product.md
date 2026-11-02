@@ -145,7 +145,7 @@ Not everything is a Work item; these places cover the rest.
 
 | Capability | What it does | Group |
 | --- | --- | --- |
-| Inbox | What waits on you, in three groups: Needs you (a paused Space, a failed turn, a held wake), Review (a Work item with proof) and FYI (a sub-item created, an item proposed, a queued item started). Desktop notifications | Seamless |
+| Inbox | What waits on you, in two groups: Needs you (a paused Space, a failed turn, a held wake, a Work item with proof to review, an agent message that ends in a question) and FYI (an agent reply, a sub-item created, an item proposed, a queued item started). Desktop notifications | Seamless |
 | Worktree per Work item | One worktree per top-level Work item on branch `work-item/<id>`, shared by all its Spaces and its sub-items. Free Spaces use the main checkout | Robust |
 | Checkpoints and undo | Snapshot before each bot's changes, one-click rollback | Robust |
 | Diff review panel | Inline comments on changes go back to the developer's thread | Robust |
@@ -338,6 +338,7 @@ Numbers are never reused: code and docs cite them. A row marked Replaced or Amen
 | 156 | Failed CI wakes the active Space coordinator by Bot identity. Approved-owner routing belongs to the assignment execution work. Supersedes the named-developer recipient in 48 | A global Bot name is not a role alias. |
 | 157 | Approved work whose repositories are ready starts at once; there is no concurrency limit, so Queued holds approved work only while admission waits (no ready repository, or owner missing); order, reorder and review-feedback-first apply among waiting items | Ordering without a limit would only delay ready work. |
 | 158 | A turn that posted with `post_to_space` posts the text it wrote after its last successful post as one more message only when the Bot called another tool after that post (the post was progress and work continued); the text before it stays on the turn. Otherwise the whole reply stays on the turn and nothing more is posted. Amends the rule that a posted turn's plain reply is never posted | A Bot posts progress ("Reading the notes now."), works on, then writes its answer as plain text; the old rule hid that answer from the Space, but a "posted" written right after the answer's own post must not become a second message |
+| 159 | The inbox has two groups. Review folds into Needs you, and the agent message a Space ended on is a question (Needs you, it ends in a question mark) or a reply (FYI, `POST /inbox/dismiss` hides it); Needs you cannot be dismissed. Amends 63 and 138 | A question asks for an answer and a reply only informs; Reef still reads no meaning, only the last mark |
 
 ## Contract checklist and implementation choices
 
