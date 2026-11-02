@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMemory } from '@/lib/api/get-memory';
 import { useBots } from '@/lib/api/get-bots';
@@ -15,6 +16,7 @@ import { Card } from '@/components/card';
 import { Chip } from '@/components/chip';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
+import { Markdown } from '@/components/markdown';
 import { StatusDot } from '@/components/status-dot';
 
 const kindLabel = { chat: 'Chat', space: 'Space', consultation: 'Consultation' };
@@ -84,7 +86,7 @@ export function BotPage() {
         </div>
       </header>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
-      {bot.description && <p className="max-w-xl text-sm text-soft">{bot.description}</p>}
+      {bot.description && <Description body={bot.description} />}
 
       <Card title="Crews" flush>
         {memberships.length === 0 ? (
@@ -199,5 +201,39 @@ export function BotPage() {
         </ul>
       </Card>
     </div>
+  );
+}
+
+function Description({ body }: { body: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const text = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = text.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight);
+  }, [body, expanded]);
+
+  return (
+    <Card title="Description">
+      <div className="space-y-3">
+        <div
+          ref={text}
+          className={`text-sm leading-relaxed text-soft ${expanded ? '' : 'max-h-40 overflow-hidden'} ${overflows && !expanded ? 'mask-[linear-gradient(to_bottom,black_70%,transparent)]' : ''}`}
+        >
+          <Markdown>{body}</Markdown>
+        </div>
+        {(overflows || expanded) && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            className="border-b border-line text-xs text-soft"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Show less' : 'Show all'}
+          </button>
+        )}
+      </div>
+    </Card>
   );
 }

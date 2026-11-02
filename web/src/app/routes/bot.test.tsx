@@ -8,6 +8,7 @@ const hooks = vi.hoisted(() => ({
   latest: null as unknown,
   more: false,
   asked: [] as unknown[][],
+  description: '',
 }));
 
 vi.mock('react-router', async (orig) => ({
@@ -18,7 +19,7 @@ vi.mock('@/lib/api/get-bots', () => ({
   useBots: () => ({
     isPending: false,
     isError: false,
-    data: [{ id: 3, name: 'Ada', backend: 'claude', model: '', description: '' }],
+    data: [{ id: 3, name: 'Ada', backend: 'claude', model: '', description: hooks.description }],
   }),
 }));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams: () => ({ data: [] }) }));
@@ -150,4 +151,17 @@ it('labels each entry by kind and opens a Space or consultation as Bot activity'
   expect(markup).toContain('href="/spaces/6/bots/3"');
   expect(markup).toContain('Ada · Login Space');
   expect(markup).toContain('Working now');
+});
+
+it('shows the description in its own card with its lists kept', () => {
+  hooks.pages = [[]];
+  hooks.latest = null;
+  hooks.description = 'You review code.\n\n**Report**\n- Verdict\n- Findings';
+
+  const markup = render('all');
+  hooks.description = '';
+
+  expect(markup).toContain('>Description</h2>');
+  expect(markup).toContain('<strong>Report</strong>');
+  expect(markup).toContain('<li>Verdict</li>');
 });
