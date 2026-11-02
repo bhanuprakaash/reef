@@ -70,18 +70,21 @@ Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because 
 embeds `web/dist` as it was at build time. A Space's agent is the `claude` or `codex` CLI,
 logged in and on `PATH`.
 
-- Sidebar: a top row with the brand (it opens Today) and one + menu (New Work item, New Space, New
-  conversation), search, the project switcher, then Inbox with its count, Board, Spaces and
-  Conversations. The switcher lists All projects first and then each project; the choice is a
+- Sidebar: a top row with the brand (it opens Today), search, the project switcher, then Inbox with
+  its count, Board, Bots, Spaces and Conversations. Each section label has a + for a new Bot, Space or
+  conversation, and the Board row has a + for a new Work item. The switcher lists All projects first and then each project; the choice is a
   filter only. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
   associated with that project; under All projects it reads `GET /spaces`. Switching never changes a
   Space's projects, context or sessions, and starts no chat. New Space and New conversation under
-  All projects send `POST /spaces` with no `projectId`; New Work item needs a project. Spaces lists the free
+  All projects send `POST /spaces` with no `projectId`; New Work item needs a project (its + is
+  disabled until one is picked). Spaces lists the free
   Spaces and the Spaces of Work items that are not yet
   in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
-  eight newest conversations with the Bot's creature; its header opens `/conversations`. A Pinned
-  section (`GET /pins`) above Spaces lists pinned Bots, chats and Spaces with a kind label, under every
-  filter; a Bots section below it lists the Bots of the five newest chats under the filter, each opening `/bots/ID/chat`; a pin button on a Space or chat row, the Bot page and its chat rows pins and unpins. Typing in
+  eight newest conversations with the Bot's creature; its header opens `/conversations`. There is no Pinned
+  section: pinned Bots, chats and Spaces (`GET /pins`) sort to the top of their own section, under every
+  filter. Bots lists the Bots of the five newest chats under the filter plus pinned Bots, each opening
+  `/bots/ID/chat`. A Space or chat row has a … button and a right-click menu with Rename, Pin or Unpin
+  and Delete; a Bot row's menu has only Pin or Unpin. The Bot page and its chat rows also pin and unpin. Typing in
   search replaces the list with `GET /find` results (Bots, chats, Spaces, Work items); a result opens
   `/bots/ID/chat`, `/spaces/ID` or `/work-items/ID`. `/bots/ID/chat` opens the Bot's latest chat under
   the selected project (`?resumable=1&project=N&limit=1`) or overall, and with none opens the Bot page, whose New
