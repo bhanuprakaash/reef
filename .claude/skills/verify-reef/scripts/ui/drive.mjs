@@ -941,7 +941,9 @@ async function retry() {
   const row = page.getByRole('listitem').filter({ hasText: /lead's turn \d+ failed\s*interrupted/i });
   await row.waitFor({ timeout: 30000 });
   await shot('failed-row');
-  await row.getByRole('button', { name: 'Retry' }).click();
+  const pill = main.getByText(/Failed: interrupted/).first().locator('..');
+  check((await row.getByRole('button', { name: 'Retry' }).count()) === 0 && (await page.getByRole('button', { name: 'Retry' }).count()) === 1, 'a failed turn shows one Retry, in the pill; the card keeps Roll back');
+  await pill.getByRole('button', { name: 'Retry' }).click();
   await working();
   await shot('retrying');
   await idle();

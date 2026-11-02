@@ -55,6 +55,17 @@ describe('FailedTurnRows', () => {
     expect(markup).not.toContain('Retry');
   });
 
+  it('leaves Retry to the dock pill for the turn it retries', () => {
+    useFailedTurns.mockReturnValue({ data: [turn] });
+
+    const markup = renderToStaticMarkup(
+      <FailedTurnRows spaceId={2} faces={{}} running={false} paused={false} pillTurnId={7} />,
+    );
+
+    expect(markup).toContain('server restarted');
+    expect(markup).not.toContain('Retry');
+  });
+
   it('offers Roll back only for a failed turn that has a checkpoint', () => {
     useFailedTurns.mockReturnValue({ data: [turn, { ...turn, id: 8 }] });
     useTurns.mockReturnValue({ data: [{ id: 8 }] });

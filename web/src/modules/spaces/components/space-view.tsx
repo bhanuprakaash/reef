@@ -41,7 +41,7 @@ import { checkpointAnchor, unanchoredCheckpoints } from '@/modules/spaces/utils/
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
-import { draftText } from '@/modules/spaces/utils/turn-status';
+import { draftText, failedRetryTarget } from '@/modules/spaces/utils/turn-status';
 import type { Project, SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { faceOf } from '@/components/creature';
@@ -261,6 +261,7 @@ export function SpaceView({
                 faces={faces}
                 running={running}
                 paused={space.paused !== ''}
+                pillTurnId={failedRetryTarget(failedTurns.data ?? [], turn)?.id}
               />
               <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
               <DeniedToolRows space={space} roles={roles} running={running} />
@@ -435,16 +436,6 @@ export function SpaceView({
                   <div className="truncate text-xl">{space.name}</div>
                   {space.team && <div className="text-[13px] text-muted">Crew · {space.team}</div>}
                 </div>
-                {space.workItemId !== null && !closed && (
-                  <Button
-                    variant="primary"
-                    type="button"
-                    disabled={wrapDisabled}
-                    onClick={() => wrap.mutate()}
-                  >
-                    Wrap up
-                  </Button>
-                )}
               </div>
               <TeamPanel
                 spaceId={space.id}

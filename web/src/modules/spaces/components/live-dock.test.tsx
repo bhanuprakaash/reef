@@ -2,15 +2,15 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveDock } from './live-dock';
 
-const { useFailedTurns, useRetryTurn, useSpaceRunningTurns } = vi.hoisted(() => ({
+const { useFailedTurns, useRetryTurn, useRunningTurns } = vi.hoisted(() => ({
   useFailedTurns: vi.fn(),
   useRetryTurn: vi.fn(),
-  useSpaceRunningTurns: vi.fn(),
+  useRunningTurns: vi.fn(),
 }));
 
 vi.mock('@/modules/spaces/api/get-failed-turns', () => ({ useFailedTurns }));
 vi.mock('@/lib/api/retry-turn', () => ({ useRetryTurn }));
-vi.mock('@/modules/spaces/api/get-turns', () => ({ useSpaceRunningTurns }));
+vi.mock('@/modules/spaces/api/get-turns', () => ({ useRunningTurns }));
 
 const bash = {
   id: 't1',
@@ -31,7 +31,7 @@ describe('LiveDock', () => {
   beforeEach(() => {
     useFailedTurns.mockReturnValue({ data: [] });
     useRetryTurn.mockReturnValue({ isPending: false, mutate: vi.fn() });
-    useSpaceRunningTurns.mockReturnValue({ data: [] });
+    useRunningTurns.mockReturnValue({ data: [] });
   });
 
   it('names the running tool in the pill', () => {
@@ -53,8 +53,8 @@ describe('LiveDock', () => {
   });
 
   it('counts the timer from the turn start the server holds', () => {
-    useSpaceRunningTurns.mockReturnValue({
-      data: [{ botId: null, startedAt: new Date(Date.now() - 125_000).toISOString() }],
+    useRunningTurns.mockReturnValue({
+      data: [{ spaceId: 1, botId: null, startedAt: new Date(Date.now() - 125_000).toISOString() }],
     });
 
     expect(dock({ status: 'running', items: [] })).toContain('2m 5s');
@@ -74,6 +74,20 @@ describe('LiveDock', () => {
 
     expect(markup).toContain('Failed: interrupted');
     expect(markup).toContain('Retry');
+  });
+
+  it('shows why a Retry from the pill failed', () => {
+    useFailedTurns.mockReturnValue({ data: [{ id: 7, botId: 3, role: 'lead' }] });
+    useRetryTurn.mockReturnValue({
+      isPending: false,
+      mutate: vi.fn(),
+      isError: true,
+      error: new Error('Space is paused'),
+    });
+
+    expect(dock({ status: 'failed', botId: 3, error: 'interrupted', items: [] })).toContain(
+      'Space is paused',
+    );
   });
 
   it('shows only that a direct turn is working', () => {

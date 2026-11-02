@@ -23,12 +23,3 @@ export function useRunningTurns() {
     refetchInterval: 3000,
   });
 }
-
-export function useSpaceRunningTurns(spaceId: number, enabled: boolean) {
-  return useQuery({
-    queryKey: ['turns', spaceId, 'running'],
-    queryFn: () => api<Turn[]>(`/turns?space=${spaceId}&status=running`),
-    enabled,
-    refetchInterval: (query) => (query.state.data?.length ? false : 1000),
-  });
-}

@@ -3,12 +3,12 @@ import { Creature, type Look } from '@/components/creature';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { useMediaQuery } from '@/lib/use-media-query';
 import { useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
-import { useSpaceRunningTurns } from '@/modules/spaces/api/get-turns';
+import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { ToolRow } from '@/modules/spaces/components/tool-row';
 import { activity } from '@/modules/spaces/utils/activity';
 import { dockLayout } from '@/modules/spaces/utils/dock-layout';
 import type { LiveTurn } from '@/modules/spaces/utils/fold-events';
-import { recentTools, toolCount } from '@/modules/spaces/utils/turn-status';
+import { failedRetryTarget, recentTools, toolCount } from '@/modules/spaces/utils/turn-status';
 
 type Entry = { turn: LiveTurn; role: string; look?: Look };
 
@@ -101,7 +101,7 @@ function Status({
     );
   }
 
-  const target = (failed.data ?? []).filter((t) => t.botId === (turn.botId ?? null)).at(-1);
+  const target = failedRetryTarget(failed.data ?? [], turn);
   return (
     <>
       {name}
@@ -116,6 +116,7 @@ function Status({
           Retry
         </button>
       )}
+      {retry.isError && <span className="min-w-0 truncate text-danger">{retry.error.message}</span>}
     </>
   );
 }
@@ -169,12 +170,10 @@ function Steps({
 
 export function LiveDock({ spaceId, entries, paused, onOpenTurn }: Props) {
   const live = entries.filter((e) => e.turn.status === 'running' || e.turn.status === 'failed');
-  const running = useSpaceRunningTurns(
-    spaceId,
-    live.some((e) => e.turn.status === 'running'),
-  );
+  const running = useRunningTurns();
   const startedAt = (entry: Entry) =>
-    running.data?.find((t) => t.botId === (entry.turn.botId ?? null))?.startedAt;
+    running.data?.find((t) => t.spaceId === spaceId && t.botId === (entry.turn.botId ?? null))
+      ?.startedAt;
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [open, setOpen] = useState(false);
   const [picked, setPicked] = useState<number | null>(null);
