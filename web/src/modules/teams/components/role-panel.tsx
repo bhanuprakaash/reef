@@ -11,7 +11,7 @@ import { Select } from '@/components/select';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 import { Toggle } from '@/components/toggle';
-import { claudeModels } from '@/utils/models';
+import { claudeModelOptions } from '@/utils/models';
 
 type Props = {
   role: Role;
@@ -33,12 +33,6 @@ function modeOptions(role: Role) {
   const values = ['', ...(modes[role.backend] ?? [])];
   if (!values.includes(role.permissionMode)) values.push(role.permissionMode);
   return values.map((value) => ({ value, label: value || 'Backend default' }));
-}
-
-function claudeModelOptions(model: string) {
-  return claudeModels.some((o) => o.value === model)
-    ? claudeModels
-    : [...claudeModels, { value: model, label: model }];
 }
 
 function Section({ title, children }: { title?: string; children: ReactNode }) {

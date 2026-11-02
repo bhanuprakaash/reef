@@ -1,12 +1,7 @@
 import type { SkillInfo } from '@/types/api';
 import { ChipList } from '@/modules/teams/components/chip-list';
-import {
-  addableSkills,
-  incompatibility,
-  isMissing,
-  sourceLabel,
-} from '@/modules/teams/utils/skills';
-import { Select } from '@/components/select';
+import { incompatibility, isMissing, sourceLabel } from '@/modules/teams/utils/skills';
+import { SearchPicker } from '@/components/search-picker';
 
 type Props = {
   label: string;
@@ -27,7 +22,6 @@ export function SkillPicker({
   limits,
   onChange,
 }: Props) {
-  const addable = addableSkills(available, picked);
   return (
     <div className="min-w-0">
       <ChipList
@@ -38,21 +32,19 @@ export function SkillPicker({
         missing={(name) => isMissing(available, name)}
         onRemove={(i) => onChange(picked.filter((_, j) => j !== i))}
       />
-      <Select
-        className="mt-2"
-        variant="pill"
+      <SearchPicker
+        label="Add skill"
         aria-label={`${label} add skill`}
-        value=""
-        disabled={addable.length === 0}
-        options={[
-          { value: '', label: 'Add a skill' },
-          ...addable.map((s) => ({
-            value: s.ref,
-            label: `${s.name} · ${sourceLabel(s.source)}${incompatibility(s, backend) ? ' · not usable here' : ''}`,
-            hint: incompatibility(s, backend) || s.description,
-          })),
-        ]}
-        onChange={(name) => name && onChange([...picked, name])}
+        options={(available ?? []).map((s) => ({
+          value: s.ref,
+          label: `${s.name} · ${sourceLabel(s.source)}${incompatibility(s, backend) ? ' · not usable here' : ''}`,
+          hint: incompatibility(s, backend) || s.description,
+        }))}
+        selected={picked}
+        disabled={!available?.length}
+        onToggle={(ref) =>
+          onChange(picked.includes(ref) ? picked.filter((r) => r !== ref) : [...picked, ref])
+        }
       />
       {picked.map((ref) => {
         const reason = incompatibility(

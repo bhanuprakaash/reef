@@ -46,7 +46,10 @@ export function BotPanel({ bot, skills, connections, providers, noProject, onClo
           Open profile
         </Link>
       </div>
-      <p className="mt-3 text-xs text-muted">Changes apply to new chats and chats you Refresh.</p>
+      <p className="mt-3 text-xs text-muted">
+        Changes apply to new chats. Apply to open chats restarts them with the new settings and
+        keeps their history.
+      </p>
       {save.isError && <p className="mt-3 text-sm text-danger">{save.error.message}</p>}
       <div className="mt-4 flex items-center gap-3">
         <Button variant="destructive" type="button" onClick={() => setConfirming(true)}>

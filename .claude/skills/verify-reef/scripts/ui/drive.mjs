@@ -1832,7 +1832,7 @@ async function skills() {
   check((await getJson(`/bots/${lead.id}`)).skills.length === 0, 'saving and rejecting drafts gives no Bot a skill');
 
   await page.goto(`${base}/bots?bot=${lead.id}`);
-  await main.getByRole('combobox', { name: / add skill$/ }).click();
+  await main.getByRole('button', { name: / add skill$/ }).click();
   await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option', { name: /^triage · Reef/ }).click();
   await main.getByRole('button', { name: 'Save Bot' }).click();
   await page.getByText('Saved', { exact: true }).waitFor();
@@ -1856,7 +1856,7 @@ async function skills() {
   await page.getByRole('menuitem', { name: 'All projects', exact: true }).click();
   await aside.getByRole('region', { name: 'All projects' }).waitFor();
   await page.goto(`${base}/bots?bot=${lead.id}`);
-  await main.getByRole('combobox', { name: / add skill$/ }).click();
+  await main.getByRole('button', { name: / add skill$/ }).click();
   const offered = await page.getByRole('listbox', { name: / add skill$/ }).getByRole('option').allInnerTexts();
   await shot('picker-all-projects');
   check(offered.some((o) => o.startsWith('imported-skill · Reef')), 'under All projects the picker lists library skills', offered.join(' | '));
@@ -1891,14 +1891,15 @@ async function workshop() {
   check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
   await main.getByRole('button', { name: 'Remove claude:ghost-skill', exact: true }).click();
   const addSkill = page.getByRole('listbox', { name: `${mate} add skill`, exact: true });
-  await main.getByRole('combobox', { name: `${mate} add skill`, exact: true }).click();
+  await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
   const offered = await addSkill.getByRole('option').allInnerTexts();
   check(offered.some((o) => o.startsWith('workshop-skill')), "the claude skill picker offers the project's skill", `${offered.length} offered`);
   await addSkill.getByRole('option', { name: /^workshop-skill/ }).click();
+  await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
   check(!(await main.getByText('workshop-skill').locator('..').innerText()).includes('missing'), 'a picked skill that is on disk is not missing');
   await pick(`${mate} backend`, 'Codex', main);
   check((await main.getByLabel(`${mate} tool Read`).count()) === 0, 'the tool picker is hidden on a Codex Bot');
-  await main.getByRole('combobox', { name: `${mate} add skill`, exact: true }).click();
+  await main.getByRole('button', { name: `${mate} add skill`, exact: true }).click();
   const codexOffered = await addSkill.getByRole('option').allInnerTexts();
   check(!codexOffered.some((o) => o.startsWith('workshop-skill')), 'a Codex Bot is not offered the Claude skills', `${codexOffered.length} offered`);
   await page.keyboard.press('Escape');
@@ -1973,11 +1974,11 @@ async function workshop() {
   await page.goto(`${base}/spaces/${cid}`);
   await main.getByRole('button', { name: 'Bots', exact: true }).click();
   const botsPanel = page.getByRole('complementary', { name: 'Bots' });
-  await botsPanel.getByText('Refresh to adopt edits').waitFor();
+  await botsPanel.getByText('Apply to open chats to adopt edits').waitFor();
   const adopted = await botsPanel.innerText();
   await shot('team-panel-adopted');
-  check(adopted.includes('Session runs with') && !adopted.includes('workshop-edited-model'), "the Bots panel shows the adopted settings, not the Bot's edited model", adopted.replace(/\s+/g, ' ').slice(0, 200));
-  check(adopted.includes('Bot settings changed. Refresh to adopt edits.'), 'the Bots panel says the Bot changed and Refresh adopts it');
+  check(adopted.includes('Model') && !adopted.includes('workshop-edited-model'), "the Bots panel shows the adopted settings, not the Bot's edited model", adopted.replace(/\s+/g, ' ').slice(0, 200));
+  check(adopted.includes('Bot settings changed. Apply to open chats to adopt edits.'), 'the Bots panel says the Bot changed and Apply to open chats adopts it');
 
   await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });

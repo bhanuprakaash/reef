@@ -67,12 +67,22 @@ describe('TeamPanel', () => {
     const markup = render(role);
 
     expect(markup).toContain('Claude Code');
-    expect(markup).toContain('placeholder="sonnet"');
-    expect(markup).toContain(
-      'Session runs with sonnet · acceptEdits · read-only · tools: Read · skills: claude:how, codex:lint · connections: files',
-    );
+    expect(markup).toContain('aria-label="Model for prakash"');
+    expect(markup).toContain('<span class="truncate">Sonnet</span>');
+    expect(markup).toContain('<dt>Model</dt><dd class="min-w-0 break-words text-soft">sonnet</dd>');
+    expect(markup).toContain('acceptEdits · read-only');
+    expect(markup).toContain('<dt>Tools</dt><dd class="min-w-0 break-words text-soft">Read</dd>');
+    expect(markup).toContain('claude:how, codex:lint');
     expect(markup).toContain('codex:lint is not available here: needs Codex');
-    expect(markup).toContain('Bot settings changed. Refresh to adopt edits.');
+    expect(markup).toContain('Bot settings changed. Apply to open chats to adopt edits.');
+  });
+
+  it('collapses a long tool list to a count', () => {
+    const tools = ['Read', 'Grep', 'Glob', 'Skill', 'Bash(git log:*)'];
+    const markup = render({ ...role, session: { ...role.session!, tools } });
+
+    expect(markup).toContain('>5 tools</button>');
+    expect(markup).not.toContain('Read, Grep');
   });
 
   it('offers Remove, with a successor to pick for the coordinator, only when another Bot stays', () => {
@@ -95,6 +105,6 @@ describe('TeamPanel', () => {
   it('shows no hint when the session matches the Bot', () => {
     const markup = render({ ...role, session: { ...role.session!, stale: false } });
 
-    expect(markup).not.toContain('Refresh to adopt edits');
+    expect(markup).not.toContain('to adopt edits');
   });
 });
