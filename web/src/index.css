@@ -3,9 +3,13 @@
 @theme {
   --color-sidebar: #1a1a1a;
   --color-column: #1a1a1a;
-  --color-main: #212121;
+  --color-main: #171717;
   --color-card: #2a2a2a;
   --color-bubble: #2e2e2e;
+  --color-bot-bubble: color-mix(in srgb, var(--color-fg) 4.5%, var(--color-main));
+  --color-bot-bubble-edge: color-mix(in srgb, var(--color-fg) 7%, var(--color-main));
+  --color-code: #e6b98a;
+  --color-well: rgb(0 0 0 / 0.24);
   --color-hairline: #2e2e2e;
   --color-line: #3a3a3a;
   --color-field: #262626;
@@ -82,7 +86,7 @@
   color-scheme: light;
   --color-sidebar: #f4f4f5;
   --color-column: #e8e8eb;
-  --color-main: #ffffff;
+  --color-main: #f8f8f9;
   --color-card: #f4f4f5;
   --color-bubble: #ececee;
   --color-hairline: #eeeef0;
@@ -106,6 +110,8 @@
   --color-working: #1a62c9;
   --color-mention: #1a62c9;
   --color-mention-on-pill: #5b9bff;
+  --color-code: #a24a1c;
+  --color-well: rgb(0 0 0 / 0.045);
   --color-needs-you: #d70015;
   --color-paused: #8a5a00;
   --color-paused-bg: #fff6db;
@@ -136,7 +142,7 @@
     color-scheme: light;
     --color-sidebar: #f4f4f5;
     --color-column: #e8e8eb;
-    --color-main: #ffffff;
+    --color-main: #f8f8f9;
     --color-card: #f4f4f5;
     --color-bubble: #ececee;
     --color-hairline: #eeeef0;
@@ -160,6 +166,8 @@
     --color-working: #1a62c9;
     --color-mention: #1a62c9;
     --color-mention-on-pill: #5b9bff;
+    --color-code: #a24a1c;
+    --color-well: rgb(0 0 0 / 0.045);
     --color-needs-you: #d70015;
     --color-paused: #8a5a00;
     --color-paused-bg: #fff6db;
@@ -269,42 +277,62 @@
   transform-box: fill-box;
 }
 
-/* One bubble per tool call: it rises off the creature and fades. */
-.bubble {
+.dock-bubbles {
   position: absolute;
-  bottom: 4px;
-  left: 7px;
-  width: 5px;
-  height: 5px;
-  border: 1.5px solid var(--color-asleep);
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.dock-bubbles i {
+  position: absolute;
+  top: 4px;
+  left: var(--x);
+  width: var(--s);
+  height: var(--s);
+  border: 1.5px solid color-mix(in srgb, var(--color-working) 70%, transparent);
+  background: color-mix(in srgb, var(--color-working) 22%, transparent);
   border-radius: var(--radius-pill);
   opacity: 0;
-  animation: bubble-up 2.8s ease-out forwards;
+  animation: bubble-up var(--t) cubic-bezier(0.3, 0.15, 0.6, 1) infinite;
+  animation-delay: var(--d);
 }
-.bubble-1 {
-  left: 13px;
-  width: 4px;
-  height: 4px;
-  animation-duration: 3.2s;
+.dock-bubbles.slow i {
+  animation-duration: calc(var(--t) * 1.8);
 }
-.bubble-2 {
-  left: 3px;
-  width: 6px;
-  height: 6px;
-  animation-duration: 2.4s;
+.dock-bubbles.slow i:nth-child(n + 4) {
+  display: none;
 }
 @keyframes bubble-up {
   0% {
-    transform: translateY(0) scale(0.4);
+    transform: translate(0, 0) scale(0.5);
     opacity: 0;
   }
-  20% {
-    opacity: 0.8;
+  12% {
+    opacity: 0.95;
+  }
+  40% {
+    transform: translate(5px, -18px) scale(0.95);
   }
   100% {
-    transform: translateY(-26px) scale(1);
+    transform: translate(-5px, -46px) scale(1.15);
     opacity: 0;
   }
+}
+
+.dock-water {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-working) 4%, var(--color-main)),
+    color-mix(in srgb, var(--color-working) 11%, var(--color-main))
+  );
+}
+button.dock-water:hover,
+button.dock-water[aria-expanded='true'] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-working) 7%, var(--color-main)),
+    color-mix(in srgb, var(--color-working) 16%, var(--color-main))
+  );
 }
 
 /* The status word drifts like light on water. */
@@ -331,7 +359,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bubble {
+  .dock-bubbles {
     display: none;
   }
   .tide {
@@ -629,4 +657,25 @@
 }
 :is(button, input, textarea, select, a, [role='listbox'], [role='separator']) {
   -webkit-app-region: no-drag;
+}
+
+.draft p:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: -0.17em;
+  background: var(--color-soft);
+  animation: caret 1.1s steps(1) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .draft p:last-child::after {
+    animation: none;
+  }
 }

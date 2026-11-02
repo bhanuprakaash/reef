@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { SectionHeading } from '@/app/section-heading';
+import { SidebarSection } from '@/app/sidebar-section';
 import { SpaceRow } from '@/app/space-row';
 import { Dialog } from '@/components/dialog';
 import { spacesQuery } from '@/lib/api/get-spaces';
@@ -10,40 +10,8 @@ import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { workItemsQuery } from '@/modules/work-items/api/get-work-items';
 import type { Project, SpacePreview } from '@/types/api';
 
-const RECENT_CONVERSATIONS = 8;
-
 export const byRecent = (a: SpacePreview, b: SpacePreview) =>
   (b.lastMessage?.createdAt ?? b.createdAt).localeCompare(a.lastMessage?.createdAt ?? a.createdAt);
-
-function Section({
-  to,
-  label,
-  addLabel,
-  onAdd,
-  empty,
-  spaces,
-}: {
-  to: string;
-  label: string;
-  addLabel: string;
-  onAdd: () => void;
-  empty: string;
-  spaces: SpacePreview[];
-}) {
-  return (
-    <>
-      <SectionHeading to={to} label={label} addLabel={addLabel} onAdd={onAdd} />
-      {spaces.length === 0 && <p className="px-2.5 pb-1 text-[13px] text-faint">{empty}</p>}
-      <ul className="flex flex-col gap-0.5">
-        {spaces.map((c) => (
-          <li key={c.id}>
-            <SpaceRow space={c} />
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
 
 export function SidebarSpaces({ project }: { project?: Project }) {
   const spaces = useQuery({ ...spacesQuery(project?.id), refetchInterval: 5000 });
@@ -57,8 +25,6 @@ export function SidebarSpaces({ project }: { project?: Project }) {
     return status === 'review' || status === 'done' || status === 'dropped';
   };
   const isPinned = (c: SpacePreview) => pins.some((p) => p.kind === pinKindOf(c) && p.id === c.id);
-  const pinnedFirst = (a: SpacePreview, b: SpacePreview) =>
-    Number(isPinned(b)) - Number(isPinned(a)) || byRecent(a, b);
   const mine = spaces.data ?? [];
   const pool = [
     ...mine,
@@ -70,29 +36,32 @@ export function SidebarSpaces({ project }: { project?: Project }) {
         c.kind !== 'conversation' &&
         (isPinned(c) || (c.kind !== 'consultation' && c.closedAt === null && !handedOver(c))),
     )
-    .sort(pinnedFirst);
-  const conversations = pool
-    .filter((c) => c.kind === 'conversation')
-    .sort(pinnedFirst)
-    .filter((c, i) => i < RECENT_CONVERSATIONS || isPinned(c));
+    .sort(byRecent);
+  const conversations = pool.filter((c) => c.kind === 'conversation').sort(byRecent);
 
   return (
     <section aria-label={project?.name ?? 'All projects'} className="flex flex-col gap-0.5">
-      <Section
+      <SidebarSection
+        id="spaces"
         to="/spaces"
         label="Spaces"
         addLabel="New Space"
         onAdd={() => setCreating('space')}
         empty="No Spaces open"
-        spaces={live}
+        items={live}
+        isPinned={isPinned}
+        row={(c) => <SpaceRow space={c} />}
       />
-      <Section
+      <SidebarSection
+        id="conversations"
         to="/conversations"
         label="Conversations"
         addLabel="New conversation"
         onAdd={() => setCreating('conversation')}
         empty="No conversations yet"
-        spaces={conversations}
+        items={conversations}
+        isPinned={isPinned}
+        row={(c) => <SpaceRow space={c} />}
       />
       <Dialog
         open={creating !== null}

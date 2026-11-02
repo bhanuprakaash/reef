@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinTools, customTools, mcpTool, toggleTool, unrestrictedBashBlocked } from './tools';
+import { builtinTools, mcpTool, toggleTool, unrestrictedBashBlocked } from './tools';
 
 describe('tools', () => {
   it('lists the built-in tools in a fixed order', () => {
@@ -33,15 +33,6 @@ describe('tools', () => {
       'Bash(git log:*)',
       'Edit',
     ]);
-  });
-
-  it('keeps in the custom list what no checkbox shows', () => {
-    expect(
-      customTools(
-        ['Read', 'mcp__mcp1__*', 'Bash(git log:*)', 'mcp__other__*', 'Skill(how)'],
-        ['mcp1'],
-      ),
-    ).toEqual(['Bash(git log:*)', 'mcp__other__*', 'Skill(how)']);
   });
 
   it('blocks ticking plain Bash on a role that cannot write', () => {

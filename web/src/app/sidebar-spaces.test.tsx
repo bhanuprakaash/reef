@@ -34,6 +34,8 @@ const project: Project = {
   path: '/reef',
   purpose: '',
   baseBranch: 'main',
+  icon: '',
+  colour: '',
   createdAt: '',
 };
 
@@ -182,5 +184,24 @@ describe('SidebarSpaces', () => {
     for (const c of chats) expect(markup).toContain(c.name);
     expect(markup).not.toContain('unpinned');
     usePins.mockReturnValue({ data: [] });
+  });
+
+  it('shows the newest eight conversations and a See all link', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+    const chats = Array.from({ length: 10 }, (_, n): SpacePreview => ({
+      ...space,
+      id: 10 + n,
+      kind: 'conversation',
+      workItemId: null,
+      name: `chat-${n}`,
+      createdAt: `2026-01-${10 + n}`,
+    }));
+
+    const markup = render(workItem, project, chats);
+
+    expect(markup.match(/href="\/spaces\/\d+"/g)).toHaveLength(8);
+    expect(markup).toContain('chat-9');
+    expect(markup).not.toContain('chat-1<');
+    expect(markup).toContain('See all 10');
   });
 });

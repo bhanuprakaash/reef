@@ -5,7 +5,8 @@ export const kindLabels: Record<InboxItem['kind'], string> = {
   held: 'Held',
   failed: 'Failed',
   review: 'Review',
-  waiting: 'Waiting',
+  question: 'Question',
+  reply: 'Replied',
   sub_item: 'Sub-item',
   proposed: 'Proposed',
   started: 'Started',
@@ -22,3 +23,9 @@ export function newItems(before: InboxItem[], after: InboxItem[]): InboxItem[] {
 }
 
 export const noticeKinds: InboxItem['kind'][] = ['sub_item', 'proposed', 'started'];
+
+export function dismissableSeen(items: InboxItem[], seen: string[]): InboxItem[] {
+  return items.filter(
+    (i) => i.group === 'fyi' && i.kind !== 'space_proposed' && seen.includes(itemKey(i)),
+  );
+}

@@ -229,14 +229,14 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/projects",
 		fmt.Sprintf(`{"name":"reef","path":%q}`, firstPath))
 	if status != 201 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"baseBranch":"","purpose":"","createdAt":"`, firstPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"baseBranch":"","purpose":"","icon":"","colour":"","createdAt":"`, firstPath)) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
 		fmt.Sprintf(`{"name":"reef2","path":%q}`, secondPath))
 	if status != 200 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"","purpose":"","createdAt":"`, secondPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"","purpose":"","icon":"","colour":"","createdAt":"`, secondPath)) {
 		t.Fatalf("update = %d %s", status, body)
 	}
 
@@ -247,8 +247,29 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
 		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev"}`, secondPath))
 	if status != 200 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","purpose":"","createdAt":"`, secondPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","purpose":"","icon":"","colour":"","createdAt":"`, secondPath)) {
 		t.Fatalf("update with a base branch = %d %s", status, body)
+	}
+
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev","icon":"🚀","colour":"#2F72C0"}`, secondPath))
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","purpose":"","icon":"🚀","colour":"#2F72C0","createdAt":"`, secondPath)) {
+		t.Fatalf("update with an icon = %d %s", status, body)
+	}
+
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"colour":"blue"}`, secondPath)); status != 400 {
+		t.Fatalf("update with a bad colour = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"colour":"#000000"}`, secondPath)); status != 400 {
+		t.Fatalf("update with a colour outside the presets = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev","icon":"🚀","colour":"#2f72c0"}`, secondPath)); status != 200 ||
+		!strings.Contains(body, `"colour":"#2f72c0"`) {
+		t.Fatalf("update with a lower-case preset colour = %d %s", status, body)
 	}
 
 	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",

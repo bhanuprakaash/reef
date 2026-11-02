@@ -1,5 +1,6 @@
 import { ResourceRow } from '@/app/resource-row';
 import { useFind } from '@/lib/api/find';
+import { kindLabel } from '@/utils/resource-path';
 
 export function SidebarSearch({ query }: { query: string }) {
   const found = useFind(query);
@@ -10,7 +11,7 @@ export function SidebarSearch({ query }: { query: string }) {
       <ul className="flex flex-col gap-0.5">
         {found.data?.map((r) => (
           <li key={`${r.kind}-${r.id}`}>
-            <ResourceRow resource={r} />
+            <ResourceRow resource={r} aside={kindLabel[r.kind]} />
           </li>
         ))}
       </ul>

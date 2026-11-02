@@ -12,11 +12,13 @@ export function FailedTurnRows({
   faces,
   running,
   paused,
+  pillTurnId,
 }: {
   spaceId: number;
   faces: Faces;
   running: boolean;
   paused: boolean;
+  pillTurnId?: number;
 }) {
   const turns = useFailedTurns(spaceId);
   const checkpoints = useTurns(spaceId);
@@ -54,7 +56,7 @@ export function FailedTurnRows({
                 Roll back
               </Button>
             )}
-            {!paused && (
+            {!paused && t.id !== pillTurnId && (
               <Button
                 variant="primary"
                 type="button"

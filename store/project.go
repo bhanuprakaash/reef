@@ -6,8 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 )
+
+// _tileColours are the colours a project tile can take, the palette of web/src/utils/project-tile.ts.
+var _tileColours = []string{"#B84E22", "#1F7A6F", "#6A59E0", "#B03E73", "#2F72C0", "#5F7A1E", "#8F6A12", "#5E6B78"}
 
 // Project is a repo folder Reef works in.
 type Project struct {
@@ -16,6 +21,8 @@ type Project struct {
 	Path       string    `json:"path"`
 	BaseBranch string    `json:"baseBranch"`
 	Purpose    string    `json:"purpose"`
+	Icon       string    `json:"icon"`
+	Colour     string    `json:"colour"`
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
@@ -26,8 +33,8 @@ func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO project (name, path, purpose, created_at) VALUES (?, ?, ?, ?)",
-		p.Name, p.Path, p.Purpose, now.Format(time.RFC3339Nano))
+		"INSERT INTO project (name, path, purpose, icon, colour, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		p.Name, p.Path, p.Purpose, p.Icon, p.Colour, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Project{}, fmt.Errorf("insert project: %w", err)
 	}
@@ -42,7 +49,7 @@ func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 // Project returns the project with the id, or ErrNotFound.
 func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, name, path, base_branch, purpose, created_at FROM project WHERE id = ?", id)
+		"SELECT id, name, path, base_branch, purpose, icon, colour, created_at FROM project WHERE id = ?", id)
 	p, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, fmt.Errorf("project %d: %w", id, ErrNotFound)
@@ -55,7 +62,7 @@ func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error) {
 	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
 		row := s.db.QueryRowContext(ctx,
-			"SELECT id, name, path, base_branch, purpose, created_at FROM project WHERE path = ? ORDER BY id LIMIT 1",
+			"SELECT id, name, path, base_branch, purpose, icon, colour, created_at FROM project WHERE path = ? ORDER BY id LIMIT 1",
 			dir)
 		p, err := scanProject(row)
 		if err == nil {
@@ -73,21 +80,21 @@ func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error)
 // Projects lists every project by id.
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, path, base_branch, purpose, created_at FROM project ORDER BY id")
+		"SELECT id, name, path, base_branch, purpose, icon, colour, created_at FROM project ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
 	return scanAll(rows, scanProject)
 }
 
-// UpdateProject sets the name, path, base branch and purpose of p.ID.
+// UpdateProject sets the name, path, base branch, purpose, icon and colour of p.ID.
 func (s *Store) UpdateProject(ctx context.Context, p Project) (Project, error) {
 	if err := p.validate(); err != nil {
 		return Project{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE project SET name = ?, path = ?, base_branch = ?, purpose = ? WHERE id = ?",
-		p.Name, p.Path, p.BaseBranch, p.Purpose, p.ID)
+		"UPDATE project SET name = ?, path = ?, base_branch = ?, purpose = ?, icon = ?, colour = ? WHERE id = ?",
+		p.Name, p.Path, p.BaseBranch, p.Purpose, p.Icon, p.Colour, p.ID)
 	if err != nil {
 		return Project{}, fmt.Errorf("update project: %w", err)
 	}
@@ -160,13 +167,16 @@ func (p Project) validate() error {
 	if p.Path == "" {
 		return fmt.Errorf("%w: project path is required", ErrInvalid)
 	}
+	if p.Colour != "" && !slices.ContainsFunc(_tileColours, func(c string) bool { return strings.EqualFold(c, p.Colour) }) {
+		return fmt.Errorf("%w: project colour %q is not one of %s", ErrInvalid, p.Colour, strings.Join(_tileColours, ", "))
+	}
 	return nil
 }
 
 func scanProject(r interface{ Scan(...any) error }) (Project, error) {
 	var p Project
 	var created string
-	if err := r.Scan(&p.ID, &p.Name, &p.Path, &p.BaseBranch, &p.Purpose, &created); err != nil {
+	if err := r.Scan(&p.ID, &p.Name, &p.Path, &p.BaseBranch, &p.Purpose, &p.Icon, &p.Colour, &created); err != nil {
 		return Project{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

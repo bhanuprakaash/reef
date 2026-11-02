@@ -4,6 +4,7 @@ import { DeleteSpaceDialog, RenameSpaceDialog } from '@/app/space-dialogs';
 import { SpaceCard } from '@/app/space-hovercard';
 import { GroupAvatar } from '@/components/creature';
 import { Hovercard } from '@/components/hovercard';
+import { PinMark } from '@/components/pin-mark';
 import { Row } from '@/components/row';
 import { RowMenu } from '@/components/row-menu';
 import { StatusDot } from '@/components/status-dot';
@@ -15,9 +16,6 @@ import { useInbox } from '@/modules/inbox/api/get-inbox';
 import type { SpacePreview } from '@/types/api';
 import { memberFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
-
-const oneLine = (m: NonNullable<SpacePreview['lastMessage']>) =>
-  `${m.author === 'user' ? 'you' : m.author}: ${m.body.replace(/\s+/g, ' ')}`;
 
 export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const { pathname } = useLocation();
@@ -74,7 +72,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
                   <GroupAvatar
                     roles={roles.length > 0 ? roles : [c.botId]}
                     faces={faces}
-                    size={30}
+                    size={26}
                   />
                   {waiting.some((i) => i.spaceId === c.id && i.group === 'needs_you') && (
                     <span
@@ -94,8 +92,12 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
                   />
                 ) : undefined
               }
-              aside={c.lastMessage && rowTime(c.lastMessage.createdAt)}
-              preview={c.lastMessage ? oneLine(c.lastMessage) : 'No messages yet'}
+              aside={
+                <>
+                  {pinned && <PinMark />}
+                  {c.lastMessage && rowTime(c.lastMessage.createdAt)}
+                </>
+              }
             />
           )}
         </Hovercard>

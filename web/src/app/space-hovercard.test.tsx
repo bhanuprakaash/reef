@@ -122,23 +122,23 @@ describe('spaceState', () => {
   const open = { closedAt: null, paused: '' };
 
   it('picks the first of wrapped, paused, failed, working, waiting, idle', () => {
-    expect(spaceState({ closedAt: 'x', paused: 'cap' }, [1], ['waiting'])).toEqual({
+    expect(spaceState({ closedAt: 'x', paused: 'cap' }, [1], ['question'])).toEqual({
       status: 'done',
       label: 'Wrapped',
     });
-    expect(spaceState({ closedAt: null, paused: 'token budget' }, [1], ['waiting'])).toEqual({
+    expect(spaceState({ closedAt: null, paused: 'token budget' }, [1], ['question'])).toEqual({
       status: 'paused',
       label: 'Paused: token budget',
     });
-    expect(spaceState(open, [1], ['waiting', 'failed'])).toEqual({
+    expect(spaceState(open, [1], ['question', 'failed'])).toEqual({
       status: 'failed',
       label: 'A turn failed',
     });
-    expect(spaceState(open, [1], ['waiting'])).toEqual({
+    expect(spaceState(open, [1], ['question'])).toEqual({
       status: 'working',
       label: 'Working',
     });
-    expect(spaceState(open, [], ['waiting'])).toEqual({
+    expect(spaceState(open, [], ['question'])).toEqual({
       status: 'needs-you',
       label: 'Waiting for you',
     });

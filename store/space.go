@@ -469,7 +469,7 @@ func (s *Store) SpaceProjects(ctx context.Context, id int64) ([]Project, error) 
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.created_at "+
+		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.icon, project.colour, project.created_at "+
 			"FROM space_project JOIN project ON project.id = space_project.project_id "+
 			"WHERE space_project.space_id = ? ORDER BY project.id", id)
 	if err != nil {

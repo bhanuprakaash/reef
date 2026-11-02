@@ -34,7 +34,7 @@ func (s *server) dismissItem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// inbox lists the store's inbox without the waiting, paused and failed items of a Space with
+// inbox lists the store's inbox without the question, reply, paused and failed items of a Space with
 // a chain running: between two turns its last message is an agent's and the role it wakes has
 // not started, and Continue or Retry is refused until the chain has ended.
 // The running Spaces are read before and after the store, so a chain that starts or ends

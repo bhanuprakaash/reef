@@ -1,6 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import type { BrowserDriver } from '@/app/browser-pane';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Dialog } from '@/components/dialog';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
@@ -11,6 +11,7 @@ import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
+import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
 import { AddBotForm } from '@/modules/spaces/components/add-bot-form';
 import { AttachForm } from '@/modules/spaces/components/attach-form';
@@ -22,7 +23,7 @@ import { CoordinationPanel } from '@/modules/spaces/components/coordination-pane
 import { DeniedToolRows } from '@/modules/spaces/components/denied-tool-rows';
 import { FailedTurnRows } from '@/modules/spaces/components/failed-turn-rows';
 import { InspectorPanel } from '@/modules/spaces/components/inspector-panel';
-import { LiveTurn } from '@/modules/spaces/components/live-turn';
+import { LiveDock } from '@/modules/spaces/components/live-dock';
 import { MessageList } from '@/modules/spaces/components/message-list';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
@@ -40,6 +41,7 @@ import { checkpointAnchor, unanchoredCheckpoints } from '@/modules/spaces/utils/
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
+import { draftText, failedRetryTarget } from '@/modules/spaces/utils/turn-status';
 import type { Project, SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { faceOf } from '@/components/creature';
@@ -55,6 +57,7 @@ type Props = {
   brief?: string;
   drafts?: ReactNode;
   browserOpen?: boolean;
+  tools?: ReactNode;
   onBrowserDriver?: (driver: BrowserDriver | null) => void;
 };
 
@@ -78,6 +81,7 @@ export function SpaceView({
   brief,
   drafts,
   browserOpen,
+  tools,
   onBrowserDriver,
 }: Props) {
   const messages = useMessages(space.id);
@@ -87,6 +91,8 @@ export function SpaceView({
   const wrap = useWrapSpace(space.id);
   const proposal = useProposal(space.id);
   const reopen = useReopenSpace(space.id);
+  const newChat = useStartConversation();
+  const navigate = useNavigate();
   const closed = space.closedAt !== null;
   const running = turn.status === 'running';
   const [side, setSide] = useState<Side>(null);
@@ -109,6 +115,7 @@ export function SpaceView({
   const working = turn.role || space.role || 'agent';
   const look = faceOf(faces, workingBotId);
   const action = browserAction(turn);
+  const draft = draftText(turn);
   const last = messages.data?.at(-1);
   const { box, onScroll, atBottom, toBottom, hold } = useStickToBottom(
     last?.author === 'user' ? last.id : undefined,
@@ -161,7 +168,7 @@ export function SpaceView({
         space={space}
         scope={scope}
         status={status}
-        roles={roles.map((r) => r.botId)}
+        roles={roles}
         faces={faces}
         working={running ? (workingBotId ?? null) : null}
         pullRequest={latestPullRequest(messages.data ?? [])}
@@ -170,11 +177,19 @@ export function SpaceView({
         diff={diff}
         onDiff={diffPanel ? () => openSide(wide ? null : { kind: 'diff' }) : undefined}
         diffOpen={wide}
+        tools={tools}
         wrapDisabled={wrapDisabled}
         onWrap={() => wrap.mutate()}
         attachDisabled={running}
         onAttach={() => setAttaching(true)}
         onAddBot={() => setAdding(true)}
+        onNewChat={() =>
+          newChat.mutate(
+            { projectId: space.projectId, bot: { id: roles[0].botId, name: roles[0].name } },
+            { onSuccess: (created) => void navigate(`/spaces/${created.id}`) },
+          )
+        }
+        newChatDisabled={newChat.isPending}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -202,6 +217,7 @@ export function SpaceView({
           >
             <div className="mx-auto max-w-5xl space-y-4">
               {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
+              {newChat.isError && <p className="text-sm text-danger">{newChat.error.message}</p>}
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
               {messages.hasEarlier && (
@@ -232,25 +248,20 @@ export function SpaceView({
                   openId={thread?.root.id}
                   openChainId={chain?.id}
                   running={running}
+                  draft={draft ? { author: working, botId: workingBotId, text: draft } : undefined}
                   turns={turns}
                   checkpoints={rollbackable}
                   onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
                   onOpenChain={(chainId) => openSide({ kind: 'direct', chainId })}
                 />
               )}
-              <LiveTurn
-                turn={turn}
-                role={working}
-                look={look}
-                open={turnOpen}
-                onOpen={() => openSide(turnOpen ? null : { kind: 'turn' })}
-              />
               {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
               <FailedTurnRows
                 spaceId={space.id}
                 faces={faces}
                 running={running}
                 paused={space.paused !== ''}
+                pillTurnId={failedRetryTarget(failedTurns.data ?? [], turn)?.id}
               />
               <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
               <DeniedToolRows space={space} roles={roles} running={running} />
@@ -287,6 +298,12 @@ export function SpaceView({
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
             <div className="mx-auto max-w-5xl space-y-2">
               {space.paused !== '' && <PausedBanner spaceId={space.id} reason={space.paused} />}
+              <LiveDock
+                spaceId={space.id}
+                entries={turn.status === 'idle' ? [] : [{ turn, role: working, look }]}
+                paused={space.paused !== ''}
+                onOpenTurn={() => openSide({ kind: 'turn' })}
+              />
               {space.movedTo !== null ? (
                 <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
                   <span className="min-w-0 flex-1 text-sm text-muted">
@@ -419,16 +436,6 @@ export function SpaceView({
                   <div className="truncate text-xl">{space.name}</div>
                   {space.team && <div className="text-[13px] text-muted">Crew · {space.team}</div>}
                 </div>
-                {space.workItemId !== null && !closed && (
-                  <Button
-                    variant="primary"
-                    type="button"
-                    disabled={wrapDisabled}
-                    onClick={() => wrap.mutate()}
-                  >
-                    Wrap up
-                  </Button>
-                )}
               </div>
               <TeamPanel
                 spaceId={space.id}

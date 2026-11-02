@@ -34,7 +34,7 @@ One line per acceptance line of the full-team slice and its sub-issues.
 - `rollback-note` `reef` posts `Rolled back to before turn N.`, and the prompt of the developer's next wake starts with `reef wrote: Rolled back to before turn N.`; a turn with no checkpoint is 400, an unknown one 404.
 - `retry-restart` a developer turn failed by a server crash (`server restarted`) is retried: a new developer turn ends `done` and the failed one is `retried`.
 - `retry-twice` retrying it again, or retrying a `done` turn, is 409.
-- `inbox-kinds` `GET /inbox` lists a `paused`, a `failed` and a `waiting` item.
+- `inbox-kinds` `GET /inbox` lists a `paused`, a `failed` and a `reply` item.
 - `inbox-clear` continue, retry and send each clear their item, and the Space runs on.
 - `inbox-stream` `GET /inbox/events` sends a frame when an item appears and when it clears, across three Spaces.
 - `inbox-restart` after a restart `GET /inbox` lists the same items, byte for byte.
@@ -164,10 +164,10 @@ Inbox (Spaces 7 to 9 are quick sessions, so they make no worktree):
 - **Stopped is not an item.** `$H api POST /spaces '{"projectId":1,"name":"relay","team":"relay"}'` (7), `... "name":"budget","team":"crew"` (8), `... "name":"crashed","team":"crew"` (9). `$H api POST /spaces/9/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'`, `sleep 3`, `$H api POST /spaces/9/stop` (204). Its turn is `failed`, `interrupted`, and `$H api GET /inbox` has no item of Space 9: a turn the user stopped is not one.
 - **Failed by a crash.** The same send to 9 again, `sleep 3`, `$H serve-stop --kill`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name full`, set `A`. `C=$($H sql "select max(id) from turn where space_id = 9" | tail -1)`.
 - **Stream.** Start it now: `curl -sN --max-time 400 http://$A/inbox/events > $E/inbox-events.txt &`.
-- **Three kinds.** Send to Space 8, wait for it, set its token budget to 1, then send again. `$H api GET /inbox` has the crash-failed item for Space 9, the budget pause for Space 8, and `waiting` items such as Space 4 (`inbox-kinds`).
-- **Clear.** Continue Space 8, retry Space 9's failed turn and send to waiting Space 4. Each item clears while its turn runs, then each Space ends with a new `waiting` item (`inbox-clear`).
+- **Three kinds.** Send to Space 8, wait for it, set its token budget to 1, then send again. `$H api GET /inbox` has the crash-failed item for Space 9, the budget pause for Space 8, and `reply` items such as Space 4 (`inbox-kinds`).
+- **Clear.** Continue Space 8, retry Space 9's failed turn and send to waiting Space 4. Each item clears while its turn runs, then each Space ends with a new `reply` item (`inbox-clear`).
 - **Frames.** The inbox event stream shows failed Space 9, paused Space 8 and the waiting items disappear and return as work runs (`inbox-stream`).
-- **Restart.** Re-create the budget pause, save `GET /inbox`, restart, and compare the response byte for byte. Paused, failed and waiting items survive (`inbox-restart`).
+- **Restart.** Re-create the budget pause, save `GET /inbox`, restart, and compare the response byte for byte. Paused, failed and reply items survive (`inbox-restart`).
 
 Codex on the test fixture (`write-codex-readonly`), folder `cx`. A shim logs what the server sends to the fixture `agent/codex/testdata/codex`:
 
@@ -183,7 +183,7 @@ Google login end to end (`google-login`), folder `google`, real claude on sonnet
 - **App.** In `$S/google-app`: `go.mod` (`module example.com/shop`, `go 1.22`), `main.go` with `routes()` serving `GET /login` (a form with email, password and `Sign in`) and `POST /login`, and `main_test.go` with `TestLoginPage`. `(cd $S/google-app && go test ./...)` passes. `git -C $S/google-app init -q -b main && git -C $S/google-app add -A && git -C $S/google-app -c user.name=v -c user.email=v@example.com commit -qm "shop with email login"`.
 - **Setup.** Start the server on `google`, apply `teams/full.json`, create the shop Project and Google login item. Assign the full lead and participants, approve the item and wait for its first lead turn. Record the inbox and Space event streams.
 - **Ask.** Send the Google login request and wait for six done turns: the initial assignment lead, then lead, architect, developer, tester and lead. The handoff approval table has no rows.
-- **Proof.** The developer turn has a checkpoint and one commit on `work-item/1`; the tester turn is done; the main checkout is clean and unchanged. The inbox ends with one `waiting` item and a started FYI, and the Space event stream has no approval event.
+- **Proof.** The developer turn has a checkpoint and one commit on `work-item/1`; the tester turn is done; the main checkout is clean and unchanged. The inbox ends with one `reply` item and a started FYI, and the Space event stream has no approval event.
 
 Handoffs, notes, retry and rollback rules, folder `fu`, on the same scratch cwd:
 

@@ -32,8 +32,3 @@ export function toggleTool(tools: string[], tool: string, on: boolean) {
 export function unrestrictedBashBlocked(tool: string, write: boolean, tools: string[]) {
   return tool === 'Bash' && !write && !tools.includes(tool);
 }
-
-export function customTools(tools: string[], servers: string[]) {
-  const shown = [...builtinTools, ...servers.map(mcpTool)];
-  return tools.filter((t) => !shown.includes(t));
-}

@@ -71,35 +71,41 @@ embeds `web/dist` as it was at build time. A Space's agent is the `claude` or `c
 logged in and on `PATH`.
 
 - Sidebar: a top row with the brand (it opens Today), search, the project switcher, then Inbox with
-  its count, Board, Bots, Spaces and Conversations. Each section label has a + for a new Bot, Space or
-  conversation, and the Board row has a + for a new Work item. The switcher lists All projects first and then each project; the choice is a
-  filter only. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
+  its count, Board, Bots, Spaces and Conversations. Inbox and Board are one-line rows. Each section label
+  has a + for a new Bot, Space or conversation, and the Board row has a + for a new Work item. A chevron
+  on the section label collapses the section (the choice is kept in the browser, and the count shows
+  while it is collapsed). Each section lists at most eight one-line rows and a See all N link to its
+  full list: all pinned rows, then the newest others. The switcher shows the project as a coloured
+  tile, its emoji or else its initial (All projects is a grid tile), and lists All projects first and then each project; the choice is a
+  filter only. The switcher's Change icon item and the tile on the project page open a picker with an emoji grid, a Letter option and eight colours; each choice saves at once with `PUT /projects/{id}`. Under a project the sidebar reads `GET /spaces?project=ID`, so it lists the Spaces
   associated with that project; under All projects it reads `GET /spaces`. Switching never changes a
   Space's projects, context or sessions, and starts no chat. New Space and New conversation under
   All projects send `POST /spaces` with no `projectId`; New Work item needs a project (its + is
   disabled until one is picked). Spaces lists the free
   Spaces and the Spaces of Work items that are not yet
-  in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
-  eight newest conversations with the Bot's creature; its header opens `/conversations`. There is no Pinned
-  section: pinned Bots, chats and Spaces (`GET /pins`) sort to the top of their own section, under every
-  filter. Bots lists the Bots of the five newest chats under the filter plus pinned Bots, each opening
+  in Review, Done or Dropped; its See all link opens `/spaces`, which lists them all. Conversations lists the
+  conversations, newest first, with the Bot's creature; its See all link opens `/conversations`. Both pages have a
+  search box and group their rows under Pinned, Today, Yesterday, Last 7 days and Older (by last message; empty
+  groups are hidden). The sidebar has no Pinned
+  section: pinned Bots, chats and Spaces (`GET /pins`) show a pin mark and sort to the top of their own section, under every
+  filter. Bots lists the Bots of the newest chats under the filter, pinned Bots first, then the other Bots; its See all link opens `/bots`, and each row opens
   `/bots/ID/chat`. A Space or chat row has a … button and a right-click menu with Rename, Pin or Unpin
   and Delete; a Bot row's menu has only Pin or Unpin. The Bot page and its chat rows also pin and unpin. Typing in
   search replaces the list with `GET /find` results (Bots, chats, Spaces, Work items); a result opens
   `/bots/ID/chat`, `/spaces/ID` or `/work-items/ID`. `/bots/ID/chat` opens the Bot's latest chat under
   the selected project (`?resumable=1&project=N&limit=1`) or overall, and with none opens the Bot page, whose New
   chat starts one; the Bot page lists the chats 20 at a time with Load more. A Space loads its newest
-  50 messages and a Load earlier messages button fetches the page before the oldest shown; a live refetch asks `after` the id 50 from the newest, so nothing loaded drops out, and a reply whose root is not loaded gets it with `?before=ROOT+1&limit=1`. Each row
-  shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
-  fixed and shows your name beside the Bots, Teams and Settings links. Below 768 px the sidebar is
+  50 messages and a Load earlier messages button fetches the page before the oldest shown; a live refetch asks `after` the id 50 from the newest, so nothing loaded drops out, and a reply whose root is not loaded gets it with `?before=ROOT+1&limit=1`. Each Space row
+  shows its time. The list scrolls; the foot is
+  fixed and shows your name beside the Bots and Settings links. Below 768 px the sidebar is
   a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,
   Escape or a tap outside closes it, and a Space opens full screen.
 - Today (`/`): what waits on you, the project's work items, and capture.
-- Space: bubbles with each author's creature, replies folded under their thread root with a
+- Space: bubbles with each author's creature (a Bot bubble is a slight lift on the page with a 1px edge) and an always-visible Reply button, replies folded under their thread root with a
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
-  Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The running turn names its
-  bot. Bots' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
+  Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The header has the Bot faces and the title, with the Work item's status, budget, `PR #N` and diff chips under it; on the right New chat (only in a 1:1 conversation: a new conversation with the same Bot), a Bots popup (the roster, Add Bot, and Bot settings, which opens the Bots side panel: a roster, and a Bot opens its profile with Session and Access groups and the actions Apply here, Make coordinator, Edit Bot and Remove), the Browser and Terminal toggles (desktop), Wrap up (a Work item Space) and a "…" menu with Inspector, Attach to Work item and Open Work item. Below 768 px the toggles go, New chat is an icon, the faces open the Bots popup and Wrap up moves into "…". A running turn is a pill just above the composer, with no border and a faint water tone: the Bot's creature with bubbles rising off it while it works (slower while it only thinks), its name, a timer counted from the turn's start (`GET /turns?status=running` gives `startedAt`, so a reload keeps it) and what it does now. Its reply streams in the thread as a draft Bot bubble with a blinking cursor, which the stored message replaces when the turn ends; the bubble shows only what the runner will store (the text after the last `post_to_space`, and only if the Bot worked after it), and none for a direct turn. Clicking the pill opens a popover of its last tool rows, with Open turn for the full stream in the side panel. A failed turn is a grey creature with crossed eyes, `Failed: <error>` and a red Retry; the failed-turn card in the thread then keeps only Roll back for that turn. When three or more Bots work at once the pills become one slim row of creatures, the active one lifted, with the popover behind "N working"; the server runs one turn per Space at a time, so a Space shows one pill for now. With reduced motion the bubbles, the lift and the cursor blink stop.
+  Bots' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, paused, failed, stopped or completed (the state of
   its newest chain) with its message count; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
@@ -119,20 +125,29 @@ logged in and on `PATH`.
   A checkpoint taken in a workspace the Space's work item does not have, such as a free Space's
   turn after an attach, is not listed. A conversation's side panel lists its open fixes (Project,
   branch, head, state, "origin could not be refreshed" note) with Abandon. A tool row shows the name of the Project it works in when
-  the server names its `targets` (every Project it points into). A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
+  the server names its `targets` (every Project it points into). A stopped or failed turn shows `Failed: <error>` in the dock pill and in the Turn panel with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
-  page (`/projects/{id}`) with its work items. A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the owner submits; one section per repository with branch, commit, base, workspace folder and checks, the PR of the item's branch and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the owner, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
+  page (`/projects/{id}`) with its work items grouped by status in board order and its free Spaces, and a right rail with Purpose and Base branch (each saves when the field loses focus, no Save button) and the project memory (3 newest, Show all, one add row). A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the owner submits; one section per repository with branch, commit, base, workspace folder and checks, the PR of the item's branch and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the owner, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, owner and project are in the URL. Dragging a card from Queued to Backlog is `PATCH /work-items/{id}`; a Backlog card is queued by its Approve form (`POST /work-items/{id}/approve`), not by dragging; dropping a queued card on another queued card is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
-- Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in three groups, Needs you,
-  Review and FYI, with a count and the action of each item (Continue, Retry, Review, Open,
-  Dismiss on FYI). The window asks once, on a click, to show desktop notifications and then
-  shows one for each new item since the page loaded, except the FYI items of Work items.
-- Crews (`/teams`): lists Crews, creates one (`POST /teams`) with a name, an optional description (the `responsibility` field), Bots and an optional coordinator suggestion, deletes one (`DELETE /teams/{name}`) and edits one's Bots, saving with `PUT /teams/{name}`. A Crew has no queue, memory or capability editor: a Bot's profile is edited on the Bot. "New crew" (Duplicate opens it too) asks for a name, a description and a Crew to start from, and sends `POST /teams?from=<source>` with the source's Bot ids; it is rejected if that name is taken.
+- Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in two groups, Needs you and
+  FYI, with a count each. Every item is one compact row: the Bot's face, the Space name, a plain
+  type label (Failed, Paused, Held, Review, Question, Replied, Sub-item, Proposed, Started, Space
+  proposed), a one-line preview of its text with the markdown marks removed, and its age. A
+  Needs-you row shows its one action: Retry for a failed turn, Continue for a pause or a held
+  wake, Review for an item in review, Reply for a question; Review and Reply open the Space.
+  Hovering a Needs-you row with Retry or Continue adds Open Space, and hovering an FYI row adds
+  Open and Dismiss. Clicking a row opens it in place to the rendered message with the
+  same actions, and a blue dot marks a row not opened yet (kept in this browser). FYI has Dismiss
+  all seen, which dismisses the FYI rows already opened, except Space proposed rows (dismissing
+  one deletes the proposal, so only its own Dismiss does). The window asks once, on a click, to
+  show desktop notifications and then shows one for each new item since the page loaded, except
+  the FYI items of Work items.
+- Crews (the Crews tab of `/bots`, `/bots?tab=crews&team=<name>`; `/teams` and `/teams/<name>` redirect there): a compact list of Crews (the selected one is in the URL; on a phone the list and the Crew are separate views), and one Crew with its description and Bot rows. It creates one (`POST /teams`) with a name, an optional description (the `responsibility` field), Bots and an optional coordinator suggestion and deletes one (`DELETE /teams/{name}`, from the … menu, which also has Duplicate). There is no Save button: the description saves when you leave the field, and the star ("Answers first", the coordinator suggestion), × and Add Bot save at once, each with `PUT /teams/{name}`, and a "Saved" tick shows. A Crew has no queue, memory or capability editor: a Bot's profile is edited on the Bot. "New crew" (Duplicate opens it too) asks for a name, a description and a Crew to start from, and sends `POST /teams?from=<source>` with the source's Bot ids; it is rejected if that name is taken. A Crew's name is its key, so it cannot be renamed.
 - Starting a Space (the New Space form) picks one or more Crews and previews their Bots without duplicates, each with an include box, and one coordinator. Picking another Crew adds its Bots and keeps the coordinator. Start sends `POST /spaces` with `botIds` and `coordinatorBotId`.
-- Bots (`/bots`): has the Skills library (import a folder or a Git link, New skill and Edit in an editor with SKILL.md and supporting files, list with source, revision and version, Update, the files of a package, and the Bots' skill Drafts with Save and Reject; the same draft card shows in the Space that proposed it), lists bots and edits one's description, skills, backend, model, face and access
-  rules (`PUT /bots/{id}`), the one place they are set. A Bot's page (`/bots/{id}`) shows its Teams, its
+- Bots (the Bots tab of `/bots`): lists bots and edits one's description, skills, backend, model, face and access
+  rules (`PUT /bots/{id}`), the one place they are set, in a side panel with About, Runtime and Access groups and a footer with Delete, Unsaved changes and Save. A Bot's page (`/bots/{id}`) shows its Teams, its
   Chats (`GET /bots/{id}/chats`: personal chats, the Spaces it is in and its consultations, each
   with a kind badge, a working dot while a turn runs, its origin chat for a consultation, and a
   link to `/spaces/{id}/bots/{botId}`, the read-only Bot activity view) and its memory items.
@@ -140,8 +155,9 @@ logged in and on `PATH`.
   Resume chat opens the newest open chat (`GET /bots/{id}/conversations?resumable=1&limit=1`);
   New chat does `POST /spaces` with `botId`, `kind` `conversation` and the current project's id, if
   any, and opens the new chat. Opening the page starts nothing.
-- Settings (`/settings`): your name, occupation and working preferences (chips), the skills grouped Reef, Claude Code and Codex (the last two read from disk for the current project), each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
-  and notifications.
+- Settings (`/settings`): a left sub-nav in three groups, You (Profile, Appearance, Notifications), This Mac (Terminal, Updates; desktop only) and Agents (Providers, Connections, Skills), with a count beside Providers, Connections and Skills. One section shows at a time, picked with `?section=` (the first when it is missing); below 768 px the nav is a list and a section opens on its own with a Settings back link. Each section has a title and a one-line lede.
+  Profile saves as you make it (the name on leaving the field, a chip at once, `PUT /profile`): your name, occupation and working preferences (chips). Appearance: theme (dark, light or Match macOS, kept in `localStorage`). Notifications: the Mac notification permission. Providers: the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams.
+  Connections: the library of connections (add, Edit, Delete; each row shows its kind, command or URL and how many Bots use it); a Bot picks them in its panel. Skills: one searchable list with the filters All, Library, Claude Code and Codex (the last two read from disk for the current project) and a detail pane with the description, source, files, the Bots that use it and Edit (written in Reef) or Update (imported); Import (a folder or a Git link) and New skill (an editor with SKILL.md and supporting files) sit above the list, and the Bots' skill Drafts with Save and Reject sit below it (the same draft card shows in the Space that proposed it).
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only
   for the name.
@@ -225,6 +241,8 @@ Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `purpose` | string | what the Project is for, in a line; default `""` |
+| `icon` | string | an emoji shown on the Project's tile; default `""`, which shows the first letter of the name (migration 110 [`110_project_icon.sql`](../store/migrations/110_project_icon.sql)) |
+| `colour` | string | the tile colour as `#rrggbb`; default `""`, which picks one of the window's eight preset colours by id. The window offers only those eight |
 | `createdAt` | string | |
 
 ### profile
@@ -639,9 +657,9 @@ tool calls.
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /status` | | 200 `{"running":N}`, N the Spaces whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
-| `POST /projects` | `name`, `path`, `purpose` (optional, plain words) | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
+| `POST /projects` | `name`, `path`, `purpose` (optional, plain words), `icon` and `colour` (optional) | 201 | 400 missing field, a `path` that is not an absolute path to an existing folder, or a `colour` that is not one of the eight picker colours |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
+| `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch), `icon` and `colour` (optional; empty clears them) | 200 | 400 (same `path` rule, a `baseBranch` that is not a branch name, or a `colour` that is not one of the eight picker colours), 404 |
 | `DELETE /projects/{id}` | | 204; its own Work items are deleted. Every workspace directory of the Project and its own items, and checkpoint refs taken there, are removed; branches are kept. A Space with no Work item stays without this Project. A foreign Work item that targets this Project is kept; if it has an active Space, that Space is paused and the item moves to `needs_you` with a note. Its target and workspace rows stay as history: the target name reads `deleted project N`, and the workspace row has state `removed` with note `project <name> was deleted`, although its directory is removed. | 404, 409 a workspace has uncommitted changes or a targeted item is running (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
@@ -754,7 +772,7 @@ tool calls.
 | `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Spaces live](#spaces-live)), or as send for a Space with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
-| `POST /inbox/dismiss` | an item as `GET /inbox` lists it (`kind` and `id`, or for `waiting` `spaceId` and `messageId`) | 204, no body; an FYI item is gone for good, see [Inbox](#inbox) | 400 bad body or an item that names nothing, 404 no such FYI item or a message that is not the Space's, 409 the item is in Needs you or Review |
+| `POST /inbox/dismiss` | an item as `GET /inbox` lists it (`kind` and `id`, or for `reply` `spaceId` and `messageId`) | 204, no body; an FYI item is gone for good, see [Inbox](#inbox) | 400 bad body or an item that names nothing, 404 no such FYI item or a message that is not the Space's, 409 the item is in Needs you |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; every workspace the turn checkpointed is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoints`, 404, 409 the Space has a turn running, a `reef chat` has it open, a checkpoint was taken in a workspace its work item does not have, or a turn of any role runs on the work item's root, 503 |
 | `GET /decisions` | `?workItem=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no work item, 404 unknown work item |
 | `POST /decisions` | `workItemId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown work item, a message of another work item, or a `replaces` id that is not a live decision of the work item |
@@ -1284,7 +1302,7 @@ data: {"role":"lead","status":"done"}
 
 ### Inbox
 
-`GET /inbox` lists what waits on the user, in three groups. Needs you, `waiting` and Review are
+`GET /inbox` lists what waits on the user, in two groups. Needs you and the replies of FYI are
 read from the rows of Spaces, holds, turns, messages and Work items, so they have no table and a
 restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each item has `kind`,
 `group`, `spaceId` (0 for an item of a Work item, which has no Space), `workItemId`, `text` and
@@ -1295,20 +1313,21 @@ restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each it
 | `needs_you` | `paused` | the Space's `paused` is not empty and the pause holds no wake: the reason is a cap (token budget, tool calls) or a routing or store failure | the reason | | `continue`, or a user message after a hop cap pause |
 | `needs_you` | `held` | the same, and the pause holds a wake: the hop cap, or a token budget that ran out in the middle of a chain | the reason and `(N wakes held)` | | `continue` runs the held wakes; a user message after a hop cap pause drops them |
 | `needs_you` | `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
-| `review` | `review` | a top-level Work item is in review | the item's title | `workItemId` | the user sets Done or sends it back |
+| `needs_you` | `review` | a top-level Work item is in review | the item's title | `workItemId` | the user sets Done or sends it back |
 | `fyi` | `sub_item` | a Bot made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
 | `fyi` | `proposed` | a Bot proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it | `id` | `POST /inbox/dismiss` |
 | `fyi` | `started` | the queue moved an item to in progress, including one sent back from review | `Started from the queue: ` and its title | `id` | `POST /inbox/dismiss` |
 | `fyi` | `space_proposed` | a Bot proposed a Space with `propose_space`; `workItemId` is null, `proposal` has `id`, `proposedBy`, `name`, `botIds` and `coordinatorBotId` | who proposed it, and its name | `id` | `POST /inbox/dismiss`; the window opens the new Space form with the proposal filled in, and dismisses it when the Space is created |
-| `fyi` | `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
+| `needs_you` | `question` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting); and the message ends in a question mark, ignoring trailing spaces and the marks `*`, `_`, `)`, `"` and a backtick | the first 2000 characters of that message | `messageId` | any new message, such as a send |
+| `fyi` | `reply` | the same, and the message does not end in a question mark | the first 2000 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
 
 `at` is the time of the failed turn's end, of the message, of the proof for `review`, of the row
 for the FYI items, and for `paused` and `held` the end of the Space's newest turn. A Space that
-has a chain running lists no `waiting`, `paused`, `held` or `failed` item, since the chain is not
+has a chain running lists no `question`, `reply`, `paused`, `held` or `failed` item, since the chain is not
 over and `continue` or `retry` would be 409.
 
 `POST /inbox/dismiss` takes an item as `GET /inbox` lists it. An FYI item of a Work item is
-deleted, so it does not come back, and a `waiting` item is hidden. An item in Needs you or Review is 409, as in `a paused item cannot be dismissed, it leaves when its cause is resolved`.
+deleted, so it does not come back, and a `reply` is hidden. An item in Needs you (`failed`, `paused`, `held`, `review`, `question`) is 409, as in `a paused item cannot be dismissed, it leaves when its cause is resolved`.
 
 `GET /inbox/events` is one Server-Sent Events stream for all Spaces, with a
 `: keepalive` every 15 seconds. Its only event is `inbox`, whose data is the whole list as
@@ -1321,7 +1340,7 @@ When the server stops, a stream sends the last list and ends.
 
 ```
 event: inbox
-data: [{"kind":"waiting","group":"fyi","spaceId":5,"workItemId":2,"text":"Plan: add the form and a test.","at":"2026-10-14T09:00:10.123456Z","messageId":28}]
+data: [{"kind":"reply","group":"fyi","spaceId":5,"workItemId":2,"text":"Plan: add the form and a test.","at":"2026-10-14T09:00:10.123456Z","messageId":28}]
 ```
 
 ## Wrap-up and attach

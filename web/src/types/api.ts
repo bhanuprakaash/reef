@@ -4,6 +4,8 @@ export type Project = {
   path: string;
   purpose: string;
   baseBranch: string;
+  icon: string;
+  colour: string;
   createdAt: string;
 };
 
@@ -353,12 +355,13 @@ export type InboxItem = {
     | 'held'
     | 'failed'
     | 'review'
-    | 'waiting'
+    | 'question'
+    | 'reply'
     | 'sub_item'
     | 'proposed'
     | 'started'
     | 'space_proposed';
-  group: 'needs_you' | 'review' | 'fyi';
+  group: 'needs_you' | 'fyi';
   spaceId: number;
   workItemId: number | null;
   text: string;

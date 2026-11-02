@@ -7,11 +7,10 @@ import (
 	"time"
 )
 
-// The groups of the inbox. Needs you and Review leave when their cause is resolved; only FYI
-// can be dismissed.
+// The groups of the inbox. Needs you leaves when its cause is resolved; only FYI can be
+// dismissed.
 const (
 	GroupNeedsYou = "needs_you"
-	GroupReview   = "review"
 	GroupFYI      = "fyi"
 )
 
@@ -56,9 +55,13 @@ SELECT kind, 0, work_item_id, text, created_at, NULL, NULL, id FROM inbox_fyi`
 
 // _inboxWaiting selects the Spaces that run no turn and whose newest message is from an
 // agent and held no wake: a message whose wake is paused is not waiting. Nor is the reply a
-// turn the user stopped kept, nor the message the user dismissed.
+// turn the user stopped kept, nor the message the user dismissed. A message that ends in a
+// question mark, ignoring trailing spaces and the marks *, _, ), " and `, is a question; any
+// other is a reply.
 const _inboxWaiting = `
-SELECT 'waiting', c.id, c.work_item_id, substr(m.body, 1, 200), m.created_at, NULL, m.id, NULL
+SELECT CASE WHEN rtrim(m.body, ' ' || char(9) || char(10) || char(13) || char(96) || '*_)"') LIKE '%?'
+		THEN 'question' ELSE 'reply' END,
+	c.id, c.work_item_id, substr(m.body, 1, 2000), m.created_at, NULL, m.id, NULL
 FROM space c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE space_id = c.id)
 WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND m.id IS NOT c.dismissed_message_id
@@ -70,10 +73,10 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 // InboxItem is one thing waiting on the user, in Group. In Needs you, Kind is paused (a cap or
 // a failure paused the Space; Text is the reason), held (the same, with wakes the pause held;
 // Text ends with how many) or failed (a turn retry may run again that the user did not stop;
-// TurnID). In Review, Kind is review: a top-level Work item in review. In FYI, Kind is waiting
-// (the Space ended on a message of an agent that woke nobody; Text starts that message,
-// MessageID is its id) or sub_item, proposed or started (a row of inbox_fyi; ID). An item of a
-// Work item has no Space: SpaceID is 0.
+// TurnID), review (a top-level Work item in review) or question (the Space ended on a message
+// of an agent that woke nobody and ends in a question mark; Text starts that message, MessageID
+// is its id). In FYI, Kind is reply (the same, with no question mark) or sub_item, proposed or
+// started (a row of inbox_fyi; ID). An item of a Work item has no Space: SpaceID is 0.
 type InboxItem struct {
 	Kind       string         `json:"kind"`
 	Group      string         `json:"group"`
@@ -89,17 +92,15 @@ type InboxItem struct {
 
 func groupOf(kind string) string {
 	switch kind {
-	case "paused", "held", "failed":
+	case "paused", "held", "failed", "review", "question":
 		return GroupNeedsYou
-	case "review":
-		return GroupReview
 	}
 	return GroupFYI
 }
 
 // Inbox lists the items waiting on the user, newest first. Apart from the FYI rows it is
-// derived from the rows of Spaces, holds, turns, messages and Work items. A waiting item shows
-// only for a Space with no item in Needs you.
+// derived from the rows of Spaces, holds, turns, messages and Work items. A question or reply
+// shows only for a Space with no item in Needs you.
 func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
 	items, err := s.inboxQuery(ctx, _inboxItems)
 	if err != nil {
@@ -151,19 +152,19 @@ func addFYI(ctx context.Context, x execer, kind string, workItemID int64, text s
 	return nil
 }
 
-// DismissInbox removes the FYI item i is for good. A waiting item is hidden while its message
-// is the Space's newest; a later message brings it back. An item in Needs you or Review is
+// DismissInbox removes the FYI item i is for good. A reply is hidden while its message
+// is the Space's newest; a later message brings it back. An item in Needs you is
 // ErrConflict: it leaves when its cause is resolved.
 func (s *Store) DismissInbox(ctx context.Context, i InboxItem) error {
 	switch groupOf(i.Kind) {
-	case GroupNeedsYou, GroupReview:
+	case GroupNeedsYou:
 		return fmt.Errorf("%w: a %s item cannot be dismissed, it leaves when its cause is resolved",
 			ErrConflict, i.Kind)
 	}
 	switch {
 	case i.Kind == KindSpaceProposed && i.ID != nil:
 		return s.dismissSpaceProposal(ctx, *i.ID)
-	case i.Kind == "waiting" && i.MessageID != nil:
+	case i.Kind == "reply" && i.MessageID != nil:
 		return s.dismissWaiting(ctx, i.SpaceID, *i.MessageID)
 	case i.ID != nil && slices.Contains([]string{KindSubItem, KindProposed, KindStarted}, i.Kind):
 		res, err := s.db.ExecContext(ctx, "DELETE FROM inbox_fyi WHERE id = ? AND kind = ?", *i.ID, i.Kind)
@@ -175,7 +176,7 @@ func (s *Store) DismissInbox(ctx context.Context, i InboxItem) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("%w: a %q item is dismissed by its id, or for waiting its Space and message",
+	return fmt.Errorf("%w: a %q item is dismissed by its id, or for a reply its Space and message",
 		ErrInvalid, i.Kind)
 }
 

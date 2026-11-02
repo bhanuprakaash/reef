@@ -10,6 +10,7 @@ import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
+import { useSeenItems } from '@/modules/inbox/hooks/use-seen-items';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import type { WorkItem } from '@/types/api';
@@ -126,6 +127,7 @@ export function HomePage() {
   const workItems = useWorkItems();
   const inbox = useNeedsYou();
   const spaces = useSpaces();
+  const { seen, markSeen } = useSeenItems();
   const [project] = useCurrentProject(projects.data);
   const now = new Date();
 
@@ -165,12 +167,14 @@ export function HomePage() {
             face="jellyfish"
           />
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col border-t border-hairline">
             {waiting.map((item) => (
               <InboxRow
                 key={itemKey(item)}
                 item={item}
                 space={spaces.data?.find((c) => c.id === item.spaceId)}
+                seen={seen.includes(itemKey(item))}
+                onSeen={() => markSeen(itemKey(item))}
               />
             ))}
           </ul>

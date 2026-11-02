@@ -52,6 +52,18 @@ const shot = async (step) => {
   console.log(`shot ${file}`);
 };
 
+// The Space header: the Bots popup (the Bots button, or the faces below 768 px) and its Bot settings
+// item, which opens the Bots panel; the "..." menu and one of its items.
+const botsButton = () => main.getByRole('button', { name: /^(Show )?Bots$/ });
+async function openBotSettings() {
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
+}
+async function openMore(item) {
+  await main.getByRole('button', { name: 'More', exact: true }).click();
+  await main.getByRole('menuitem', { name: item, exact: true }).click();
+}
+
 // Opens the custom select named `label` (inside `within`) and clicks the option named `option`.
 async function pick(label, option, within = page) {
   await within.getByRole('combobox', { name: label, exact: true }).click();
@@ -181,23 +193,26 @@ async function newSpace(box, openName, name, team, coordinator) {
   return sql(`select id from Space where name='${name}' order by id desc limit 1`);
 }
 
-// The label of the running turn names its role: `<role> is working`.
-const liveLabel = main.getByText('is working').locator('..');
+// The running turn is a dock pill above the composer: `<role> <timer> is working`. Clicking it opens
+// the steps popover; its "Open turn" link opens the panel with the full stream.
+const livePill = (role) => main.getByRole('button', { name: new RegExp(`^${role}\\b.*is working`) });
 async function workingAs(role, timeout = 240000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
-    if ((await liveLabel.count()) > 0) {
-      const text = (await liveLabel.first().textContent().catch(() => '')) ?? '';
-      if (text.replace('is working', '').trim() === role) return true;
-    }
+    if ((await livePill(role).count()) > 0) return true;
     await page.waitForTimeout(250);
   }
   return false;
 }
-// The running turn is one compact row in the Space; clicking it opens the panel with the full stream.
 const turnPanel = page.getByRole('complementary', { name: 'Turn' });
+const steps = main.getByRole('button', { name: /^Open turn/ }).locator('xpath=..');
+async function openSteps() {
+  await main.getByRole('button', { name: /is working/ }).first().click();
+  await steps.waitFor();
+}
 async function openTurn() {
-  await main.getByRole('button', { name: /is working/ }).click();
+  await openSteps();
+  await main.getByRole('button', { name: /^Open turn/ }).click();
   await turnPanel.waitFor();
 }
 // The top-level message rows of the main list that `author` wrote (they have the reply-in-thread icon or the replies button).
@@ -242,20 +257,55 @@ async function live() {
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
   await working();
-  const row = main.getByRole('button', { name: /is working/ });
-  const card = row.locator('xpath=..');
-  await card.locator('details summary').first().waitFor({ timeout: 120000 });
+  // Mid-turn the streamed reply is a draft Bot bubble at the end of the thread. Once it shows, a DOM observer
+  // records every change in how many thread bubbles carry its text, to catch a gap or a duplicate on the hand-over.
+  const draftBubble = main.locator('ul > li .draft');
+  let draftSeen = '';
+  const sampler = (async () => {
+    while ((await page.getByText('is working').count()) > 0) {
+      if ((await draftBubble.count()) > 0) {
+        draftSeen = (await draftBubble.first().innerText()).trim().slice(0, 30);
+        await shot('draft');
+        await page.evaluate((text) => {
+          const counts = [];
+          const count = () => [...document.querySelectorAll('main ul > li .peer')].filter((el) => el.textContent.includes(text)).length;
+          const note = () => { const n = count(); if (counts.at(-1) !== n) counts.push(n); };
+          note();
+          new MutationObserver(note).observe(document.body, { subtree: true, childList: true, characterData: true });
+          window.__draftCounts = counts;
+        }, draftSeen);
+        return;
+      }
+      await page.waitForTimeout(100);
+    }
+  })();
+  await openSteps();
+  await steps.locator('details summary').first().waitFor({ timeout: 120000 });
   await page.waitForTimeout(1000);
   await shot('midturn');
-  const inline = await card.locator('details summary').count();
-  const first = await card.locator('details summary').first().innerText();
-  check(inline >= 1 && inline <= 3 && /(Bash|Read|Glob|Grep|LS|List)\b/.test(first), 'the running card shows the last tool calls inline, at most 3', `${inline} rows, first: ${first}`);
+  await shot('dock-open');
+  const inline = await steps.locator('details summary').count();
+  const first = await steps.locator('details summary').first().innerText();
+  check(inline >= 1 && inline <= 5 && /(Bash|Read|Glob|Grep|LS|List)\b/.test(first), 'the working pill opens the last tool calls, at most 5', `${inline} rows, first: ${first}`);
+  check((await steps.evaluate((el) => getComputedStyle(el).borderTopWidth)) === '0px', 'the steps popover has no border');
+  await page.keyboard.press('Escape');
+  await steps.waitFor({ state: 'hidden' });
+  await shot('dock-working');
   await openTurn();
   await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
   await shot('turn-panel');
   const rows = await turnPanel.locator('details summary').count();
   check(rows >= 1, 'tool rows shown in the turn panel while the turn runs', `${rows} rows, first: ${await turnPanel.locator('details summary').first().innerText()}`);
   await idle();
+  await sampler;
+  await page.waitForTimeout(500);
+  const counts = draftSeen ? await page.evaluate(() => window.__draftCounts) : [];
+  check(draftSeen !== '', 'mid-turn the streamed reply shows in the thread as a draft Bot bubble', `draft: ${JSON.stringify(draftSeen)}`);
+  check(
+    (await draftBubble.count()) === 0 && counts.length > 0 && counts.every((n) => n === 1),
+    'after the turn the stored message shows once, with no draft, no duplicate and no gap on the hand-over',
+    counts.join(','),
+  );
   await shot('final');
   const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
   check(lead === '1', 'reply stored as one lead message', `message rows:\n${sql(`select id,author,substr(body,1,100) from message where space_id=${cid}`)}`);
@@ -266,7 +316,9 @@ async function teamManagement() {
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await page.goto(base + '/teams');
-  await main.getByRole('heading', { name: 'Crews', level: 1 }).waitFor();
+  await page.waitForURL((url) => url.pathname === '/bots' && url.searchParams.get('tab') === 'crews');
+  await main.getByRole('heading', { name: 'Bots', level: 1 }).waitFor();
+  check(await main.getByRole('button', { name: 'Crews', exact: true }).getAttribute('aria-pressed') === 'true', '/teams redirects to the Crews tab of the Bots page');
 
   const name = `delivery-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New crew' }).click();
@@ -276,7 +328,7 @@ async function teamManagement() {
   await dialog.getByLabel('Description').fill('Own desktop releases.');
   await dialog.getByRole('button', { name: 'Create crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === name);
-  await main.getByLabel('Crew name').waitFor();
+  await main.getByRole('heading', { name, level: 2 }).waitFor();
 
   let saved = await getJson(`/teams/${name}`);
   check(
@@ -286,11 +338,29 @@ async function teamManagement() {
   );
   check(saved.responsibility === 'Own desktop releases.', 'the responsibility entered at creation round-trips', saved.responsibility);
 
+  check((await main.getByRole('button', { name: /^Save/ }).count()) === 0, 'the Crew editor has no Save button: it autosaves');
   await main.getByLabel('Description').fill('Own desktop releases and rollback.');
-  await main.getByRole('button', { name: 'Save crew' }).click();
+  await main.getByLabel('Description').blur();
   await main.getByText('Saved', { exact: true }).waitFor();
   saved = await getJson(`/teams/${name}`);
   check(saved.responsibility === 'Own desktop releases and rollback.', 'editing responsibility saves through REST', saved.responsibility);
+  const bots = main.getByRole('region', { name: 'Bots' });
+  await bots.getByRole('button', { name: 'developer answers first' }).click();
+  await bots.getByRole('button', { name: 'developer answers first', pressed: true }).waitFor();
+  saved = await getJson(`/teams/${name}`);
+  check(saved.roles.find((r) => r.name === 'developer').lead && !saved.roles.find((r) => r.name === 'lead').lead, 'the star makes another Bot answer first and saves at once', saved.roles.map((r) => `${r.name}${r.lead ? '*' : ''}`).join(', '));
+  await bots.getByRole('button', { name: 'lead answers first' }).click();
+  await bots.getByRole('button', { name: 'lead answers first', pressed: true }).waitFor();
+  await bots.getByRole('button', { name: 'Remove developer' }).click();
+  await bots.getByRole('button', { name: 'Remove developer' }).waitFor({ state: 'detached' });
+  check(!(await getJson(`/teams/${name}`)).roles.some((r) => r.name === 'developer'), 'x removes a Bot from the Crew and saves at once');
+  await bots.getByRole('button', { name: 'Add Bot' }).click();
+  await shot('team-add-1280x800');
+  await bots.getByRole('option', { name: /^developer/ }).click();
+  await bots.getByRole('button', { name: 'Remove developer' }).waitFor();
+  await bots.getByRole('button', { name: 'Done' }).click();
+  saved = await getJson(`/teams/${name}`);
+  check(saved.roles.some((r) => r.name === 'developer' && !r.lead) && saved.roles.some((r) => r.name === 'lead' && r.lead), 'Add Bot adds a Bot to the Crew and saves at once, the coordinator unchanged', saved.roles.map((r) => `${r.name}${r.lead ? '*' : ''}`).join(', '));
   await shot('team-1280x800');
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -298,6 +368,11 @@ async function teamManagement() {
   check(width <= 390, 'the Team editor has no horizontal scroll at 390x844', `${width} px`);
   await main.getByLabel('Description').scrollIntoViewIfNeeded();
   await shot('team-390x844');
+  await page.goto(`${base}/bots?tab=crews`);
+  await main.getByRole('navigation', { name: 'All crews' }).waitFor();
+  check(await main.getByRole('heading', { name, level: 2 }).count() === 0, 'on a phone the Crews tab opens on the list, not on a Crew');
+  await page.waitForTimeout(500);
+  await shot('team-list-390x844');
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await addWorkItem('Team run');
@@ -308,9 +383,12 @@ async function teamManagement() {
   const turn = sql(`select role || '|' || status from turn where space_id = ${id} order by id limit 1`);
   check(turn === 'lead|done', 'the new Team runs a Space', turn);
 
-  await page.goto(`${base}/teams?team=${encodeURIComponent(name)}`);
-  await main.getByLabel('Crew name').waitFor();
-  await main.getByRole('button', { name: 'Delete' }).click();
+  await page.goto(`${base}/teams/${encodeURIComponent(name)}`);
+  await main.getByRole('heading', { name, level: 2 }).waitFor();
+  await main.getByRole('button', { name: 'Crew actions' }).click();
+  await page.waitForTimeout(500);
+  await shot('team-menu-1280x800');
+  await page.getByRole('menuitem', { name: 'Delete crew…' }).click();
   const confirm = page.getByRole('dialog', { name: `Delete ${name}?` });
   await confirm.getByRole('button', { name: 'Delete crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === 'solo');
@@ -355,18 +433,21 @@ async function attach() {
   await section.getByRole('link', { name: 'idea chat' }).click();
   await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
   await shot('before-attach');
-  await page.getByRole('button', { name: 'Attach to Work item' }).click();
+  await openMore('Attach to Work item');
   const dialog = page.getByRole('dialog', { name: 'Attach to a Work item' });
   await pick('Work item', 'Search', dialog);
   await shot('attach-form');
   await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
   await page.getByText(/This Space is now attached to work item "Search"/).first().waitFor({ timeout: 15000 });
   await shot('attached');
+  await main.getByRole('button', { name: 'More', exact: true }).click();
+  await main.getByRole('menuitem', { name: 'Open Work item', exact: true }).waitFor();
   check(
-    (await page.getByRole('button', { name: 'Attach to Work item' }).count()) === 0,
-    'the Attach to Work item button is gone once the Space has a work item',
+    (await main.getByRole('menuitem', { name: 'Attach to Work item' }).count()) === 0,
+    'the Attach to Work item item is gone once the Space has a work item',
     `space row (work_item_id|kind): ${sql(`select work_item_id,kind from space where id=${cid}`)}`,
   );
+  await page.keyboard.press('Escape');
   await section.getByRole('link', { name: 'idea chat' }).waitFor();
   check(
     sql(`select kind from space where id=${cid}`) === 'work_item',
@@ -587,9 +668,16 @@ async function theme() {
     await page.goto(spaceUrl);
     await rootRow('architect').first().waitFor();
     await shot(`space-${mode}`);
+    const look = await rootRow('architect').first().evaluate((li) => {
+      const bubble = getComputedStyle(li.querySelector('.peer'));
+      const reply = li.querySelector('button[aria-label="Reply in thread"]');
+      return { bubble: bubble.backgroundColor, edge: bubble.borderTopWidth, page: getComputedStyle(document.body).backgroundColor, reply: reply && getComputedStyle(reply.parentElement.parentElement).opacity };
+    });
+    check(look.bubble !== look.page && look.edge === '1px', `a Bot bubble is a slight lift on the page with a 1px edge in ${mode}`, JSON.stringify(look));
+    check(look.reply === '1', `the Reply button is visible without hover in ${mode}`, JSON.stringify(look));
     await contrast('space');
     await page.goto(base + '/inbox');
-    await main.getByRole('link', { name: 'Open', exact: true }).first().waitFor();
+    await main.getByRole('button', { name: /theme room/ }).first().waitFor();
     await shot(`inbox-${mode}`);
     await contrast('inbox');
     await page.goto(`${base}/work-items/${fid}`);
@@ -605,18 +693,18 @@ async function theme() {
   check(/Turn on notifications|On|Blocked/.test(notify), 'the Notifications section has the permission control', notify.replace(/\s+/g, ' '));
   await main.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Appearance' }).click();
   const dark = await bodyBg();
-  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
+  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(23, 23, 23)', 'Settings opens on Dark with the dark main colour', dark);
   await shot('settings-dark');
   await screens('dark');
 
   await page.goto(base + '/settings?section=appearance');
   await page.getByRole('radio', { name: 'Light' }).check();
   const light = await bodyBg();
-  check(light === 'rgb(255, 255, 255)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
+  check(light === 'rgb(248, 248, 249)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
   await shot('settings-light');
   await page.reload();
   const reloaded = await bodyBg();
-  check(reloaded === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
+  check(reloaded === 'rgb(248, 248, 249)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
   await screens('light');
 
   await page.goto(base + '/settings?section=appearance');
@@ -625,15 +713,15 @@ async function theme() {
   const followsLight = await bodyBg();
   await system('dark');
   const followsDark = await bodyBg();
-  check(followsLight === 'rgb(255, 255, 255)' && followsDark === 'rgb(33, 33, 33)', 'Match macOS follows prefers-color-scheme, both ways, without a reload', `light ${followsLight}, dark ${followsDark}`);
+  check(followsLight === 'rgb(248, 248, 249)' && followsDark === 'rgb(23, 23, 23)', 'Match macOS follows prefers-color-scheme, both ways, without a reload', `light ${followsLight}, dark ${followsDark}`);
   await system('light');
   await page.reload();
-  check((await bodyBg()) === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Match macOS' }).isChecked()), 'Match macOS survives a reload and follows the system', await bodyBg());
+  check((await bodyBg()) === 'rgb(248, 248, 249)' && (await page.getByRole('radio', { name: 'Match macOS' }).isChecked()), 'Match macOS survives a reload and follows the system', await bodyBg());
   await shot('settings-system-light');
 
   await page.getByRole('radio', { name: 'Dark' }).check();
   await system('light');
-  check((await bodyBg()) === 'rgb(33, 33, 33)', 'Dark stays dark while the system is light', await bodyBg());
+  check((await bodyBg()) === 'rgb(23, 23, 23)', 'Dark stays dark while the system is light', await bodyBg());
 }
 
 async function phone() {
@@ -683,19 +771,29 @@ async function phone() {
   await visit('spaces', /^Spaces/, page.getByRole('heading', { name: 'Spaces', level: 1 }));
   const row = main.getByRole('link', { name: /phone room/ });
   check(await row.isVisible(), 'the Spaces tab lists the Space', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
-  await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
+  await visit('needs-you', /^Needs you/, main.getByRole('button', { name: /phone room/ }).first());
   const needsYou = (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length;
   const badges = tabs.getByLabel(/waiting$/);
   const badge = needsYou > 0 ? await badges.textContent() : String(await badges.count());
   check(badge === String(needsYou), 'the Needs you tab badge counts only needs-you items, as REST does', `badge ${badge}, REST ${needsYou}`);
   await visit('board', /^Board/, main.getByRole('link', { name: /phone check/ }));
   await tabs.getByRole('button', { name: 'Menu' }).click();
-  await aside.getByRole('link', { name: 'Crews', exact: true }).click();
-  await page.getByRole('heading', { name: 'Crews', level: 1 }).waitFor();
+  await aside.getByRole('link', { name: 'Settings', exact: true }).click();
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
   check(!(await aside.isVisible()), 'the sidebar sheet closes when a link in it is followed');
-  await shot('teams');
-  const teamsScroll = await overflow();
-  check(teamsScroll.page <= 0 && teamsScroll.main <= 0, 'crews has no horizontal scroll at 390 px', `page ${teamsScroll.page}, main ${teamsScroll.main}`);
+  await shot('settings');
+  const settingsScroll = await overflow();
+  check(settingsScroll.page <= 0 && settingsScroll.main <= 0, 'settings has no horizontal scroll at 390 px', `page ${settingsScroll.page}, main ${settingsScroll.main}`);
+  const settingsNav = main.getByRole('navigation', { name: 'Settings sections' });
+  await settingsNav.getByRole('button', { name: /^Skills/ }).click();
+  await main.getByLabel('Skill list').waitFor();
+  check(!(await settingsNav.isVisible()), 'on a phone a Settings section opens on its own');
+  await shot('settings-skills');
+  const skillsScroll = await overflow();
+  check(skillsScroll.page <= 0 && skillsScroll.main <= 0, 'Settings Skills has no horizontal scroll at 390 px', `page ${skillsScroll.page}, main ${skillsScroll.main}`);
+  await main.getByRole('button', { name: '‹ Settings' }).click();
+  await settingsNav.waitFor();
+  check(await settingsNav.isVisible(), 'the back link returns to the Settings list');
 
   const noScroll = async (step) => {
     const o = await overflow();
@@ -733,17 +831,23 @@ async function phone() {
   await thread.getByRole('button', { name: 'Close thread' }).click();
   await thread.waitFor({ state: 'hidden' });
 
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   const team = page.getByRole('complementary', { name: 'Bots' });
   await team.waitFor();
   const sb = await box(team.locator('xpath=..'));
   check(sb.bottom === 844 && sb.top > 100 && sb.left === 0 && sb.right === 390, 'the team opens as a bottom sheet', JSON.stringify(sb));
   await shot('team-sheet');
   await noScroll('team sheet');
+  await team.getByRole('button', { name: /^Open / }).first().click();
+  await team.getByRole('button', { name: 'Back to Bots' }).waitFor();
+  const actionBar = await box(team.getByRole('button', { name: 'Apply here' }));
+  check(actionBar.bottom <= 844, 'the Bot profile action bar is on screen in the sheet', JSON.stringify(actionBar));
+  await shot('team-profile-sheet');
+  await noScroll('team profile sheet');
   await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
   await team.waitFor({ state: 'hidden' });
 
-  await main.getByRole('button', { name: 'Inspector', exact: true }).click();
+  await openMore('Inspector');
   const inspector = page.getByRole('complementary', { name: 'Inspector' });
   await inspector.getByText('By role').waitFor();
   const ib = await box(inspector.locator('xpath=..'));
@@ -790,11 +894,32 @@ async function stop() {
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await openTurn();
-  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
-  await page.waitForTimeout(1000);
+  await turnPanel.locator('div.bg-bot-bubble').first().waitFor({ timeout: 60000 });
+  const pill = main.getByRole('button', { name: /is working/ });
+  const timer = async () => {
+    const m = /^\S+\s+(?:(\d+)m )?(\d+)s\b/.exec(await pill.innerText());
+    return m ? Number(m[1] ?? 0) * 60 + Number(m[2]) : -1;
+  };
+  const before = await timer();
+  await page.waitForTimeout(2200);
+  const mid = await timer();
+  await page.reload();
+  await pill.waitFor({ timeout: 30000 });
+  for (const end = Date.now() + 15000; (await timer()) < 0 && Date.now() < end; ) await page.waitForTimeout(250);
+  const after = await timer();
+  check(before >= 0 && mid >= before + 2 && after >= mid, 'the timer keeps counting from the turn start after a reload mid-turn', `${before}s -> ${mid}s -> reload -> ${after}s`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await pill.waitFor();
+  await shot('dock-phone');
+  const pillBox = await pill.boundingBox();
+  check(pillBox !== null && pillBox.x >= 0 && pillBox.x + pillBox.width <= 390 && pillBox.height >= 44, 'the working pill fits a phone and is a 44 px tap target', JSON.stringify(pillBox));
+  await page.setViewportSize({ width: 1200, height: 1000 });
   await page.getByRole('button', { name: 'Stop' }).click();
-  await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
+  await main.getByText(/Failed: interrupted/).first().waitFor({ timeout: 30000 });
   await shot('stopped');
+  await shot('dock-failed');
+  await main.getByText(/Failed: interrupted/).first().locator('..').getByRole('button', { name: 'Retry' }).waitFor({ timeout: 15000 });
+  check(true, 'the failed pill offers Retry');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where space_id=${cid}`));
   const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where space_id=${cid} and author='lead'`);
   const shown = await main.getByText(partial.replace(/[*_`]/g, ''), { exact: false }).count();
@@ -816,7 +941,9 @@ async function retry() {
   const row = page.getByRole('listitem').filter({ hasText: /lead's turn \d+ failed\s*interrupted/i });
   await row.waitFor({ timeout: 30000 });
   await shot('failed-row');
-  await row.getByRole('button', { name: 'Retry' }).click();
+  const pill = main.getByText(/Failed: interrupted/).first().locator('..');
+  check((await row.getByRole('button', { name: 'Retry' }).count()) === 0 && (await page.getByRole('button', { name: 'Retry' }).count()) === 1, 'a failed turn shows one Retry, in the pill; the card keeps Roll back');
+  await pill.getByRole('button', { name: 'Retry' }).click();
   await working();
   await shot('retrying');
   await idle();
@@ -1108,22 +1235,82 @@ async function memory() {
   check(retired === 'retired|1', 'Retire sets retired_at and the item leaves the list', retired);
 
   const baseField = main.getByRole('textbox', { name: 'Base branch' });
-  const baseCard = main.getByRole('region', { name: 'Base branch' });
   check((await baseField.getAttribute('placeholder')) === 'default (origin HEAD)', 'the Base branch field shows the default as its placeholder');
+  check((await main.getByRole('button', { name: 'Save', exact: true }).count()) === 0, 'the Project page has no Save button');
   await baseField.fill('a b');
-  await baseCard.getByRole('button', { name: 'Save' }).click();
-  await baseCard.getByText('not a branch name').waitFor();
+  await baseField.blur();
+  await main.getByText('not a branch name').waitFor();
   check(sql(`select base_branch from project where id=${pid}`) === '', 'a base branch that is not a branch name is refused and not stored');
   await baseField.fill('dev');
-  await baseCard.getByRole('button', { name: 'Save' }).click();
-  await baseCard.getByText('Saved', { exact: true }).waitFor();
-  check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'saving the Base branch stores it', sql(`select id,base_branch from project where id=${pid}`));
+  await baseField.blur();
+  await main.getByText('Saved', { exact: true }).waitFor();
+  check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'leaving the Base branch field stores it', sql(`select id,base_branch from project where id=${pid}`));
   await page.reload();
   await baseField.waitFor();
   await page.waitForTimeout(500);
   await shot('base-branch');
   const baseValue = await baseField.inputValue();
   check(baseValue === 'dev', 'the saved base branch survives a reload', baseValue);
+
+  const purposeField = main.getByRole('textbox', { name: 'Purpose' });
+  await purposeField.fill('Job-queue platform that runs customer pipelines.');
+  await purposeField.blur();
+  await main.getByText('Saved', { exact: true }).waitFor();
+  check(
+    sql(`select purpose from project where id=${pid}`) === 'Job-queue platform that runs customer pipelines.',
+    'leaving the Purpose field stores it',
+    sql(`select purpose from project where id=${pid}`),
+  );
+  await page.reload();
+  await purposeField.waitFor();
+  check((await purposeField.inputValue()) === 'Job-queue platform that runs customer pipelines.', 'the saved Purpose survives a reload');
+
+  for (const n of [1, 2, 3, 4]) {
+    await newItem.fill(`Memory ${n}`);
+    await memoryCard.getByRole('button', { name: 'Add', exact: true }).click();
+    await memoryCard.getByText(`Memory ${n}`).waitFor();
+  }
+  check((await memoryCard.getByRole('listitem').count()) === 3, 'the project memory list shows 3 items of 4');
+  await memoryCard.getByRole('button', { name: 'Show all 4' }).click();
+  check((await memoryCard.getByRole('listitem').count()) === 4, 'Show all lists every item');
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const headerTile = main.getByRole('button', { name: 'Change icon' });
+  const switcherButton = aside.getByRole('button', { name: 'Switch project' });
+  const picker = page.getByRole('dialog', { name: 'Project icon' });
+  await headerTile.click();
+  await picker.waitFor();
+  await picker.getByRole('button', { name: '🚀' }).click();
+  await picker.getByRole('button', { name: 'Colour #2F72C0' }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Project icon"] [aria-pressed="true"][aria-label^="Colour"]')?.getAttribute('aria-label') === 'Colour #2F72C0');
+  await shot('icon-picker');
+  const iconRow = () => sql(`select icon||'|'||colour from project where id=${pid}`);
+  check(iconRow() === '🚀|#2F72C0', 'picking an emoji and a colour from the Project page stores them at once', iconRow());
+  await page.keyboard.press('Escape');
+  await picker.waitFor({ state: 'hidden' });
+  await shot('icon-header');
+  await switcherButton.click();
+  await shot('icon-switcher');
+  check((await switcherButton.innerText()).includes('🚀'), 'the switcher shows the emoji on the project tile', await switcherButton.innerText());
+  await page.keyboard.press('Escape');
+  await page.reload();
+  await headerTile.waitFor();
+  check((await headerTile.innerText()) === '🚀', 'the Project page tile shows the emoji after a reload', await headerTile.innerText());
+  await switcherButton.click();
+  await page.getByRole('menuitem', { name: 'Change icon' }).click();
+  await picker.getByRole('button', { name: 'Letter' }).click();
+  await page.waitForFunction(() => document.querySelector('[aria-label="Project icon"] [aria-pressed="true"]:not([aria-label])')?.textContent === 'Letter');
+  check(iconRow() === '|#2F72C0', 'Change icon in the switcher with Letter clears the emoji and keeps the colour', iconRow());
+  await page.keyboard.press('Escape');
+  check((await headerTile.innerText()) === name[0].toUpperCase(), 'with no emoji the tile shows the first letter of the name', await headerTile.innerText());
+  await page.setViewportSize({ width: 390, height: 844 });
+  await headerTile.click();
+  await picker.waitFor();
+  const fits = await picker.evaluate((el) => el.getBoundingClientRect().right <= innerWidth && document.documentElement.scrollWidth <= innerWidth);
+  check(fits, 'the icon picker fits a 390 px phone without horizontal scroll');
+  await shot('icon-picker-phone');
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 1200, height: 1000 });
 
   const id = Date.now().toString(36);
   await main.getByRole('button', { name: 'New Work item' }).click();
@@ -1136,6 +1323,20 @@ async function memory() {
     sql(`select count(*) from work_item where project_id=${pid} and title='Pp ${id}'`) === '1',
     'New Work item on the project page stores the work item and lists it',
   );
+  const workSection = main.getByRole('region', { name: 'Work items' });
+  const workCount = () => workSection.locator('h2 + span').innerText();
+  sql(`update work_item set status='done' where project_id=${pid} and title='Pp ${id}'`, true);
+  await page.reload();
+  await workSection.getByRole('button', { name: 'All' }).waitFor();
+  await workSection.getByText('No open Work items').waitFor();
+  check((await workCount()) === '0', 'the Work items list shows Open by default: a done item is hidden and the count follows', await workCount());
+  await workSection.getByRole('button', { name: 'All' }).click();
+  await workSection.getByRole('link', { name: `Pp ${id}` }).waitFor();
+  check((await workCount()) === '1', 'All lists the done item and the count follows', await workCount());
+  await shot('work-items-all');
+  sql(`update work_item set status='backlog' where project_id=${pid} and title='Pp ${id}'`, true);
+  await page.reload();
+  await workSection.getByRole('link', { name: `Pp ${id}` }).waitFor();
 
   const session = `quick-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New free Space' }).click();
@@ -1151,8 +1352,21 @@ async function memory() {
   await page.goto(`${base}/projects/${pid}`);
   await main.getByRole('link', { name: session }).waitFor();
   await shot('quick-session-listed');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.waitForTimeout(600);
+  await shot('project-page');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(600);
+  await shot('project-page-phone');
+  const projectOverflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(projectOverflow <= 0, 'the Project page has no horizontal scroll at 390 px', String(projectOverflow));
+  check(
+    (await main.getByRole('region', { name: 'Project memory' }).boundingBox()).y > (await main.getByRole('region', { name: 'Free Spaces' }).boundingBox()).y,
+    'on a phone the memory rail stacks under the main column',
+  );
+  await page.setViewportSize({ width: 1200, height: 1000 });
 
-  const fid = sql(`select id from work_item where project_id=${pid} and title='Pp ${id}'`);
+  const fid = sql(`select id from work_item where project_id=${pid} and title='Pp ${id}'`, true);
   const reefBin = process.env.REEF_UI_REEF;
   const reefOut = execFileSync(reefBin, ['memory', '--data', data, 'add', 'fact', 'Tokens live in Keychain.', '--scope', `work_item:${fid}`, '--as', 'developer'], { encoding: 'utf8' });
   console.log(reefOut.trim());
@@ -1179,7 +1393,7 @@ async function inspector() {
   await workingAs('developer');
   await idle();
 
-  await main.getByRole('button', { name: 'Inspector' }).click();
+  await openMore('Inspector');
   const panel = page.getByRole('complementary', { name: 'Inspector' });
   const devRow = panel.locator('li', { hasText: 'developer' });
   await devRow.waitFor({ timeout: 15000 });
@@ -1271,7 +1485,7 @@ async function subagent() {
   const stored = sql(`select count(*) from tool_call where parent_id is not null`);
   check(Number(stored) > 0, 'the subagent tool calls are stored with the Agent call as parent', `tool_call rows with a parent: ${stored}`);
 
-  await main.getByRole('button', { name: 'Inspector' }).click();
+  await openMore('Inspector');
   const panel = page.getByRole('complementary', { name: 'Inspector' });
   const turnRow = panel.locator('details').filter({ hasText: 'Prompt' }).first();
   await turnRow.locator('summary').first().click();
@@ -1399,11 +1613,11 @@ async function inbox() {
   const waitWaiting = async (cid, since) => {
     const end = Date.now() + 120000;
     while (Date.now() < end) {
-      const item = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid));
+      const item = (await getJson('/inbox')).find((i) => i.kind === 'reply' && String(i.spaceId) === String(cid));
       if (item && item.at !== since) return item;
       await page.waitForTimeout(1000);
     }
-    throw new Error('no new waiting item');
+    throw new Error('no new reply item');
   };
   const sendApi = (cid, text) =>
     fetch(`${base}/spaces/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
@@ -1416,13 +1630,14 @@ async function inbox() {
   await aside.getByRole('link', { name: /^Inbox/ }).click();
   await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
   check(page.url().endsWith('/inbox'), 'the Needs you link opens /inbox', page.url());
-  const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
+  const waiting = main.getByRole('listitem').filter({ hasText: /inbox room.*Replied/i });
   await waiting.waitFor({ timeout: 240000 });
   await shot('waiting-row');
+  await waiting.hover();
   const rowText = (await waiting.textContent()) ?? '';
   check(
     /inbox room/.test(rowText) && (await waiting.getByRole('link', { name: 'Open' }).count()) === 1 && (await waiting.getByRole('button', { name: 'Dismiss' }).count()) === 1 && (await main.getByRole('button', { name: 'Approve' }).count()) === 0,
-    'the lead handed off to the architect with no approval; the answer shows as a waiting item with Open and Dismiss',
+    'the lead handed off to the architect with no approval; the answer shows as a reply with Open and Dismiss on hover',
     rowText,
   );
   check(
@@ -1430,12 +1645,12 @@ async function inbox() {
     'the turns are lead done, architect done and no approval row exists',
     sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`),
   );
-  const group = (await getJson('/inbox')).find((i) => i.kind === 'waiting')?.group;
+  const group = (await getJson('/inbox')).find((i) => i.kind === 'reply')?.group;
   const badges = await aside.getByLabel(/waiting$/).count();
-  check(group === 'fyi' && badges === 0, 'a waiting item is FYI, so the Inbox link shows no needs-you badge', `group ${group}, ${badges} badges`);
+  check(group === 'fyi' && badges === 0, 'a reply is FYI, so the Inbox link shows no needs-you badge', `group ${group}, ${badges} badges`);
   await page.waitForTimeout(3000);
   const fired = await notes();
-  check(fired.length === 1 && /^Waiting: inbox room$/.test(fired[0].title), 'one notification fired for the item', JSON.stringify(fired));
+  check(fired.length === 1 && /^Replied: inbox room$/.test(fired[0].title), 'one notification fired for the item', JSON.stringify(fired));
 
   await page.evaluate(() => window.__notes[0].note.onclick());
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
@@ -1443,11 +1658,12 @@ async function inbox() {
   check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'clicking the notification opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await aside.getByRole('link', { name: /^Inbox/ }).click();
   await waiting.waitFor();
-  const before = (await getJson('/inbox')).find((i) => i.kind === 'waiting').at;
+  const before = (await getJson('/inbox')).find((i) => i.kind === 'reply').at;
+  await waiting.hover();
   await waiting.getByRole('link', { name: 'Open' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   landed = await landedOn('latest-message');
-  check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a waiting item opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a reply opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await shot('waiting-opened-space');
 
   await sendApi(cid, 'Say ok in one word. Use no tools.');
@@ -1461,7 +1677,7 @@ async function inbox() {
   await waitWaiting(cid, visible.at);
   await page.waitForTimeout(3000);
   const whileHidden = await notes();
-  check(whileHidden.length === 2 && /^Waiting: inbox room$/.test(whileHidden[1].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
+  check(whileHidden.length === 2 && /^Replied: inbox room$/.test(whileHidden[1].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
 
   await page.goto(base + '/inbox');
   await waiting.waitFor();
@@ -1469,15 +1685,16 @@ async function inbox() {
   const afterReload = await notes();
   check(afterReload.length === 0, 'items present at load fire no notification', JSON.stringify(afterReload));
 
-  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid));
+  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'reply' && String(i.spaceId) === String(cid));
   await shot('before-dismiss');
+  await waiting.hover();
   await waiting.getByRole('button', { name: 'Dismiss' }).click();
   await waiting.waitFor({ state: 'hidden', timeout: 30000 });
   await shot('dismissed');
   check(
-    !(await getJson('/inbox')).some((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid)) &&
+    !(await getJson('/inbox')).some((i) => i.kind === 'reply' && String(i.spaceId) === String(cid)) &&
       sql(`select dismissed_message_id from Space where id=${cid}`) === String(dismissed.messageId),
-    'Dismiss on a waiting item removes it and stores the message it was pressed on',
+    'Dismiss on a reply removes it and stores the message it was pressed on',
     sql(`select dismissed_message_id from Space where id=${cid}`),
   );
   await page.reload();
@@ -1561,6 +1778,10 @@ async function inboxGroups() {
   sql(`insert into message (space_id, author, body, created_at) values (${held.id}, 'lead', '@architect plan it', ${now})`, true);
   sql(`insert into approval (space_id, from_role, to_role, message_id, text, status, kind, created_at) select ${held.id}, 'lead', 'architect', max(id), 'plan it', 'pending', 'hold', ${now} from message where space_id=${held.id}`, true);
   sql(`update space set paused='hop cap: 6 agent hops without a user message' where id=${held.id}`, true);
+  const asked = await call('POST', '/spaces', { projectId: pid, name: 'asked room' });
+  sql(`insert into message (space_id, author, body, created_at) values (${asked.id}, 'lead', 'Which database do you want?', ${now})`, true);
+  const told = await call('POST', '/spaces', { projectId: pid, name: 'told room' });
+  sql(`insert into message (space_id, author, body, created_at) values (${told.id}, 'lead', 'Plan posted: **schema first**, tests after.', ${now})`, true);
   const failedRoom = await call('POST', '/spaces', { projectId: pid, name: 'failed room' });
   sql(`insert into turn (space_id, role, backend, status, error, started_at, ended_at, wake_text) values (${failedRoom.id}, 'lead', 'claude', 'failed', 'server restarted', ${now}, ${now}, 'build it')`, true);
   const sub = await call('POST', '/work-items', { projectId: pid, parentId: item.id, title: 'Schema' });
@@ -1572,46 +1793,72 @@ async function inboxGroups() {
   const rowOf = (group, text) => groupOf(group).getByRole('listitem').filter({ hasText: text });
   const items = await getJson('/inbox');
   const listed = (g) => items.filter((i) => i.group === g).map((i) => i.kind).sort().join(',');
-  check(listed('needs_you') === 'failed,held,paused' && listed('review') === 'review' && listed('fyi').includes('proposed') && listed('fyi').includes('started') && listed('fyi').includes('sub_item'),
-    'GET /inbox groups the seven causes: failed, held and paused in needs_you, review in review, started, sub_item and proposed in fyi', JSON.stringify(items.map((i) => `${i.group}/${i.kind}`)));
+  check(listed('needs_you') === 'failed,held,paused,question,review' && listed('fyi').includes('reply') && listed('fyi').includes('proposed') && listed('fyi').includes('started') && listed('fyi').includes('sub_item'),
+    'GET /inbox groups the causes: failed, held, paused, question and review in needs_you; reply, started, sub_item and proposed in fyi', JSON.stringify(items.map((i) => `${i.group}/${i.kind}`)));
   for (const [width, height] of [[1280, 800], [390, 844]]) {
     await page.setViewportSize({ width, height });
     await page.goto(`${base}/inbox`);
     await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
     await groupOf('Needs you').waitFor();
-    await groupOf('Review').waitFor();
     await groupOf('FYI').waitFor();
+    check((await main.getByRole('region', { name: /^Review/ }).count()) === 0, `${width}x${height}: there is no separate Review group`);
     const needs = (await groupOf('Needs you').innerText()).replace(/\s+/g, ' ');
-    const review = (await groupOf('Review').innerText()).replace(/\s+/g, ' ');
     const fyi = (await groupOf('FYI').innerText()).replace(/\s+/g, ' ');
     check(/Paused.*token budget of 1000000 used/i.test(needs) && /Held.*hop cap: 6 agent hops without a user message \(1 wake held\)/i.test(needs) && /Failed.*lead failed: server restarted/i.test(needs), `${width}x${height}: Needs you shows the paused, held and failed items`, needs.slice(0, 160));
-    check(/Review.*Review me/.test(review), `${width}x${height}: Review shows the item in review`, review.slice(0, 160));
+    check(/Review.*Review me/i.test(needs) && /asked room.*Question.*Which database do you want\?/i.test(needs), `${width}x${height}: Needs you shows the item in review and the question`, needs.slice(0, 260));
+    for (const [text, action] of [[/failed room/, 'Retry'], [/capped room/, 'Continue'], [/held room/, 'Continue'], [/Review me/, 'Review'], [/asked room/, 'Reply']]) {
+      check((await rowOf('Needs you', text).getByRole(action === 'Review' || action === 'Reply' ? 'link' : 'button', { name: action, exact: true }).count()) === 1, `${width}x${height}: the ${action} row of Needs you shows ${action}`);
+    }
+    check(/told room.*Replied.*Plan posted: schema first, tests after\./i.test(fyi) && !/\*\*/.test(fyi), `${width}x${height}: the reply row shows one cleaned line without markdown`, fyi.slice(0, 200));
+    check((await groupOf('Needs you').getByRole('img', { name: 'Not opened yet' }).count()) >= 3, `${width}x${height}: unopened Needs you rows have a dot`);
     check(/Started.*Started from the queue: Review me/i.test(fyi) && /Sub-item.*added sub-item \d+ to work item \d+: Schema/i.test(fyi) && /Proposed.*proposed work item \d+: Slow deploy/i.test(fyi), `${width}x${height}: FYI shows the started, sub-item and proposed items`, fyi.slice(0, 200));
-    check((await groupOf('Needs you').getByRole('button', { name: 'Dismiss' }).count()) === 0 && (await groupOf('Review').getByRole('button', { name: 'Dismiss' }).count()) === 0 && (await groupOf('FYI').getByRole('button', { name: 'Dismiss' }).count()) >= 3,
-      `${width}x${height}: only the FYI rows have Dismiss`);
+    await rowOf('Needs you', /failed room/).getByRole('button', { name: /failed room/ }).click();
+    await rowOf('Needs you', /Review me/).getByRole('button', { name: /Review me/ }).click();
+    await rowOf('FYI', /Slow deploy/).getByRole('button', { name: /Slow deploy|Work item/ }).click();
+    check((await groupOf('Needs you').getByRole('button', { name: 'Dismiss', exact: true }).count()) === 0 && (await groupOf('FYI').getByRole('button', { name: 'Dismiss', exact: true }).count()) === 1,
+      `${width}x${height}: opening rows shows Dismiss on the FYI row only`);
+    check((await groupOf('Needs you').getByRole('button', { name: /failed room/ }).getAttribute('aria-expanded')) === 'true' && (await rowOf('Needs you', /failed room/).getByText('lead failed: server restarted').count()) === 1,
+      `${width}x${height}: a row opens in place to its message`);
+    await shot(`groups-expanded-${width}x${height}`);
+    await page.reload();
+    await groupOf('FYI').waitFor();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     check(overflow <= 0, `${width}x${height}: the inbox has no horizontal scroll`, `${overflow} px`);
+    await page.waitForTimeout(600);
     await shot(`groups-${width}x${height}`);
-    for (const g of ['Review', 'FYI']) {
+    for (const g of ['FYI']) {
       await groupOf(g).evaluate((el) => el.scrollIntoView({ block: 'start' }));
       await shot(`groups-${g.toLowerCase()}-${width}x${height}`);
     }
   }
 
-  const paused = items.find((i) => i.kind === 'paused');
-  const res = await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paused) });
-  const body = await res.text();
-  check(res.status === 409 && /a paused item cannot be dismissed/.test(body), 'REST refuses to dismiss a Needs you item', `${res.status} ${body}`);
+  for (const kind of ['paused', 'question']) {
+    const res = await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(items.find((i) => i.kind === kind)) });
+    const body = await res.text();
+    check(res.status === 409 && new RegExp(`a ${kind} item cannot be dismissed`).test(body), `REST refuses to dismiss a Needs you ${kind} item`, `${res.status} ${body}`);
+  }
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${base}/inbox`);
+  await rowOf('FYI', /Slow deploy/).hover();
   await rowOf('FYI', /Slow deploy/).getByRole('button', { name: 'Dismiss' }).click();
   await rowOf('FYI', /Slow deploy/).waitFor({ state: 'hidden' });
   await shot('groups-dismissed');
   await page.reload();
   await groupOf('FYI').waitFor();
-  check((await rowOf('FYI', /Slow deploy/).count()) === 0 && sql("select count(*) from inbox_fyi where kind='proposed'") === '0' && (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length === 3,
+  check((await rowOf('FYI', /Slow deploy/).count()) === 0 && sql("select count(*) from inbox_fyi where kind='proposed'") === '0' && (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length === 5,
     'Dismiss on an FYI item removes its row for good, the Needs you items stay', sql('select kind from inbox_fyi'));
+  const dot = (text) => rowOf('FYI', text).getByRole('img', { name: 'Not opened yet' });
+  check((await dot(/told room/).count()) === 1 && (await groupOf('FYI').getByRole('button', { name: /^Dismiss all seen/ }).count()) === 0, 'an unopened FYI row has a dot and Dismiss all seen is not offered yet');
+  await rowOf('FYI', /told room/).getByRole('button', { name: /told room/ }).click();
+  check((await rowOf('FYI', /told room/).locator('strong').count()) === 1 && (await dot(/told room/).count()) === 0, 'opening an FYI row renders its message and clears its dot');
+  await rowOf('FYI', /told room/).getByRole('button', { name: /told room/ }).click();
+  await page.reload();
+  await groupOf('FYI').waitFor();
+  check((await dot(/told room/).count()) === 0 && (await dot(/sub-item/).count()) === 1, 'the opened state survives a reload, other rows keep their dots', `${await dot(/told room/).count()} ${await dot(/sub-item/).count()}`);
+  await groupOf('FYI').getByRole('button', { name: 'Dismiss all seen (1)' }).click();
+  await rowOf('FYI', /told room/).waitFor({ state: 'hidden' });
+  check(!(await getJson('/inbox')).some((i) => i.kind === 'reply' && i.spaceId === told.id) && (await rowOf('FYI', /sub-item/).count()) === 1, 'Dismiss all seen dismisses the opened FYI rows only');
 }
 
 async function wrap() {
@@ -1780,8 +2027,8 @@ async function skills() {
   const library = async () => getJson('/skills/library');
   await addProject();
   const lead = (await getJson('/bots')).find((b) => b.name === 'lead');
-  await page.goto(`${base}/bots?bot=${lead.id}`);
-  const lib = main.getByRole('region', { name: 'Skills library' });
+  await page.goto(`${base}/settings?section=skills`);
+  const lib = main.getByRole('region', { name: 'Skills' });
   await lib.getByRole('button', { name: 'New skill' }).click();
   const form = lib.getByRole('form', { name: 'New skill' });
   await form.getByLabel('Skill name').fill('editor-skill');
@@ -1794,7 +2041,6 @@ async function skills() {
   await lib.getByRole('button', { name: 'Edit editor-skill' }).waitFor();
   let made = (await library()).find((s) => s.name === 'editor-skill');
   check(made?.version === 1 && made.sourceKind === 'reef', 'a skill written in the editor is saved at version 1', JSON.stringify(made));
-  await lib.getByRole('button', { name: 'View files of editor-skill' }).click();
   await lib.locator('summary', { hasText: 'notes/a.md' }).click();
   check((await lib.getByText('EDITOR-NOTE-1').count()) === 1, 'the supporting file contents can be inspected');
   await lib.getByRole('button', { name: 'Edit editor-skill' }).click();
@@ -1822,7 +2068,7 @@ async function skills() {
   await send('DRAFT A SKILL');
   await card.waitFor({ timeout: 60000 });
   check((await card.getByRole('button', { name: 'Save as new version triage' }).count()) === 1, 'a draft named like a library skill offers Save as new version');
-  await page.goto(`${base}/bots`);
+  await page.goto(`${base}/settings?section=skills`);
   await lib.getByRole('heading', { name: 'Drafts' }).waitFor();
   await shot('drafts-in-library');
   await lib.getByRole('button', { name: 'Reject triage' }).click();
@@ -1846,7 +2092,8 @@ async function skills() {
   const imp = await (await post('/skills/import', { path: imported })).json();
   const runSh = (await getJson(`/skills/${imp.id}`)).files.find((f) => f.path === 'scripts/run.sh');
   check(runSh && (await (await post(`/skills/${imp.id}/update`, {})).json()).version === 2, 'importing a folder keeps the execute bit and the REST update works', JSON.stringify(runSh));
-  await page.goto(`${base}/bots?bot=${lead.id}`);
+  await page.goto(`${base}/settings?section=skills`);
+  await lib.getByLabel('Skill list').getByRole('button', { name: /^imported-skill/ }).click();
   await lib.getByRole('button', { name: 'Update imported-skill' }).click();
   await page.waitForFunction(async (id) => (await (await fetch(`/skills/library`)).json()).find((s) => s.id === id).version === 3, imp.id);
   check(true, 'the Update button in the window saves the next version (no 415)');
@@ -1919,6 +2166,7 @@ async function workshop() {
 
   // Unrestricted Bash on a Bot without write: the server's error shows in the Bot panel.
   await page.goto(`${base}/bots?bot=${sql("select id from bot where name = 'architect'")}`);
+  await main.getByRole('button', { name: 'Add tool', exact: true }).click();
   const bashBox = main.getByLabel('architect tool Bash');
   check(await bashBox.isDisabled(), 'the Bash checkbox of a read-only Bot is disabled', await bashBox.locator('..').getAttribute('title'));
   await main.getByLabel('architect add tool').fill('Bash(*)');
@@ -1930,6 +2178,7 @@ async function workshop() {
 
   // Allowed tools are picked in the Bot panel and save; the MCP server stays.
   await page.goto(`${base}/bots?bot=${row('bot.id')}`);
+  await main.getByRole('button', { name: 'Add tool', exact: true }).click();
   await main.getByLabel('developer tool Read').waitFor();
   check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the Bot\'s tools');
   check(await main.getByLabel('developer tool mcp__verify-conn__*').count() === 1, 'the tool picker has one entry for the Bot\'s selected connection');
@@ -1944,13 +2193,14 @@ async function workshop() {
   check(row('bot.connections') === connBefore, "the Bot's selected connection is unchanged by the panel", row('bot.connections'));
 
   // Duplicate makes a new Crew `reef team list` (the same store) shows.
-  await page.goto(`${base}/teams?team=full`);
+  await page.goto(`${base}/bots?tab=crews&team=full`);
   const copyName = `workshop-copy-${Date.now().toString(36)}`;
-  await main.getByRole('button', { name: 'Duplicate' }).click();
+  await main.getByRole('button', { name: 'Crew actions' }).click();
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click();
   const dup = page.getByRole('dialog', { name: 'New crew' });
   await dup.getByLabel('Name', { exact: true }).fill(copyName);
   await dup.getByRole('button', { name: 'Create crew' }).click();
-  await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
+  await main.getByRole('navigation', { name: 'All crews' }).getByRole('button', { name: new RegExp(`^${copyName}`) }).waitFor({ timeout: 15000 });
   await shot('copied');
   check(
     sql(`select count(*) from team where name = '${copyName}'`) === '1',
@@ -1976,8 +2226,9 @@ async function workshop() {
   const edited = await fetch(`${base}/bots/${devId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...devBot, model: 'workshop-edited-model' }) });
   check(edited.status === 200, 'the developer Bot is edited after its session adopted', String(edited.status));
   await page.goto(`${base}/spaces/${cid}`);
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   const botsPanel = page.getByRole('complementary', { name: 'Bots' });
+  await botsPanel.getByRole('button', { name: 'Open developer' }).click();
   await botsPanel.getByText('Apply here to adopt edits').waitFor();
   const adopted = await botsPanel.innerText();
   await shot('team-panel-adopted');
@@ -1986,19 +2237,44 @@ async function workshop() {
 
   await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
-  await skills.getByRole('button', { name: 'Claude Code' }).click();
-  await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
-  const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
+  const skillList = skills.getByLabel('Skill list');
+  await skills.getByRole('button', { name: /^Claude Code/ }).click();
+  await skillList.getByRole('button', { name: /workshop-skill/ }).waitFor();
+  const claudeGroup = await skillList.innerText();
+  await page.waitForTimeout(500);
   await shot('settings-skills');
-  await skills.getByRole('button', { name: 'Codex' }).click();
-  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
+  await skills.getByRole('button', { name: /^Codex/ }).click();
+  const codexGroup = await skillList.innerText();
   check(claudeGroup.includes('workshop-skill') && claudeGroup.includes('Picked in the workshop scenario.'), 'Settings lists the project\'s Claude skill with its description', claudeGroup.replace(/\s+/g, ' ').slice(0, 160));
   check(!codexGroup.includes('workshop-skill'), 'Settings keeps the Claude skill out of the Codex group', codexGroup.replace(/\s+/g, ' ').slice(0, 160));
-  await skills.getByRole('button', { name: 'Claude Code' }).click();
+  await skills.getByRole('button', { name: /^Claude Code/ }).click();
   await skills.getByLabel('Filter skills').fill('workshop');
-  const filtered = await skills.getByRole('group', { name: 'Claude Code' }).getByRole('listitem').allInnerTexts();
+  const filtered = await skillList.getByRole('listitem').allInnerTexts();
   await shot('settings-skills-filter');
   check(filtered.length === 1 && filtered[0].includes('workshop-skill'), 'the skills filter keeps only the matching skill', filtered.join(' | '));
+
+  await page.goto(`${base}/settings?section=connections`);
+  const conns = main.getByRole('region', { name: 'Connections' });
+  await conns.getByText('verify-conn', { exact: true }).waitFor();
+  const connRow = (await conns.getByRole('listitem').filter({ hasText: 'verify-conn' }).innerText()).replace(/\s+/g, ' ');
+  await page.waitForTimeout(500);
+  await shot('settings-connections');
+  check(/Local process · true/.test(connRow) && /1 Bot\b/.test(connRow), 'Settings lists the connection with its kind, command and the Bots that use it', connRow);
+  await page.goto(`${base}/bots`);
+  await main.getByRole('heading', { name: 'Bots', level: 1 }).waitFor();
+  check((await main.getByRole('region', { name: /^(Connections|Skills library)$/ }).count()) === 0, 'the Bots page no longer holds the connection and skill libraries');
+
+  await page.goto(`${base}/settings?section=profile`);
+  const nameField = page.getByLabel('Your name');
+  await nameField.fill('Renamed');
+  await nameField.blur();
+  await main.getByText('Saved', { exact: true }).waitFor();
+  check((await getJson('/profile')).name === 'Renamed', 'Profile saves the name when the field is left without a Save button', JSON.stringify(await getJson('/profile')));
+  await main.getByRole('button', { name: 'Founder' }).click();
+  await page.waitForFunction(async () => (await (await fetch('/profile')).json()).occupation === 'Founder');
+  check((await main.getByRole('button', { name: 'Save', exact: true }).count()) === 0, 'Profile has no Save button');
+  await page.waitForTimeout(500);
+  await shot('settings-profile');
 }
 
 async function pr() {
@@ -2332,7 +2608,7 @@ async function team() {
   await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
   const running = await workingAs('developer');
   check(running, 'the developer turn is running');
-  const avatars = main.getByRole('button', { name: 'Show Bots' });
+  const avatars = main.getByRole('img', { name: 'Bots' });
   check((await avatars.locator('.c-ring').count()) === 1, 'the header avatars ring one role while it works');
   check((await page.getByText('working…', { exact: true }).count()) === 0, 'no floating working badge');
   const panel = page.getByRole('complementary', { name: 'Bots' });
@@ -2340,7 +2616,7 @@ async function team() {
   const space = main.locator('section').first();
   const before = await space.boundingBox();
   await shot('closed-working');
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   await panel.waitFor();
   const pop = await panel.locator('xpath=../..').boundingBox();
   const head = await main.locator('header').boundingBox();
@@ -2349,23 +2625,33 @@ async function team() {
   check(after.width === before.width, 'opening it does not change the Space width', `${before.width} -> ${after.width}`);
   const rows = await panel.locator('ul').first().getByRole('listitem').allInnerTexts();
   check(rows.length === 4 && rows.some((r) => /developer[\s\S]*working/i.test(r)), 'it lists four roles and the developer as working', rows.join(' | ').replace(/\n/g, ' '));
-  await panel.getByRole('listitem').filter({ hasText: /^developer/i }).getByRole('button', { name: 'Remove' }).click();
+  await shot('popover-roster');
+  await panel.getByRole('button', { name: 'Open developer' }).click();
+  await panel.getByRole('button', { name: 'Back to Bots' }).waitFor();
+  const bar = [...(await panel.getByRole('button', { name: /^(Apply here|Make coordinator|Remove)$/ }).allInnerTexts()), ...(await panel.getByRole('link', { name: 'Edit Bot' }).allInnerTexts())];
+  check(bar.join() === 'Apply here,Make coordinator,Remove,Edit Bot', 'a Bot profile has the actions Apply here, Make coordinator, Edit Bot and Remove', bar.join());
+  const profileText = (await panel.innerText()).replace(/\s+/g, ' ');
+  check(/session model .* backend claude code .* access tools/i.test(profileText), 'the profile has the Session and Access groups', profileText.slice(0, 200));
+  await shot('popover-profile');
+  await panel.getByRole('button', { name: 'Back to Bots' }).click();
+  await panel.getByRole('button', { name: 'Open developer' }).click();
+  await panel.getByRole('button', { name: 'Remove' }).click();
   const leaves = panel.getByText('Leaves after its current turn.');
   await leaves.waitFor();
   const box = await panel.boundingBox();
   const note = await leaves.boundingBox();
   const select = await panel.getByRole('combobox').first().boundingBox();
   check(note.height < 20 && note.x + note.width <= box.x + box.width, 'the leaving note is one line inside the popover', JSON.stringify(note));
-  check(select.x >= box.x && select.x + select.width <= box.x + box.width, 'the coordinator select is inside the popover', JSON.stringify(select));
+  check(select.x >= box.x && select.x + select.width <= box.x + box.width, 'the model select is inside the popover', JSON.stringify(select));
   await shot('popover-working');
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'hidden' });
-  await avatars.click();
+  await openBotSettings();
   await panel.waitFor();
   await page.mouse.click(300, 600);
   await panel.waitFor({ state: 'hidden' });
   check(true, 'Escape and a click outside both close the popover');
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   await panel.getByRole('button', { name: 'Close Bots' }).click();
   await panel.waitFor({ state: 'hidden' });
   check(true, 'its X closes it');
@@ -2770,7 +3056,10 @@ async function conversationMove() {
   const link = main.getByRole('link', { name: 'Open the Space' });
   check((await link.getAttribute('href')) === `/spaces/${typedTo}`, 'the conversation links to the new Space', await link.getAttribute('href'));
   check((await page.getByLabel('Message').count()) === 0, 'the moved conversation has no message box', String(await page.getByLabel('Message').count()));
-  check((await main.getByRole('button', { name: 'Add Bot' }).count()) === 0, 'the moved conversation has no Add Bot button');
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Bot settings', exact: true }).waitFor();
+  check((await main.getByRole('menuitem', { name: 'Add Bot', exact: true }).count()) === 0, 'the moved conversation has no Add Bot item in the Bots popup');
+  await page.keyboard.press('Escape');
   check((await members(typedTo)) === 'sam*,kit', 'the new Space has sam leading and kit', await members(typedTo));
   const shape = sql(`select kind, team_id is null from Space where id=${typedTo}`);
   check(shape === 'free|1', 'the new Space is free and has no Team', shape);
@@ -2787,12 +3076,15 @@ async function conversationMove() {
   const clicked = await start();
   await exchange(login);
   await page.setViewportSize({ width: 390, height: 844 });
-  await main.getByRole('button', { name: 'Add Bot' }).waitFor();
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Add Bot', exact: true }).waitFor();
   const header = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-  check(header <= 0, 'the conversation with the Add Bot button has no horizontal scroll at 390 px', String(header));
+  check(header <= 0, 'the conversation with its Bots popup open has no horizontal scroll at 390 px', String(header));
   await shot('phone-add-teammate');
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 800 });
-  await main.getByRole('button', { name: 'Add Bot' }).click();
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Add Bot', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a Bot' });
   await dialog.getByRole('button', { name: 'kit', exact: true }).waitFor();
   check((await dialog.getByRole('button', { name: 'sam', exact: true }).count()) === 0, "the dialog does not offer the conversation's own Bot");
@@ -2970,7 +3262,7 @@ async function hovercard() {
     const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
     const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
     const kinds = (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid).map((i) => i.kind);
-    state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
+    state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('question') ? 'waiting for you' : 'idle';
     const n = files.length;
     const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
     return `hover chat ${state} branch work-item/${itemId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
@@ -2985,7 +3277,7 @@ async function hovercard() {
   for (let i = 0; i < 50 && (await flat()) !== (await expected()); i++) await page.waitForTimeout(100);
   const idleText = await flat();
   check(idleText === (await expected()), 'waiting Space: name, state, branch, changes and every role match REST and SQLite', idleText);
-  check(idleText.startsWith('hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
+  check(idleText.startsWith('hover chat idle') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a reply (FYI, not a question), so the card says idle; the diff has d.txt with its one added line', idleText);
   const [r, t] = [await row.boundingBox(), await tip.boundingBox()];
   check(t.x >= r.x + r.width, 'the card sits beside the row, not over it', `row right ${r.x + r.width}, card left ${t.x}`);
   const described = await row.getAttribute('aria-describedby');
@@ -2998,7 +3290,7 @@ async function hovercard() {
   await tip.waitFor({ state: 'hidden', timeout: 2000 });
   check((await row.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
 
-  for (const i of (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid && i.kind === 'waiting')) {
+  for (const i of (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid && i.kind === 'reply')) {
     await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(i) });
   }
   await row.getByRole('img', { name: 'needs you' }).waitFor({ state: 'hidden', timeout: 15000 });
@@ -3129,10 +3421,13 @@ async function mention() {
     return `${name} ${backend} · ${model} Edit ${role.description.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools}`;
   };
   const sameCard = (shown, want) => shown.toLowerCase() === want.toLowerCase();
-  const lead = at('@lead');
-  const developer = at('@developer');
+  const lead = at('Lead');
+  const developer = at('Developer');
   const nobody = at('@nobody');
-  check((await team.roles.every((r) => r.name !== 'nobody')) && (await lead.count()) === 1 && (await nobody.count()) === 1, 'the message shows @lead, @developer, @nobody and @tester as mentions, and the team has no nobody');
+  check((await team.roles.every((r) => r.name !== 'nobody')) && (await lead.count()) === 1 && (await nobody.count()) === 1, 'the message shows Lead, Developer, @nobody and Tester as mentions, and the team has no nobody');
+  const leadLook = await lead.evaluate((el) => ({ text: el.textContent, svgs: el.querySelectorAll('svg').length, bot: el.style.getPropertyValue('--bot') }));
+  check(leadLook.text === 'Lead' && leadLook.svgs === 1 && leadLook.bot !== '' && (await nobody.evaluate((el) => el.querySelectorAll('svg').length)) === 0, 'a Bot mention is its creature and name in the Bot colour with no @, and @nobody stays plain text', JSON.stringify(leadLook));
+  await shot('mention');
 
   await page.waitForTimeout(3500);
   await away();
@@ -3237,7 +3532,7 @@ async function mention() {
     if ((await pane.count()) === 0) await main.getByRole('button', { name: replyButtonName }).first().click();
     await pane.waitFor();
     let best = null;
-    for (const name of ['@lead', '@developer', '@tester']) {
+    for (const name of ['Lead', 'Developer', 'Tester']) {
       const el = pane.locator('.mention', { hasText: name }).first();
       const box = await el.boundingBox();
       if (!best || box.x + box.width > best.box.x + best.box.width) best = { el, name, box };
@@ -3253,7 +3548,7 @@ async function mention() {
   const width = 1280;
   check(tm.x + tm.width + 8 + tt.width > width, `the ${near.name} mention in the Thread pane is so near the right edge that a card on its right would run off the window`, `mention right ${tm.x + tm.width}, card ${tt.width} wide`);
   check(tt.x >= 0 && tt.x + tt.width <= width && tt.x + tt.width <= tm.x, 'the card flipped to the mention left and stays inside the window', `card ${tt.x}..${tt.x + tt.width}, mention left ${tm.x}`);
-  const edgeRole = near.name.slice(1);
+  const edgeRole = near.name.toLowerCase();
   check(sameCard(await flat(), await expected(edgeRole)), `${near.name} card matches /teams/full`, await flat());
   await shot('edge-dark');
   await away();
@@ -3269,6 +3564,7 @@ async function mention() {
   await contrast('mention card');
   await away();
   await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  await shot('mention-light');
   await lead.hover();
   await tip.waitFor();
   await page.waitForTimeout(300);
@@ -3286,7 +3582,7 @@ async function mention() {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${base}/spaces/${cid}`);
-  const phoneLead = main.locator('.mention', { hasText: '@lead' }).first();
+  const phoneLead = main.locator('.mention', { hasText: 'Lead' }).first();
   await phoneLead.waitFor();
   await phoneLead.hover();
   await page.waitForTimeout(900);
@@ -3471,6 +3767,7 @@ async function bots() {
   await pick(`${mate} permission mode`, 'acceptEdits', panel);
   bot = await save();
   check(bot.permissionMode === 'acceptEdits' && bot.model === 'sonnet' && bot.write === false, 'saving only a permission mode changes the permission mode and nothing else', JSON.stringify({ model: bot.model, permissionMode: bot.permissionMode, write: bot.write }));
+  await panel.getByRole('button', { name: 'Add tool', exact: true }).click();
   await panel.getByRole('switch', { name: `${mate} tool Read` }).click();
   bot = await save();
   check(bot.tools.join() === 'Read' && bot.permissionMode === 'acceptEdits' && bot.model === 'sonnet', 'saving only a tool changes the tools and nothing else', JSON.stringify(bot.tools));
@@ -3478,35 +3775,35 @@ async function bots() {
   bot = await save();
   check(bot.description === `${description} Edited.` && bot.tools.join() === 'Read' && bot.model === 'sonnet', 'editing the description leaves model, tools and permission mode as they were', bot.description);
 
-  await page.goto(`${base}/teams`);
+  await page.goto(`${base}/bots?tab=crews`);
   await main.getByRole('button', { name: 'New crew' }).click();
   const newTeam = page.getByRole('dialog', { name: 'New crew' });
   await newTeam.getByLabel('Name', { exact: true }).fill(teamName);
   await newTeam.getByRole('button', { name: 'Create crew' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === teamName);
-  await main.getByLabel('Crew name').waitFor();
-  await main.getByRole('button', { name: 'Add a Bot' }).click();
-  const picker = page.getByRole('dialog', { name: 'Add a Bot' });
-  await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
+  await main.getByRole('heading', { name: teamName, level: 2 }).waitFor();
   const roles = main.getByRole('region', { name: 'Bots' });
-  const leadSwitch = roles.getByRole('switch', { name: `${mate} suggested coordinator` });
-  await leadSwitch.waitFor();
+  await roles.getByRole('button', { name: 'Add Bot' }).click();
+  await roles.getByRole('option', { name: new RegExp(`^${mate}`) }).click();
+  await roles.getByRole('button', { name: 'Done' }).click();
+  const leadStar = roles.getByRole('button', { name: `${mate} answers first` });
+  await leadStar.waitFor();
   const member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
   check(member && !member.lead && member.name === mate, 'adding a Bot from the picker puts it in the Team by Bot id', JSON.stringify(member && { botId: member.botId, name: member.name, lead: member.lead }));
-  const editable = await roles.locator('textarea, input:not([role=switch]), [role=combobox]').count();
+  const editable = await roles.locator('textarea, input, [role=combobox]').count();
   check(
     editable === 0 && (await roles.getByRole('switch', { name: `${mate} write` }).count()) === 0,
-    'the Team editor has no field, select or write switch for a member: only lead and Remove',
+    'the Team editor has no field, select or write switch for a member: only the answers-first star and Remove',
     `${editable} fields`,
   );
   await shot('team-editor-1280x800');
-  await roles.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
+  await roles.getByRole('link', { name: new RegExp(`^${mate}`) }).click();
   await page.waitForURL((url) => url.pathname === '/bots' && url.searchParams.get('bot') === String(id));
   check(true, "a member row opens the Bot's own editor at /bots?bot=ID");
   const tools = (await after()).tools.join();
   check(tools === 'Read', "opening the editor from the Team changed nothing on the Bot", tools);
 
-  for (const route of ['/bots', `/teams?team=${teamName}`, `/bots?bot=${id}`, `/bots/${id}`]) {
+  for (const route of ['/bots', `/bots?tab=crews&team=${teamName}`, `/bots?bot=${id}`, `/bots/${id}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Bots' })).first().waitFor();
@@ -3556,8 +3853,8 @@ async function creatures() {
   await shot('bots-1280x800');
 
   const faceIn = async (team, roleName) => {
-    await page.goto(`${base}/teams?team=${team}`);
-    const button = main.getByRole('region', { name: 'Bots' }).getByRole('button', { name: new RegExp(`^${roleName}`) });
+    await page.goto(`${base}/bots?tab=crews&team=${team}`);
+    const button = main.getByRole('region', { name: 'Bots' }).getByRole('link', { name: new RegExp(`^${roleName}`) });
     await button.waitFor();
     return button.locator('svg').first().innerHTML();
   };
@@ -3594,7 +3891,7 @@ async function creatures() {
   await main.getByText('Saved', { exact: true }).waitFor();
   check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Bot panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
 
-  for (const route of ['/bots', `/teams?team=${teamB}`]) {
+  for (const route of ['/bots', `/bots?tab=crews&team=${teamB}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).waitFor();
@@ -3621,28 +3918,28 @@ async function sidebar() {
   const link = (name) => aside.getByRole('link', { name, exact: typeof name === 'string' });
   const y = async (loc) => (await loc.boundingBox()).y;
   const x = async (loc) => (await loc.boundingBox()).x;
-  const topDown = [search, link(/^Inbox/), link(/^Board/), link('Spaces'), link('Conversations')];
+  const toggle = (name) => aside.getByRole('button', { name: new RegExp(`^${name}`) });
+  const seeAll = section.getByRole('link', { name: /^See all/ });
+  const topDown = [search, link(/^Inbox/), link(/^Board/), toggle('Bots'), toggle('Spaces'), toggle('Conversations')];
   const ys = [];
   for (const loc of topDown) ys.push(await y(loc));
-  const bottom = [link('Bots').last(), link('Crews'), link('Settings')];
+  const bottom = [link('Bots').last(), link('Settings')];
   const bottomY = await y(bottom[0]);
   const bottomX = [];
   for (const loc of bottom) bottomX.push(await x(loc));
   check(
     ys.every((v, i) => i === 0 || v > ys[i - 1]) && ys[ys.length - 1] < bottomY && bottomX.every((v, i) => i === 0 || v > bottomX[i - 1]),
-    'the sidebar lists Search, Inbox, Board, Spaces, Conversations top to bottom, then Bots, Crews, Settings at the bottom',
+    'the sidebar lists Search, Inbox, Board, Bots, Spaces, Conversations top to bottom, then Bots, Settings at the bottom',
     `y: ${ys.join(',')}; bottom y ${bottomY}; bottom x: ${bottomX.join(',')}`,
   );
+  check((await link('Crews').count()) === 0, 'the bottom bar has no Crews link');
   check((await aside.getByRole('link', { name: /^Tasks/ }).count()) === 0 && (await aside.getByText('New channel').count()) === 0, 'no Tasks link and no New channel in the sidebar');
   await shot('desktop');
 
   const visits = [
     [link(/^Inbox/), '/inbox', 'Inbox'],
     [link(/^Board/), '/board', 'Board'],
-    [link('Spaces'), '/spaces', 'Spaces'],
-    [link('Conversations'), '/conversations', 'Conversations'],
     [link('Bots').last(), '/bots', 'Bots'],
-    [link('Crews'), '/teams', 'Crews'],
     [link('Settings'), '/settings', 'Settings'],
   ];
   for (const [loc, route, heading] of visits) {
@@ -3678,9 +3975,16 @@ async function sidebar() {
   await call('PUT', `/spaces/${conversation.split('|')[0]}`, { name: 'sam chat' });
   const convoRow = section.getByRole('link', { name: /sam chat/ });
   await convoRow.waitFor({ timeout: 15000 });
-  const fromTop = async (loc) => (await y(loc)) > (await y(link('Conversations')));
+  const fromTop = async (loc) => (await y(loc)) > (await y(toggle('Conversations')));
   check(await fromTop(convoRow), 'the conversation is listed under Conversations', await convoRow.innerText());
   await shot('created');
+
+  for (const [i, route, heading] of [[0, '/spaces', 'Spaces'], [1, '/conversations', 'Conversations']]) {
+    await seeAll.nth(i).click();
+    await main.getByRole('heading', { name: heading, level: 1 }).waitFor();
+    check(urlPath() === route, `See all under ${heading} opens ${route}`, urlPath());
+  }
+  await aside.getByRole('link', { name: 'Today' }).click();
 
   await search.fill('zzz-no-match');
   await convoRow.waitFor({ state: 'hidden' });
@@ -3708,6 +4012,40 @@ async function sidebar() {
   await main.getByRole('link', { name: 'review room' }).waitFor();
   check(true, 'the Spaces page still lists it', String(room.id));
   await shot('left-spaces');
+  const group = (name) => main.getByRole('region', { name, exact: true });
+  check((await group('Today').getByRole('link', { name: /review room/ }).count()) === 1 && (await group('Pinned').count()) === 0, 'the Spaces page groups rows by date, Today first, and has no Pinned group while nothing is pinned');
+  await call('PUT', `/pins/space/${room.id}`, {});
+  await page.reload();
+  await group('Pinned').getByRole('link', { name: /review room/ }).waitFor();
+  const [pinnedY, todayY] = [await y(group('Pinned')), await y(group('Today'))];
+  check((await group('Today').getByRole('link', { name: /review room/ }).count()) === 0 && pinnedY < todayY, 'a pinned Space moves to a Pinned group above the date groups', `${pinnedY} < ${todayY}`);
+  await page.waitForTimeout(500);
+  await shot('spaces-groups');
+  await call('DELETE', `/pins/space/${room.id}`);
+  await page.goto(`${base}/conversations`);
+  await group('Today').getByRole('link', { name: /sam chat/ }).waitFor();
+  check((await group('Yesterday').count()) === 0 && (await group('Older').count()) === 0, 'the Conversations page shows only the groups that have rows');
+  await page.waitForTimeout(500);
+  await shot('conversations-groups');
+
+  for (let i = 0; i < 9; i++) await call('POST', '/spaces', { projectId: project, name: `bulk-${i}`, botId: sam.id, kind: 'conversation' });
+  await page.reload();
+  const chatRows = aside.getByRole('link', { name: /^(bulk-\d|sam chat)/ });
+  await seeAll.nth(1).waitFor();
+  check((await chatRows.count()) === 8 && (await seeAll.nth(1).innerText()).trim() === 'See all 10', 'Conversations shows 8 of 10 rows and See all 10', `${await chatRows.count()} rows, ${await seeAll.nth(1).innerText()}`);
+  await page.waitForTimeout(500);
+  await shot('cap');
+  await toggle('Conversations').click();
+  check((await chatRows.count()) === 0 && (await toggle('Conversations').innerText()).replace(/\s+/g, ' ').trim() === 'Conversations 10', 'collapsing Conversations hides its rows and shows the count', await toggle('Conversations').innerText());
+  await shot('collapsed');
+  await page.reload();
+  await toggle('Conversations').waitFor();
+  check((await chatRows.count()) === 0 && (await toggle('Spaces').getAttribute('aria-expanded')) === 'true', 'the collapsed Conversations section stays collapsed after a reload and Spaces stays open');
+  await toggle('Conversations').click();
+  check((await chatRows.count()) === 8, 'expanding Conversations brings its rows back');
+  await aside.getByRole('button', { name: 'Switch project' }).click();
+  await shot('switcher');
+  await page.keyboard.press('Escape');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${base}/`);
@@ -3722,6 +4060,16 @@ async function sidebar() {
   check(sheet.fixed === 'fixed' && box.x === 0 && box.y === 0 && box.height === 844 && box.width <= 390, 'the sidebar opens as a full-height sheet on the left', JSON.stringify(box));
   check(sheet.over <= 0 && (await noScroll()), 'the sheet has no horizontal scroll at 390 px', `sheet ${sheet.over}`);
   await shot('phone-sheet');
+  await page.keyboard.press('Escape');
+  await aside.waitFor({ state: 'hidden' });
+  await page.goto(`${base}/conversations`);
+  await group('Today').waitFor();
+  check(await noScroll(), 'the Conversations page has no horizontal scroll at 390 px');
+  await page.waitForTimeout(500);
+  await shot('phone-groups');
+  await page.goto(`${base}/`);
+  await tabs.getByRole('button', { name: 'Menu' }).click();
+  await aside.waitFor();
   await page.keyboard.press('Escape');
   await aside.waitFor({ state: 'hidden' });
   check(true, 'Escape closes the sheet');
@@ -4264,13 +4612,16 @@ async function spaceHeader() {
   turn(freeSpace.id, 500, 0, 0, 0);
 
   const header = main.locator('header').first();
-  const actions = async () => {
+  const menuItems = async (button, labels) => {
+    await header.getByRole('button', { name: button, exact: true }).click();
     const found = [];
-    for (const [role, label] of [['link', 'Open Work item'], ['button', 'Attach to Work item'], ['button', 'Add Bot']]) {
-      if ((await header.getByRole(role, { name: label, exact: true }).count()) > 0) found.push(label);
+    for (const label of labels) {
+      if ((await header.getByRole('menuitem', { name: label, exact: true }).count()) > 0) found.push(label);
     }
-    return found.join(', ');
+    await page.keyboard.press('Escape');
+    return found;
   };
+  const actions = async () => [...(await menuItems('More', ['Open Work item', 'Attach to Work item'])), ...(await menuItems('Bots', ['Add Bot']))].join(', ');
   const headerText = async () => (await header.innerText()).replace(/\s+/g, ' ');
   const memberNames = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => m.name);
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -4280,7 +4631,7 @@ async function spaceHeader() {
   };
   const panel = page.getByRole('complementary', { name: 'Bots' });
   const members = async () => {
-    await header.getByRole('button', { name: 'Bots', exact: true }).click();
+    await openBotSettings();
     await panel.waitFor();
     const rows = panel.locator('ul').first().getByRole('listitem');
     const out = { count: await rows.count(), creatures: await rows.locator('svg').count(), text: (await rows.allInnerTexts()).join(' | ').replace(/\s+/g, ' ').toLowerCase(), leads: await panel.locator('.rounded-pill').filter({ hasText: /^coordinator$/ }).count() };
@@ -4303,12 +4654,21 @@ async function spaceHeader() {
   check(mWork.count === (await memberNames(workSpace.id)).length && mWork.creatures >= mWork.count && mWork.leads === 1, "the member list shows one creature per member of GET /spaces/{id}/members and one coordinator badge", JSON.stringify(mWork));
   await shot('desktop-work-item');
   await page.keyboard.press('Escape');
+  check((await header.getByRole('button', { name: 'New chat', exact: true }).count()) === 0, 'a Work item Space has no New chat');
+  check(await header.getByRole('button', { name: 'Wrap up', exact: true }).isVisible(), 'a Work item Space has Wrap up in the header');
+  await main.getByRole('button', { name: 'More', exact: true }).click();
+  await shot('more');
+  await page.keyboard.press('Escape');
 
   await open(freeSpace.id, `free-space-${suffix}`);
   const freeText = await headerText();
   check(freeText.includes('free Space') && !freeText.includes('Budget'), 'a free Space header names its kind and has no budget chip', freeText);
+  check((await header.getByRole('button', { name: 'Wrap up', exact: true }).count()) === 0, 'a free Space has no Wrap up');
+  await page.waitForTimeout(500);
+  await shot('space');
   check((await actions()) === 'Attach to Work item, Add Bot', 'a free Space has Attach to Work item and Add Bot, no Open Work item', await actions());
-  await header.getByRole('button', { name: 'Add Bot', exact: true }).click();
+  await header.getByRole('button', { name: 'Bots', exact: true }).click();
+  await header.getByRole('menuitem', { name: 'Add Bot', exact: true }).click();
   const addDialog = page.getByRole('dialog', { name: 'Add a Bot' });
   await addDialog.getByRole('button', { name: kit.name, exact: true }).waitFor();
   check((await addDialog.getByRole('button', { name: 'lead', exact: true }).count()) === 0, "the picker leaves out the Space's own members");
@@ -4317,6 +4677,18 @@ async function spaceHeader() {
   await addDialog.waitFor({ state: 'hidden' });
   const after = await memberNames(freeSpace.id);
   check(after.join() === `lead,${kit.name}`, 'Add Bot on a free Space puts the Bot in GET /spaces/{id}/members', after.join());
+  await header.getByRole('button', { name: 'Bots', exact: true }).click();
+  const roster = header.getByRole('group', { name: 'Bots in this Space' });
+  await roster.waitFor();
+  const rosterText = (await roster.innerText()).replace(/\s+/g, ' ');
+  check(rosterText.includes('lead') && rosterText.includes(kit.name) && rosterText.includes('coordinator'), 'the Bots popup lists the roster with the coordinator marked', rosterText);
+  check((await header.getByRole('menuitem').allInnerTexts()).join() === 'Add Bot,Bot settings', 'the Bots popup ends with Add Bot and Bot settings');
+  await shot('bots-popup');
+  await header.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
+  await panel.waitFor();
+  check((await header.getByRole('menuitem').count()) === 0, 'Bot settings closes the popup and opens the Bots panel');
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'hidden' });
   const mFree = await members();
   check(mFree.count === 2 && mFree.text.includes(kit.name) && mFree.leads === 1, 'the member list now shows both members', JSON.stringify(mFree));
   await shot('desktop-free');
@@ -4324,14 +4696,22 @@ async function spaceHeader() {
 
   await open(conversation.id, `chat-${suffix}`);
   const convText = await headerText();
-  const face = await header.getByRole('button', { name: 'Show Bots' }).locator('svg').first().innerHTML();
+  const face = await header.getByRole('img', { name: 'Bots' }).locator('svg').first().innerHTML();
   check(convText.includes('conversation') && !convText.includes('Budget'), 'a conversation header names its kind and has no budget chip', convText);
   check(face.includes('#8B5CF6') && !face.includes('#8E8E93'), "a conversation header shows the Bot's creature in its colour, not a pebble");
   check((await actions()) === 'Add Bot', 'a conversation has Add Bot only', await actions());
+  const newChat = header.getByRole('button', { name: 'New chat', exact: true });
+  check((await newChat.count()) === 1, 'a conversation header has New chat');
+  await shot('conv');
   const mConv = await members();
   check(mConv.count === 1 && mConv.text.includes(sam.name), 'the conversation lists its one Bot', JSON.stringify(mConv));
   await shot('desktop-conversation');
   await page.keyboard.press('Escape');
+  const before = (await getJson('/spaces')).length;
+  await newChat.click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith(`/${conversation.id}`));
+  const fresh = await getJson(`/spaces/${page.url().split('/').pop()}`);
+  check(fresh.kind === 'conversation' && fresh.botId === sam.id && fresh.id !== conversation.id && (await getJson('/spaces')).length === before + 1, 'New chat opens a new conversation with the same Bot', `${fresh.kind} bot ${fresh.botId} id ${fresh.id}`);
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [id, title, step] of [[workSpace.id, workSpace.name, 'phone-work-item'], [freeSpace.id, `free-space-${suffix}`, 'phone-free'], [conversation.id, `chat-${suffix}`, 'phone-conversation']]) {
@@ -4339,21 +4719,29 @@ async function spaceHeader() {
     check(await noOverflow(), `${step} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(step);
   }
+  await open(workSpace.id, workSpace.name);
+  check(!(await header.getByRole('button', { name: 'Wrap up', exact: true }).isVisible()), 'on a phone the header has no Wrap up button');
+  await header.getByRole('button', { name: 'More', exact: true }).click();
+  check(await header.getByRole('menuitem', { name: 'Wrap up', exact: true }).isVisible(), 'on a phone Wrap up is in the "..." menu');
+  await shot('phone');
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await open(freeSpace.id, `free-space-${suffix}`);
-  await header.getByRole('button', { name: 'Attach to Work item', exact: true }).click();
+  await openMore('Attach to Work item');
   const attachDialog = page.getByRole('dialog', { name: 'Attach to a Work item' });
   await pick('Work item', itemB.title, attachDialog);
   await attachDialog.getByRole('button', { name: 'Attach', exact: true }).click();
-  await header.getByRole('link', { name: 'Open Work item', exact: true }).waitFor();
+  await header.getByRole('button', { name: 'More', exact: true }).click();
+  await header.getByRole('menuitem', { name: 'Open Work item', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
   const attached = await getJson(`/spaces/${freeSpace.id}`);
   check(attached.workItemId === itemB.id && attached.kind === 'work_item', 'Attach from the header makes the Space a Work item Space of the item', `workItemId ${attached.workItemId}, kind ${attached.kind}`);
   const attachedText = await headerText();
   check(attachedText.includes(itemB.title) && attachedText.includes(`Budget ${attached.tokensUsed.toLocaleString('en-US')} /`) && attached.tokensUsed === 500, "the attached Space's header shows the item and its budget used", attachedText);
   check((await actions()) === 'Open Work item', 'the attached Space offers Open Work item only', await actions());
   await shot('desktop-attached');
-  await header.getByRole('link', { name: 'Open Work item', exact: true }).click();
+  await openMore('Open Work item');
   await page.waitForURL(`**/work-items/${itemB.id}`);
   const spaces = main.getByRole('region', { name: 'Spaces' });
   await spaces.getByRole('link', { name: new RegExp(`free-space-${suffix}`) }).waitFor();

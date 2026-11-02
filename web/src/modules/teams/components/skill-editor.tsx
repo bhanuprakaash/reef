@@ -15,7 +15,7 @@ function EditorForm({
 }: {
   skill?: LibrarySkill;
   initial: SkillFile[];
-  onDone: () => void;
+  onDone: (saved?: LibrarySkill) => void;
 }) {
   const [name, setName] = useState(skill?.name ?? '');
   const [manifest, setManifest] = useState(
@@ -97,7 +97,7 @@ function EditorForm({
         >
           {skill ? 'Save new version' : 'Create skill'}
         </Button>
-        <Button type="button" variant="ghost" onClick={onDone}>
+        <Button type="button" variant="ghost" onClick={() => onDone()}>
           Cancel
         </Button>
         {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
@@ -106,7 +106,7 @@ function EditorForm({
   );
 }
 
-export function NewSkillEditor({ onDone }: { onDone: () => void }) {
+export function NewSkillEditor({ onDone }: { onDone: (saved?: LibrarySkill) => void }) {
   return <EditorForm initial={[]} onDone={onDone} />;
 }
 

@@ -9,6 +9,7 @@ type Props = {
   options: SelectOption[];
   selected: string[];
   disabled?: boolean;
+  row?: boolean;
   onToggle: (value: string) => void;
 };
 
@@ -18,6 +19,7 @@ export function SearchPicker({
   options,
   selected,
   disabled,
+  row,
   onToggle,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -30,15 +32,33 @@ export function SearchPicker({
 
   return (
     <div className="min-w-0">
-      <Button
-        type="button"
-        size="sm"
-        aria-expanded={open}
-        disabled={disabled}
-        onClick={() => setOpen(!open)}
-      >
-        {open ? 'Done' : label}
-      </Button>
+      {row ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => setOpen(!open)}
+          className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-faint text-sm text-soft outline-none hover:bg-card focus-visible:ring-3 focus-visible:ring-ring disabled:cursor-not-allowed disabled:text-faint"
+        >
+          {open ? (
+            'Done'
+          ) : (
+            <>
+              <span aria-hidden="true">+</span> {label}
+            </>
+          )}
+        </button>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          aria-expanded={open}
+          disabled={disabled}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Done' : label}
+        </Button>
+      )}
       {open && (
         <div className="mt-2 space-y-2">
           <TextField
