@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router';
+import { Outlet, useLocation, useMatch, useNavigate } from 'react-router';
 import { BrowserPane, type BrowserDriver } from '@/app/browser-pane';
 import { FirstRun } from '@/app/first-run';
 import { PaneToggles } from '@/app/pane-toggles';
@@ -15,6 +15,8 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 export type LayoutContext = {
   browserOpen: boolean;
   terminalOpen: boolean;
+  toggleBrowser: () => void;
+  toggleTerminal?: () => void;
   hideTerminal: () => void;
   setHasTerminal: (has: boolean) => void;
   setBrowserDriver: (driver: BrowserDriver | null) => void;
@@ -25,6 +27,7 @@ export function Layout() {
   const [browserOpen, toggleBrowser] = useStoredFlag('reef.browserPane.open');
   const [paneOpen, togglePane] = useStoredFlag('reef.terminalPane.open');
   const { pathname } = useLocation();
+  const onSpace = useMatch('/spaces/:id') !== null;
   const [launching, setLaunching] = useState(false);
   const [launchPath, setLaunchPath] = useState(pathname);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -79,6 +82,8 @@ export function Layout() {
               {
                 browserOpen,
                 terminalOpen: desktop && terminalOpen,
+                toggleBrowser,
+                toggleTerminal: hasTerminal ? toggleTerminal : undefined,
                 hideTerminal,
                 setHasTerminal,
                 setBrowserDriver,
@@ -86,7 +91,7 @@ export function Layout() {
             }
           />
         </main>
-        {desktop && (
+        {desktop && !onSpace && (
           <PaneToggles
             browserOpen={browserOpen}
             onBrowser={toggleBrowser}

@@ -102,7 +102,7 @@ logged in and on `PATH`.
 - Space: bubbles with each author's creature (a Bot bubble is a slight lift on the page with a 1px edge) and an always-visible Reply button, replies folded under their thread root with a
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
-  Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The running turn names its
+  Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The header has the Bot faces and the title, with the Work item's status, budget, `PR #N` and diff chips under it; on the right New chat (only in a 1:1 conversation: a new conversation with the same Bot), a Bots popup (the roster, Add Bot, and Bot settings, which opens the Bots side panel), the Browser and Terminal toggles (desktop), Wrap up (a Work item Space) and a "…" menu with Inspector, Attach to Work item and Open Work item. Below 768 px the toggles go, New chat is an icon, the faces open the Bots popup and Wrap up moves into "…". The running turn names its
   bot. Bots' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, paused, failed, stopped or completed (the state of

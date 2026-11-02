@@ -73,7 +73,7 @@ focus; a browser has no bridge and shows no chip. Only the first copied file sho
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
 shared by every Space. It sits to the right of the main area with Back, Forward and Reload
 buttons and an address bar; a preload script reports the pane's size to the main process so the
-native view stays lined up with it. The Browser toggle at the window's top right (every page)
+native view stays lined up with it. The Browser toggle at the window's top right (on a Space, in its header)
 shows or hides the pane, as does the pane's own close button; the choice is remembered and the
 pane starts closed, and opens by itself while an agent drives it (the stored choice does not change). A hidden pane reports a zero size, which hides the view. Back, Forward and
 Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
@@ -136,7 +136,7 @@ calls `POST /work-items/{id}/worktree` (making the worktree the same way a first
 opens the shell in the returned path; a failed call shows its error in the pane. A free Space
 opens in the project path. The pane is keyed by Work item, so moving to another one never keeps
 the previous one's shell.
-The Terminal toggle sits next to the Browser toggle at the window's top right, only on a Space or
+The Terminal toggle sits next to the Browser toggle, only on a Space or
 Work item page (a page with a folder); one on/off choice for the window (default off, free Spaces included), remembered. On a Space
 page the terminal is a drawer under the messages, on a Work item page a panel pinned to the bottom,
 with a header (folder, Clear, hide); the toggle or the hide button turns it off.

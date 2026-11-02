@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react';
 import { useOutletContext, useParams } from 'react-router';
 import type { LayoutContext } from '@/app/layout';
+import { PaneToggles } from '@/app/pane-toggles';
 import { WorkItemTerminal } from '@/app/work-item-terminal';
 import { MentionCardsProvider } from '@/app/mention-hovercard';
 import { ReviewDiff } from '@/app/review-diff';
@@ -40,7 +41,8 @@ export function SpacePage() {
   const workItems = useWorkItems();
   const spaceProjects = useSpaceProjects(id);
   const projects = useProjects();
-  const { browserOpen, setBrowserDriver } = useOutletContext<LayoutContext>();
+  const { browserOpen, terminalOpen, toggleBrowser, toggleTerminal, setBrowserDriver } =
+    useOutletContext<LayoutContext>();
   const project = projects.data?.find((p) => p.id === space.data?.projectId);
   const terminal = useTerminal(
     space.data !== undefined && (space.data.workItemId !== null || !!project),
@@ -67,6 +69,15 @@ export function SpacePage() {
     ),
     drafts: <SkillDraftCards spaceId={id} />,
     browserOpen: hasBrowser && browserOpen,
+    tools: hasBrowser ? (
+      <PaneToggles
+        className="flex gap-0.5 rounded-field border border-line p-0.5"
+        browserOpen={browserOpen}
+        onBrowser={toggleBrowser}
+        terminalOpen={terminalOpen}
+        onTerminal={toggleTerminal}
+      />
+    ) : undefined,
     onBrowserDriver: setBrowserDriver,
   };
   return (

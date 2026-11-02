@@ -1,6 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import type { BrowserDriver } from '@/app/browser-pane';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { Dialog } from '@/components/dialog';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
@@ -11,6 +11,7 @@ import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
+import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
 import { AddBotForm } from '@/modules/spaces/components/add-bot-form';
 import { AttachForm } from '@/modules/spaces/components/attach-form';
@@ -55,6 +56,7 @@ type Props = {
   brief?: string;
   drafts?: ReactNode;
   browserOpen?: boolean;
+  tools?: ReactNode;
   onBrowserDriver?: (driver: BrowserDriver | null) => void;
 };
 
@@ -78,6 +80,7 @@ export function SpaceView({
   brief,
   drafts,
   browserOpen,
+  tools,
   onBrowserDriver,
 }: Props) {
   const messages = useMessages(space.id);
@@ -87,6 +90,8 @@ export function SpaceView({
   const wrap = useWrapSpace(space.id);
   const proposal = useProposal(space.id);
   const reopen = useReopenSpace(space.id);
+  const newChat = useStartConversation();
+  const navigate = useNavigate();
   const closed = space.closedAt !== null;
   const running = turn.status === 'running';
   const [side, setSide] = useState<Side>(null);
@@ -161,7 +166,7 @@ export function SpaceView({
         space={space}
         scope={scope}
         status={status}
-        roles={roles.map((r) => r.botId)}
+        roles={roles}
         faces={faces}
         working={running ? (workingBotId ?? null) : null}
         pullRequest={latestPullRequest(messages.data ?? [])}
@@ -170,11 +175,19 @@ export function SpaceView({
         diff={diff}
         onDiff={diffPanel ? () => openSide(wide ? null : { kind: 'diff' }) : undefined}
         diffOpen={wide}
+        tools={tools}
         wrapDisabled={wrapDisabled}
         onWrap={() => wrap.mutate()}
         attachDisabled={running}
         onAttach={() => setAttaching(true)}
         onAddBot={() => setAdding(true)}
+        onNewChat={() =>
+          newChat.mutate(
+            { projectId: space.projectId, bot: { id: roles[0].botId, name: roles[0].name } },
+            { onSuccess: (created) => void navigate(`/spaces/${created.id}`) },
+          )
+        }
+        newChatDisabled={newChat.isPending}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -202,6 +215,7 @@ export function SpaceView({
           >
             <div className="mx-auto max-w-5xl space-y-4">
               {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
+              {newChat.isError && <p className="text-sm text-danger">{newChat.error.message}</p>}
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
               {messages.hasEarlier && (
