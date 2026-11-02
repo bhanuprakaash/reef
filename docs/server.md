@@ -241,7 +241,7 @@ Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `purpose` | string | what the Project is for, in a line; default `""` |
-| `icon` | string | an icon name from the picker set, drawn on the Project's tile; default `""`, which shows the first letter of the name, as does a name outside the set (migration 110 [`110_project_icon.sql`](../store/migrations/110_project_icon.sql)) |
+| `icon` | string | an icon name from the picker set, drawn on the Project's tile; default `""`, which shows the first letter of the name, as does a name outside the set (migration 110 [`110_project_icon.sql`](../store/migrations/110_project_icon.sql); migration 111 [`111_project_icon_names.sql`](../store/migrations/111_project_icon_names.sql) clears an icon outside the set) |
 | `colour` | string | the tile colour as `#rrggbb`; default `""`, which picks one of the window's eight preset colours by id. The window offers only those eight |
 | `createdAt` | string | |
 
