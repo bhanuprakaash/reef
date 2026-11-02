@@ -433,9 +433,14 @@ func TestDeliveryIntro(t *testing.T) {
 		want string
 	}{
 		{"solo team", store.Team{Name: "solo", Roles: []store.Role{lead}}, lead, ""},
-		{"specialist", team, architect, common},
+		{"specialist", team, architect, common + "When you finish work a bot handed you, post the " +
+			"result for the user in the Space. Start a line with that bot's @name only when it must " +
+			"decide something, you are blocked, or it asked for a report back.\n"},
 		{"lead", team, lead,
-			common + "Do not summarize or repeat a specialist's post back to the user: they see it.\n"},
+			common + "Do not summarize or repeat a specialist's post back to the user: they see it. " +
+				"Hand off work whose result the user needs with a line that starts with @name, not " +
+				"send_to_role, and ask for a report back only when you will act on the result: the " +
+				"bot posts it to the user itself.\n"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

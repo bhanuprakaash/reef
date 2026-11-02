@@ -84,7 +84,7 @@ A Space is where talk happens. Inside it each member is its own agent session, a
 
 A Team's responsibility text only suggests a Team for a proposed Work item. It routes nothing else.
 
-**How bots talk.** A bot uses `post_to_space` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the Space and are inspectable by the user, while only participating roles can read them through Reef tools.
+**How bots talk.** A bot uses `post_to_space` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the Space and are inspectable by the user, while only participating roles can read them through Reef tools. A Bot reports work another Bot handed it to the user in the Space, and wakes the Bot that handed it only for a decision, a block or an asked-for report (160).
 
 **Example flow.** You queue "Google login" on a Team. The queue starts it and the lead asks @architect for a plan → plan posted as a thread, you reply in the thread with questions → architect hands off to @developer → developer asks @architect a doubt → developer pings @tester → tester reports back → the lead submits the item for Review with the proof.
 
@@ -192,7 +192,7 @@ Numbers are never reused: code and docs cite them. A row marked Replaced or Amen
 | 10 | Caps: 4 hops, 25 turns, 1M tokens per Space; pause and ask. Amended by 31, 38, 59 and 69 | Stops loops without an LLM judge |
 | 11 | Failed turns are marked, never auto-retried | User decides retry vs rollback |
 | 12 | Per-teammate MCP tokens on one server | Teams are configurable; ports per role do not scale |
-| 13 | Lead does not summarize specialists back | User already sees the post; halves lead cost per handoff |
+| 13 | Lead does not summarize specialists back. Amended by 160 | User already sees the post; halves lead cost per handoff |
 | 14 | Replaced by 107. Gates default on for architect→developer and developer→tester, off for lead→architect | Gate the steps that cost tokens and touch code |
 | 15 | Decisions captured both live (tool) and at wrap-up (proposed, approved). Generalised by 117 | Accuracy plus a backstop |
 | 16 | Spaces end explicitly via wrap-up, no idle timers | Rewrite at the right moment, no wasted tokens |
@@ -339,6 +339,7 @@ Numbers are never reused: code and docs cite them. A row marked Replaced or Amen
 | 157 | Approved work whose repositories are ready starts at once; there is no concurrency limit, so Queued holds approved work only while admission waits (no ready repository, or owner missing); order, reorder and review-feedback-first apply among waiting items | Ordering without a limit would only delay ready work. |
 | 158 | A turn that posted with `post_to_space` posts the text it wrote after its last successful post as one more message only when the Bot called another tool after that post (the post was progress and work continued); the text before it stays on the turn. Otherwise the whole reply stays on the turn and nothing more is posted. Amends the rule that a posted turn's plain reply is never posted | A Bot posts progress ("Reading the notes now."), works on, then writes its answer as plain text; the old rule hid that answer from the Space, but a "posted" written right after the answer's own post must not become a second message |
 | 159 | The inbox has two groups. Review folds into Needs you, and the agent message a Space ended on is a question (Needs you, it ends in a question mark) or a reply (FYI, `POST /inbox/dismiss` hides it); Needs you cannot be dismissed. Amends 63 and 138 | A question asks for an answer and a reply only informs; Reef still reads no meaning, only the last mark |
+| 160 | A Bot that finishes work another Bot handed it posts the result for the user in the Space, and starts a line with the handing Bot's @name only when that Bot must decide something, the finishing Bot is blocked, or a report back was asked for. The lead hands off work whose result the user needs with a public @name line, not `send_to_role`, and asks for a report back only when it will act on the result. Amends 13 | A `send_to_role` reply comes back to the lead privately, so the lead spent a full turn relaying each result; on the scripted relay Space this halves the lead's turns and input tokens per routed check |
 
 ## Contract checklist and implementation choices
 

@@ -554,9 +554,14 @@ func deliveryIntro(team store.Team, r store.Role) string {
 		"Text you write after your last post_to_space is posted only when you did other work after that post.\n",
 		strings.Join(names, ", "))
 	if r.Lead {
-		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"
+		return s + "Do not summarize or repeat a specialist's post back to the user: they see it. " +
+			"Hand off work whose result the user needs with a line that starts with @name, not " +
+			"send_to_role, and ask for a report back only when you will act on the result: the " +
+			"bot posts it to the user itself.\n"
 	}
-	return s
+	return s + "When you finish work a bot handed you, post the result for the user in the Space. " +
+		"Start a line with that bot's @name only when it must decide something, you are blocked, " +
+		"or it asked for a report back.\n"
 }
 
 // profileLine says who the agent works with, or is empty before a profile exists.
