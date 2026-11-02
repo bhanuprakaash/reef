@@ -363,10 +363,18 @@ func (r *Runner) RunDirect(
 // totals of the turn's whole session, so the turn's own cost and usage are each total minus the
 // one the session's earlier turns had. The totals are stored with the turn for the next one.
 func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event) error {
-	// A forked session's totals start at its parent's.
+	// A forked session's totals may or may not start at its parent's: they do when they still
+	// cover the turn's own per-message usage after the parent's is taken off.
 	sessionID := turn.SessionID
-	if r.forkedFrom != "" {
-		sessionID, r.forkedFrom = r.forkedFrom, ""
+	if parent := r.forkedFrom; parent != "" {
+		r.forkedFrom = ""
+		inherits, err := r.inheritsParent(ctx, parent, *turn, ev)
+		if err != nil {
+			return err
+		}
+		if inherits {
+			sessionID = parent
+		}
 	}
 	if ev.CostUSD != nil {
 		before, err := r.st.SessionCostBefore(ctx, sessionID, turn.ID)
@@ -386,6 +394,32 @@ func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event
 		turn.Usage, turn.SessionUsage = own, ev.SessionUsage
 	}
 	return nil
+}
+
+// inheritsParent reports whether the totals ev reports for the first turn of a forked session
+// include those of the session parent it was forked from.
+func (r *Runner) inheritsParent(
+	ctx context.Context, parent string, turn store.Turn, ev agent.Event,
+) (bool, error) {
+	if ev.SessionUsage != nil {
+		before, err := r.st.SessionUsageBefore(ctx, parent, turn.ID)
+		if err != nil {
+			return false, err
+		}
+		return tokens(*ev.SessionUsage)-tokens(before) >= tokens(turn.Usage), nil
+	}
+	if ev.CostUSD != nil {
+		before, err := r.st.SessionCostBefore(ctx, parent, turn.ID)
+		if err != nil {
+			return false, err
+		}
+		return *ev.CostUSD >= before, nil
+	}
+	return false, nil
+}
+
+func tokens(u agent.Usage) int64 {
+	return u.InputTokens + u.OutputTokens + u.CacheReadTokens + u.CacheWriteTokens
 }
 
 func (r *Runner) wake(text string) string {
