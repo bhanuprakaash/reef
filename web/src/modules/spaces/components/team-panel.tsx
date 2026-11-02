@@ -95,9 +95,9 @@ function SessionSummary({ session }: { session: RoleSession }) {
         </p>
       ))}
       {session.refreshPending ? (
-        <p>Apply to open chats runs before this Bot's next turn.</p>
+        <p>Apply here runs before this Bot's next turn.</p>
       ) : (
-        session.stale && <p>Bot settings changed. Apply to open chats to adopt edits.</p>
+        session.stale && <p>Bot settings changed. Apply here to adopt edits.</p>
       )}
     </div>
   );
@@ -154,8 +154,8 @@ export function TeamPanel({
           </button>
         </div>
         <p className="mb-2 text-xs text-muted">
-          Changes apply to new chats. Apply to open chats restarts them with the new settings and
-          keeps their history.
+          Changes apply to new chats. Apply here restarts this Bot's session in this chat with the
+          new settings and keeps its history.
         </p>
         <ul className="space-y-0.5">
           {roles.map((role) => {
@@ -224,7 +224,7 @@ export function TeamPanel({
                     disabled={refresh.isPending}
                     onClick={() => refresh.mutate({ botId: role.botId, model: models[role.botId] })}
                   >
-                    Apply to open chats
+                    Apply here
                   </Button>
                   {roles.length > 1 &&
                     (role.leaving ? (
@@ -270,7 +270,7 @@ export function TeamPanel({
         {refresh.isSuccess && (
           <p className="mt-1.5 text-sm text-muted">
             {refresh.data.pending
-              ? "Apply to open chats runs before this Bot's next turn."
+              ? "Apply here runs before this Bot's next turn."
               : 'Applied: the next message starts a new session.'}
           </p>
         )}

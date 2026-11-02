@@ -47,8 +47,8 @@ export function BotPanel({ bot, skills, connections, providers, noProject, onClo
         </Link>
       </div>
       <p className="mt-3 text-xs text-muted">
-        Changes apply to new chats. Apply to open chats restarts them with the new settings and
-        keeps their history.
+        Changes apply to new chats. To restart an open chat with them, use Apply here in that chat's
+        Bots panel.
       </p>
       {save.isError && <p className="mt-3 text-sm text-danger">{save.error.message}</p>}
       <div className="mt-4 flex items-center gap-3">

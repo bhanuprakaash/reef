@@ -74,7 +74,7 @@ describe('TeamPanel', () => {
     expect(markup).toContain('<dt>Tools</dt><dd class="min-w-0 break-words text-soft">Read</dd>');
     expect(markup).toContain('claude:how, codex:lint');
     expect(markup).toContain('codex:lint is not available here: needs Codex');
-    expect(markup).toContain('Bot settings changed. Apply to open chats to adopt edits.');
+    expect(markup).toContain('Bot settings changed. Apply here to adopt edits.');
   });
 
   it('collapses a long tool list to a count', () => {
