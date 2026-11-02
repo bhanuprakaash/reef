@@ -1,12 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import { connectionsKey } from '@/lib/query-keys';
-import type { Connection } from '@/types/api';
+import { availableConnectionsKey, connectionsKey } from '@/lib/query-keys';
+import type { AvailableConnection, Connection } from '@/types/api';
 
 export type ConnectionInput = Omit<Connection, 'id' | 'createdAt'>;
 
 export function useConnections() {
   return useQuery({ queryKey: connectionsKey, queryFn: () => api<Connection[]>('/connections') });
+}
+
+export function useAvailableConnections(projectId?: number) {
+  return useQuery({
+    queryKey: availableConnectionsKey(projectId),
+    queryFn: () =>
+      api<AvailableConnection[]>(
+        projectId === undefined
+          ? '/connections/available'
+          : `/connections/available?projectId=${projectId}`,
+      ),
+  });
 }
 
 function useRefreshConnections() {
@@ -34,6 +46,15 @@ export function useDeleteConnection() {
   const refresh = useRefreshConnections();
   return useMutation({
     mutationFn: (id: number) => api<void>(`/connections/${id}`, { method: 'DELETE' }),
+    onSuccess: refresh,
+  });
+}
+
+export function useImportConnection() {
+  const refresh = useRefreshConnections();
+  return useMutation({
+    mutationFn: (input: { source: string; name: string; projectId?: number }) =>
+      api<Connection>('/connections/import', { method: 'POST', body: JSON.stringify(input) }),
     onSuccess: refresh,
   });
 }

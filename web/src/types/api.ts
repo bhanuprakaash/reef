@@ -273,7 +273,22 @@ export type Connection = {
   args?: string[];
   env?: Record<string, string>;
   url?: string;
+  headers?: Record<string, string>;
+  oauth?: { clientId?: string; callbackPort?: number };
   createdAt: string;
+};
+
+export type AvailableConnection = {
+  source: string;
+  name: string;
+  kind: 'command' | 'url';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  added: boolean;
+  connectionId?: number;
 };
 
 export type Provider = {
