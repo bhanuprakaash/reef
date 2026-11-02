@@ -207,7 +207,9 @@ export function ConnectionLibrary() {
           </Button>
         </div>
       )}
-      <p className="text-xs text-muted">Changes reach new chats, and open chats after Apply here.</p>
+      <p className="text-xs text-muted">
+        Changes reach new chats, and open chats after Apply here.
+      </p>
     </div>
   );
 }
