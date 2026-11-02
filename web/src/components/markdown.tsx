@@ -98,7 +98,7 @@ function Mention({ children }: { children: ReactNode }) {
           className="mention inline-flex items-center gap-[0.3em] whitespace-nowrap rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           style={
             {
-              '--bot': `color-mix(in oklab, ${bodyColour(bot.look)} 75%, var(--color-fg))`,
+              '--bot': `color-mix(in oklab, ${bodyColour(bot.look)} 60%, var(--color-fg))`,
             } as CSSProperties
           }
           tabIndex={0}
