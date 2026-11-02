@@ -14,9 +14,9 @@ import (
 )
 
 // Connection is a tool connection set up once in Reef: an MCP server a Bot is offered when it
-// selects the connection. It is a local process (Command, Args, Env) or an HTTP server (URL), and
-// it names the server the backend shows the Bot's tools under. It listens for nothing and
-// authorises nothing.
+// selects the connection. It is a local process (Command, Args, Env) or an HTTP server (URL, with
+// optional Headers and OAuth), and it names the server the backend shows the Bot's tools under.
+// It listens for nothing and authorises nothing.
 type Connection struct {
 	ID        int64             `json:"id"`
 	Name      string            `json:"name"`
@@ -24,14 +24,18 @@ type Connection struct {
 	Args      []string          `json:"args,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	OAuth     *agent.OAuth      `json:"oauth,omitempty"`
 	CreatedAt time.Time         `json:"createdAt"`
 }
 
-const _connectionCols = "id, name, command, args, env, url, created_at"
+const _connectionCols = "id, name, command, args, env, url, headers, oauth, created_at"
 
 // Server is the MCP server the backend is given for c.
 func (c Connection) Server() agent.MCPServer {
-	return agent.MCPServer{Command: c.Command, Args: c.Args, Env: c.Env, URL: c.URL}
+	return agent.MCPServer{
+		Command: c.Command, Args: c.Args, Env: c.Env, URL: c.URL, Headers: c.Headers, OAuth: c.OAuth,
+	}
 }
 
 func (c Connection) validate() error {
@@ -46,6 +50,12 @@ func (c Connection) validate() error {
 		if u, err := url.Parse(c.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return fmt.Errorf("%w: connection %s: url %q must be http or https", ErrInvalid, c.Name, c.URL)
 		}
+	} else if len(c.Headers) > 0 || c.OAuth != nil {
+		return fmt.Errorf("%w: connection %s: headers and oauth need a url", ErrInvalid, c.Name)
+	}
+	if c.OAuth != nil && (c.OAuth.CallbackPort < 0 || c.OAuth.CallbackPort > 65535) {
+		return fmt.Errorf("%w: connection %s: oauth callbackPort %d is not a port", ErrInvalid, c.Name,
+			c.OAuth.CallbackPort)
 	}
 	return nil
 }
@@ -55,13 +65,14 @@ func (s *Store) CreateConnection(ctx context.Context, c Connection) (Connection,
 	if err := c.validate(); err != nil {
 		return Connection{}, err
 	}
-	args, env, err := encodeConnection(c)
+	args, env, headers, oauth, err := encodeConnection(c)
 	if err != nil {
 		return Connection{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO connection (name, command, args, env, url, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		c.Name, c.Command, args, env, c.URL, time.Now().UTC().Format(time.RFC3339Nano))
+		"INSERT INTO connection (name, command, args, env, url, headers, oauth, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		c.Name, c.Command, args, env, c.URL, headers, oauth, time.Now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		if isUnique(err) {
 			return Connection{}, fmt.Errorf("%w: a connection named %q already exists", ErrConflict, c.Name)
@@ -96,13 +107,14 @@ func (s *Store) UpdateConnection(ctx context.Context, c Connection) (Connection,
 	if err := c.validate(); err != nil {
 		return Connection{}, err
 	}
-	args, env, err := encodeConnection(c)
+	args, env, headers, oauth, err := encodeConnection(c)
 	if err != nil {
 		return Connection{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE connection SET name = ?, command = ?, args = ?, env = ?, url = ? WHERE id = ?",
-		c.Name, c.Command, args, env, c.URL, c.ID)
+		"UPDATE connection SET name = ?, command = ?, args = ?, env = ?, url = ?, headers = ?, oauth = ? "+
+			"WHERE id = ?",
+		c.Name, c.Command, args, env, c.URL, headers, oauth, c.ID)
 	if err != nil {
 		if isUnique(err) {
 			return Connection{}, fmt.Errorf("%w: a connection named %q already exists", ErrConflict, c.Name)
@@ -164,6 +176,71 @@ func (s *Store) DeleteConnection(ctx context.Context, id int64) error {
 	return tx.Commit()
 }
 
+// Sign-in states of a connection for one backend.
+const (
+	SignedIn     = "signed_in"
+	NeedsSignIn  = "needs_sign_in"
+	SignInFailed = "failed"
+)
+
+// SignIn is what Reef last learned about whether a backend can use a connection's server. Detail
+// is the backend's last output line when the state is SignInFailed.
+type SignIn struct {
+	Backend   string    `json:"backend"`
+	State     string    `json:"state"`
+	Detail    string    `json:"detail"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// SetConnectionSignIn records the state of the connection for the backend. A connection that is
+// gone is left alone.
+func (s *Store) SetConnectionSignIn(ctx context.Context, id int64, backend, state, detail string) error {
+	_, err := s.db.ExecContext(ctx,
+		"INSERT INTO connection_sign_in (connection_id, backend, state, detail, updated_at) "+
+			"SELECT id, ?, ?, ?, ? FROM connection WHERE id = ? "+
+			"ON CONFLICT (connection_id, backend) DO UPDATE SET "+
+			"state = excluded.state, detail = excluded.detail, updated_at = excluded.updated_at",
+		backend, state, detail, time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("set sign-in of connection %d: %w", id, err)
+	}
+	return nil
+}
+
+// ConnectionSignIns returns every connection's sign-ins by connection id, each ordered by backend.
+func (s *Store) ConnectionSignIns(ctx context.Context) (map[int64][]SignIn, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT connection_id, backend, state, detail, updated_at FROM connection_sign_in "+
+			"ORDER BY connection_id, backend")
+	if err != nil {
+		return nil, fmt.Errorf("list sign-ins: %w", err)
+	}
+	type row struct {
+		id int64
+		SignIn
+	}
+	all, err := scanAll(rows, func(r interface{ Scan(...any) error }) (row, error) {
+		var v row
+		var updated string
+		if err := r.Scan(&v.id, &v.Backend, &v.State, &v.Detail, &updated); err != nil {
+			return row{}, err
+		}
+		var err error
+		if v.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated); err != nil {
+			return row{}, fmt.Errorf("sign-in of connection %d: bad updated_at: %w", v.id, err)
+		}
+		return v, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := map[int64][]SignIn{}
+	for _, v := range all {
+		out[v.id] = append(out[v.id], v.SignIn)
+	}
+	return out, nil
+}
+
 // checkConnections fails with ErrInvalid when an id names no connection.
 func (s *Store) checkConnections(ctx context.Context, ids []int64) error {
 	all, err := s.Connections(ctx)
@@ -201,26 +278,45 @@ func pickConnections(all []Connection, ids []int64) []Connection {
 	return out
 }
 
-func encodeConnection(c Connection) (string, string, error) {
-	args, err := json.Marshal(nonNil(c.Args))
-	if err != nil {
-		return "", "", fmt.Errorf("encode args: %w", err)
+// encodeConnection returns the JSON of the args, env, headers and oauth columns; oauth is empty
+// when there is none.
+func encodeConnection(c Connection) (args, env, headers, oauth string, err error) {
+	for _, f := range []struct {
+		name string
+		give any
+		dst  *string
+	}{
+		{"args", nonNil(c.Args), &args},
+		{"env", nonNilMap(c.Env), &env},
+		{"headers", nonNilMap(c.Headers), &headers},
+	} {
+		b, err := json.Marshal(f.give)
+		if err != nil {
+			return "", "", "", "", fmt.Errorf("encode %s: %w", f.name, err)
+		}
+		*f.dst = string(b)
 	}
-	env := c.Env
-	if env == nil {
-		env = map[string]string{}
+	if c.OAuth != nil {
+		b, err := json.Marshal(c.OAuth)
+		if err != nil {
+			return "", "", "", "", fmt.Errorf("encode oauth: %w", err)
+		}
+		oauth = string(b)
 	}
-	e, err := json.Marshal(env)
-	if err != nil {
-		return "", "", fmt.Errorf("encode env: %w", err)
+	return args, env, headers, oauth, nil
+}
+
+func nonNilMap(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
 	}
-	return string(args), string(e), nil
+	return m
 }
 
 func scanConnection(r interface{ Scan(...any) error }) (Connection, error) {
 	var c Connection
-	var args, env, created string
-	if err := r.Scan(&c.ID, &c.Name, &c.Command, &args, &env, &c.URL, &created); err != nil {
+	var args, env, headers, oauth, created string
+	if err := r.Scan(&c.ID, &c.Name, &c.Command, &args, &env, &c.URL, &headers, &oauth, &created); err != nil {
 		return Connection{}, err
 	}
 	if err := json.Unmarshal([]byte(args), &c.Args); err != nil {
@@ -228,6 +324,14 @@ func scanConnection(r interface{ Scan(...any) error }) (Connection, error) {
 	}
 	if err := json.Unmarshal([]byte(env), &c.Env); err != nil {
 		return Connection{}, fmt.Errorf("connection %s: bad env: %w", c.Name, err)
+	}
+	if err := json.Unmarshal([]byte(headers), &c.Headers); err != nil {
+		return Connection{}, fmt.Errorf("connection %s: bad headers: %w", c.Name, err)
+	}
+	if oauth != "" {
+		if err := json.Unmarshal([]byte(oauth), &c.OAuth); err != nil {
+			return Connection{}, fmt.Errorf("connection %s: bad oauth: %w", c.Name, err)
+		}
 	}
 	var err error
 	if c.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {

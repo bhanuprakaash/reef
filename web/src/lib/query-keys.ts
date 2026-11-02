@@ -11,3 +11,8 @@ export const skillDraftsKey = [...skillsRootKey, 'drafts'];
 export const workItemPrKey = (workItemId: number) => ['work-item-pr', workItemId];
 export const providersKey = ['providers'];
 export const connectionsKey = ['connections'];
+export const availableConnectionsKey = (projectId?: number) => [
+  ...connectionsKey,
+  'available',
+  projectId ?? 'all',
+];

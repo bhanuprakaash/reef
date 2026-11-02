@@ -30,6 +30,15 @@ func TestParse(t *testing.T) {
 			want: []agent.Event{{Kind: agent.KindSession, SessionID: "3c1296cc-1e28-4167-a8a8-dfb0facf9381", Model: "claude-opus-5-5"}},
 		},
 		{
+			name: "init reports servers that connect or need sign-in",
+			give: `{"type":"system","subtype":"init","session_id":"s1","model":"m","mcp_servers":[{"name":"reef","status":"connected"},{"name":"slack","status":"needs-auth"},{"name":"bad","status":"failed"}]}`,
+			want: []agent.Event{
+				{Kind: agent.KindSession, SessionID: "s1", Model: "m"},
+				{Kind: agent.KindMCP, MCPServer: "reef", Text: agent.MCPConnected},
+				{Kind: agent.KindMCP, MCPServer: "slack", Text: agent.MCPNeedsAuth},
+			},
+		},
+		{
 			name: "hook is skipped",
 			give: `{"type":"system","subtype":"hook_started","hook_id":"015c16a7-c42b-4557-b43a-d55ccfb33e5a","hook_name":"SessionStart:startup","hook_event":"SessionStart","session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381"}`,
 		},
@@ -604,6 +613,39 @@ func TestMCPServersNotPreApproved(t *testing.T) {
 	if len(got) != 1 || !strings.HasSuffix(got[0].Output, " --allowedTools mcp__reef__*") ||
 		strings.Contains(got[0].Output, "mcp__mcp1__") {
 		t.Errorf("events = %+v", got)
+	}
+}
+
+func TestMCPConfigIsStrict(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{Cwd: t.TempDir(), MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, ".json --strict-mcp-config") {
+		t.Errorf("events = %+v, want --strict-mcp-config right after --mcp-config", got)
+	}
+}
+
+func TestWriteMCPConfig_HeadersAndOAuth(t *testing.T) {
+	path, err := writeMCPConfig(map[string]agent.MCPServer{"slack": {
+		URL:     "https://mcp.slack.com/mcp",
+		Headers: map[string]string{"X-Key": "k"},
+		OAuth:   &agent.OAuth{ClientID: "id1", CallbackPort: 3118},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(path) }()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"mcpServers":{"slack":{"url":"https://mcp.slack.com/mcp","headers":{"X-Key":"k"},` +
+		`"oauth":{"clientId":"id1","callbackPort":3118},"type":"http"}}}`
+	if string(body) != want {
+		t.Errorf("config = %s, want %s", body, want)
 	}
 }
 

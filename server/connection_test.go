@@ -38,6 +38,7 @@ func TestConnectionsAndBotSelection(t *testing.T) {
 			`{"name":"kim","backend":"claude","connections":[9]}`, 400, `unknown connection 9`},
 		{"create secret url", http.MethodPost, "/connections", `{"name":"sec","url":"https://u:p@h.io/mcp?token=abc&x=1"}`, 201, `"url":"https://****@h.io/mcp?token=****\u0026x=****"`},
 		{"list masks", http.MethodGet, "/connections", "", 200, `"env":{"KEY":"****"}`},
+		{"sign-in is an empty list", http.MethodPost, "/connections", `{"name":"fresh","url":"http://h/mcp"}`, 201, `"signIn":[]`},
 		{"edit keeps masked env", http.MethodPut, "/connections/1", `{"name":"files","command":"files-mcp","env":{"KEY":"****","N":"2"}}`, 200, `"env":{"KEY":"****","N":"****"}`},
 		{"edit keeps masked url", http.MethodPut, "/connections/3", `{"name":"sec","url":"https://****@h.io/mcp?token=****\u0026x=****"}`, 200, `token=****\u0026x=****`},
 		{"mask without stored value", http.MethodPut, "/connections/1", `{"name":"files","command":"files-mcp","env":{"OTHER":"****"}}`, 400, `env OTHER is masked`},

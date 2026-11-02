@@ -102,3 +102,39 @@ func TestConnection_SessionKeepsWhatItAdopted(t *testing.T) {
 		t.Errorf("unselected bot session = %+v, %v, want no connections", other, err)
 	}
 }
+
+func TestConnection_SignInIsKeptPerBackendAndDeletedWithIt(t *testing.T) {
+	ctx := context.Background()
+	s := spaceMemberStore(t)
+	web, err := s.CreateConnection(ctx, Connection{Name: "web", URL: "http://h/mcp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range [][3]string{
+		{"codex", NeedsSignIn, ""}, {"claude", SignInFailed, "port closed"}, {"claude", SignedIn, ""},
+	} {
+		if err := s.SetConnectionSignIn(ctx, web.ID, in[0], in[1], in[2]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetConnectionSignIn(ctx, 99, "claude", SignedIn, ""); err != nil {
+		t.Errorf("sign-in of a missing connection = %v, want nothing stored and no error", err)
+	}
+	got, err := s.ConnectionSignIns(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var states []string
+	for _, si := range got[web.ID] {
+		states = append(states, si.Backend+" "+si.State+" "+si.Detail)
+	}
+	if want := []string{"claude signed_in ", "codex needs_sign_in "}; !reflect.DeepEqual(states, want) || len(got) != 1 {
+		t.Errorf("sign-ins = %q (%d connections), want %q for one", states, len(got), want)
+	}
+	if err := s.DeleteConnection(ctx, web.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.ConnectionSignIns(ctx); err != nil || len(got) != 0 {
+		t.Errorf("sign-ins after delete = %v, %v, want none", got, err)
+	}
+}
