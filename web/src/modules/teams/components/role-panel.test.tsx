@@ -31,15 +31,18 @@ const role: Role = {
 };
 
 describe('RolePanel', () => {
-  it('shows the description, the tool count and a close button for a claude role', () => {
+  it('shows the description, the tools as chips and a close button for a claude role', () => {
     const markup = renderToStaticMarkup(
-      <RolePanel role={role} onChange={() => {}} onClose={() => {}}>
-        {null}
-      </RolePanel>,
+      <MemoryRouter>
+        <RolePanel role={role} onChange={() => {}} onClose={() => {}}>
+          {null}
+        </RolePanel>
+      </MemoryRouter>,
     );
 
     expect(markup).toContain('Builds what the architect sketched.');
-    expect(markup).toContain('2 allowed');
+    expect(markup).toContain('Tools <span class="text-xs text-muted">2</span>');
+    expect(markup).toContain('Add tool');
     expect(markup).toContain('aria-label="Close role"');
   });
 
@@ -47,9 +50,11 @@ describe('RolePanel', () => {
     const providers = [{ name: 'work', kind: 'claude', detected: false, folder: '/w' }];
     const render = (r: Role) =>
       renderToStaticMarkup(
-        <RolePanel role={r} providers={providers} onChange={() => {}} onClose={() => {}}>
-          {null}
-        </RolePanel>,
+        <MemoryRouter>
+          <RolePanel role={r} providers={providers} onChange={() => {}} onClose={() => {}}>
+            {null}
+          </RolePanel>
+        </MemoryRouter>,
       );
 
     expect(render(role)).toContain('Default (PATH)');
@@ -58,34 +63,37 @@ describe('RolePanel', () => {
     expect(markup).not.toContain('Default (PATH)');
   });
 
-  it('shows each connection with its own selected state and offers a selected one as a tool', () => {
+  it('shows the connections a Bot has as chips', () => {
     const connections = [
       { id: 1, name: 'files', command: 'files-mcp', createdAt: '' },
       { id: 2, name: 'web', url: 'http://127.0.0.1:9/mcp', createdAt: '' },
     ];
     const markup = renderToStaticMarkup(
-      <RolePanel
-        role={{ ...role, connections: [2] }}
-        connections={connections}
-        onChange={() => {}}
-        onClose={() => {}}
-      >
-        {null}
-      </RolePanel>,
+      <MemoryRouter>
+        <RolePanel
+          role={{ ...role, connections: [2] }}
+          connections={connections}
+          onChange={() => {}}
+          onClose={() => {}}
+        >
+          {null}
+        </RolePanel>
+      </MemoryRouter>,
     );
 
-    expect(markup).toContain('1 selected');
-    expect(markup).toMatch(/aria-checked="false"[^>]*aria-label="developer connection files"/);
-    expect(markup).toMatch(/aria-checked="true"[^>]*aria-label="developer connection web"/);
-    expect(markup).toContain('mcp__web__*');
-    expect(markup).not.toContain('mcp__files__*');
+    expect(markup).toContain('Connections <span class="text-xs text-muted">1</span>');
+    expect(markup).toContain('aria-label="Remove web"');
+    expect(markup).not.toContain('aria-label="Remove files"');
+    expect(markup).toContain('Add connection');
   });
 
   it('hides the tools of a codex role', () => {
     const markup = renderToStaticMarkup(
-      <RolePanel role={{ ...role, backend: 'codex' }} onChange={() => {}} onClose={() => {}}>
-        {null}
-      </RolePanel>,
+      <MemoryRouter>
+        <RolePanel role={{ ...role, backend: 'codex' }} onChange={() => {}} onClose={() => {}}>
+          {null}
+        </RolePanel>
+      </MemoryRouter>,
     );
 
     expect(markup).not.toContain('Tools');

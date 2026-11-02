@@ -779,6 +779,12 @@ async function phone() {
   check(sb.bottom === 844 && sb.top > 100 && sb.left === 0 && sb.right === 390, 'the team opens as a bottom sheet', JSON.stringify(sb));
   await shot('team-sheet');
   await noScroll('team sheet');
+  await team.getByRole('button', { name: /^Open / }).first().click();
+  await team.getByRole('button', { name: 'Back to Bots' }).waitFor();
+  const actionBar = await box(team.getByRole('button', { name: 'Apply here' }));
+  check(actionBar.bottom <= 844, 'the Bot profile action bar is on screen in the sheet', JSON.stringify(actionBar));
+  await shot('team-profile-sheet');
+  await noScroll('team profile sheet');
   await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
   await team.waitFor({ state: 'hidden' });
 
@@ -2085,6 +2091,7 @@ async function workshop() {
 
   // Unrestricted Bash on a Bot without write: the server's error shows in the Bot panel.
   await page.goto(`${base}/bots?bot=${sql("select id from bot where name = 'architect'")}`);
+  await main.getByRole('button', { name: 'Add tool', exact: true }).click();
   const bashBox = main.getByLabel('architect tool Bash');
   check(await bashBox.isDisabled(), 'the Bash checkbox of a read-only Bot is disabled', await bashBox.locator('..').getAttribute('title'));
   await main.getByLabel('architect add tool').fill('Bash(*)');
@@ -2096,6 +2103,7 @@ async function workshop() {
 
   // Allowed tools are picked in the Bot panel and save; the MCP server stays.
   await page.goto(`${base}/bots?bot=${row('bot.id')}`);
+  await main.getByRole('button', { name: 'Add tool', exact: true }).click();
   await main.getByLabel('developer tool Read').waitFor();
   check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the Bot\'s tools');
   check(await main.getByLabel('developer tool mcp__verify-conn__*').count() === 1, 'the tool picker has one entry for the Bot\'s selected connection');
@@ -2144,6 +2152,7 @@ async function workshop() {
   await page.goto(`${base}/spaces/${cid}`);
   await openBotSettings();
   const botsPanel = page.getByRole('complementary', { name: 'Bots' });
+  await botsPanel.getByRole('button', { name: 'Open developer' }).click();
   await botsPanel.getByText('Apply here to adopt edits').waitFor();
   const adopted = await botsPanel.innerText();
   await shot('team-panel-adopted');
@@ -2540,14 +2549,24 @@ async function team() {
   check(after.width === before.width, 'opening it does not change the Space width', `${before.width} -> ${after.width}`);
   const rows = await panel.locator('ul').first().getByRole('listitem').allInnerTexts();
   check(rows.length === 4 && rows.some((r) => /developer[\s\S]*working/i.test(r)), 'it lists four roles and the developer as working', rows.join(' | ').replace(/\n/g, ' '));
-  await panel.getByRole('listitem').filter({ hasText: /^developer/i }).getByRole('button', { name: 'Remove' }).click();
+  await shot('popover-roster');
+  await panel.getByRole('button', { name: 'Open developer' }).click();
+  await panel.getByRole('button', { name: 'Back to Bots' }).waitFor();
+  const bar = [...(await panel.getByRole('button', { name: /^(Apply here|Make coordinator|Remove)$/ }).allInnerTexts()), ...(await panel.getByRole('link', { name: 'Edit Bot' }).allInnerTexts())];
+  check(bar.join() === 'Apply here,Make coordinator,Remove,Edit Bot', 'a Bot profile has the actions Apply here, Make coordinator, Edit Bot and Remove', bar.join());
+  const profileText = (await panel.innerText()).replace(/\s+/g, ' ');
+  check(/session model .* backend claude code .* access tools/i.test(profileText), 'the profile has the Session and Access groups', profileText.slice(0, 200));
+  await shot('popover-profile');
+  await panel.getByRole('button', { name: 'Back to Bots' }).click();
+  await panel.getByRole('button', { name: 'Open developer' }).click();
+  await panel.getByRole('button', { name: 'Remove' }).click();
   const leaves = panel.getByText('Leaves after its current turn.');
   await leaves.waitFor();
   const box = await panel.boundingBox();
   const note = await leaves.boundingBox();
   const select = await panel.getByRole('combobox').first().boundingBox();
   check(note.height < 20 && note.x + note.width <= box.x + box.width, 'the leaving note is one line inside the popover', JSON.stringify(note));
-  check(select.x >= box.x && select.x + select.width <= box.x + box.width, 'the coordinator select is inside the popover', JSON.stringify(select));
+  check(select.x >= box.x && select.x + select.width <= box.x + box.width, 'the model select is inside the popover', JSON.stringify(select));
   await shot('popover-working');
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'hidden' });
@@ -3672,6 +3691,7 @@ async function bots() {
   await pick(`${mate} permission mode`, 'acceptEdits', panel);
   bot = await save();
   check(bot.permissionMode === 'acceptEdits' && bot.model === 'sonnet' && bot.write === false, 'saving only a permission mode changes the permission mode and nothing else', JSON.stringify({ model: bot.model, permissionMode: bot.permissionMode, write: bot.write }));
+  await panel.getByRole('button', { name: 'Add tool', exact: true }).click();
   await panel.getByRole('switch', { name: `${mate} tool Read` }).click();
   bot = await save();
   check(bot.tools.join() === 'Read' && bot.permissionMode === 'acceptEdits' && bot.model === 'sonnet', 'saving only a tool changes the tools and nothing else', JSON.stringify(bot.tools));
