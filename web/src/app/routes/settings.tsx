@@ -13,7 +13,6 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { useConnections } from '@/modules/teams/api/connections';
 import { ConnectionLibrary } from '@/modules/teams/components/connection-library';
 import { SkillLibrary } from '@/modules/teams/components/skill-library';
-import { AddProviderForm } from '@/modules/providers/components/add-provider-form';
 import { ProviderList } from '@/modules/providers/components/provider-list';
 import { usePutProfile } from '@/lib/api/put-profile';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
@@ -347,12 +346,7 @@ export function SettingsPage() {
     notifications: <NotificationsSection />,
     terminal: <TerminalSection />,
     updates: <UpdateSection />,
-    providers: (
-      <>
-        <ProviderList />
-        <AddProviderForm />
-      </>
-    ),
+    providers: <ProviderList />,
     connections: <ConnectionLibrary />,
     skills: <SkillLibrary disk={skills.data ?? []} />,
   };
