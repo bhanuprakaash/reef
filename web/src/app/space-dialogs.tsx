@@ -72,7 +72,8 @@ function DeleteForm({ space, onClose }: Omit<Props, 'open'>) {
             remove.mutate(undefined, {
               onSuccess: () => {
                 onClose();
-                if (pathname === `/spaces/${space.id}`) void navigate('/');
+                const base = `/spaces/${space.id}`;
+                if (pathname === base || pathname.startsWith(`${base}/`)) void navigate('/');
               },
             })
           }
