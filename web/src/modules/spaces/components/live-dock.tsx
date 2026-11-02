@@ -261,7 +261,7 @@ export function LiveDock({ spaceId, entries, paused, onOpenTurn }: Props) {
                 type="button"
                 aria-expanded={open}
                 onClick={() => setOpen(!open)}
-                className="dock-water flex h-[42px] max-md:h-11 min-w-0 max-w-full items-center gap-2.5 rounded-pill pl-2 pr-[18px] text-left text-[13.5px]"
+                className="dock-water flex h-[42px] max-md:h-11 w-[min(420px,100%)] items-center gap-2.5 rounded-pill pl-2 pr-[18px] text-left text-[13.5px]"
               >
                 <Face entry={entry} />
                 <Status

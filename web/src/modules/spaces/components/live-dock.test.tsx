@@ -52,6 +52,15 @@ describe('LiveDock', () => {
     expect(markup).toContain('Editing');
   });
 
+  it('keeps the running pill one width while tools come and go', () => {
+    const width = (markup: string) => markup.match(/dock-water[^"]*/)?.[0];
+    const thinking = dock({ status: 'running', items: [] });
+    const calling = dock({ status: 'running', items: [{ type: 'tool' as const, tool: bash }] });
+
+    expect(width(thinking)).toContain('w-[min(420px,100%)]');
+    expect(width(calling)).toBe(width(thinking));
+  });
+
   it('counts the timer from the turn start the server holds', () => {
     useRunningTurns.mockReturnValue({
       data: [{ spaceId: 1, botId: null, startedAt: new Date(Date.now() - 125_000).toISOString() }],
