@@ -32,7 +32,7 @@ function MemoryRow({
       >
         <span className="w-16 shrink-0 pt-0.5 text-xs text-muted">{item.kind}</span>
         <span className="min-w-0 flex-1">
-          <span className={`block text-sm ${open ? '' : 'truncate'}`}>{item.body}</span>
+          <span className={`block select-text text-sm ${open ? '' : 'truncate'}`}>{item.body}</span>
           {open && item.why && <span className="mt-1 block text-sm text-soft">{item.why}</span>}
           <span className="mt-0.5 block text-xs text-muted">
             <span className="capitalize">{author}</span>
