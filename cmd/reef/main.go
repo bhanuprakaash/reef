@@ -40,7 +40,7 @@ commands:
   token <work-item> --role R
   chat <work-item> --backend claude|codex | chat --space ID
   mcp`
-	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
+	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR] [--prompt-wait 10m]"
 	_defaultAddr       = "127.0.0.1:7700"
 	_shutdownTimeout   = time.Second
 	_readHeaderTimeout = 10 * time.Second
@@ -94,6 +94,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	fs.SetOutput(io.Discard)
 	addr := fs.String("addr", _defaultAddr, "")
 	flagData := fs.String("data", "", "")
+	promptWait := fs.Duration("prompt-wait", 10*time.Minute, "")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("%w\n%s", err, _serveUsage)
 	}
@@ -175,6 +176,11 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	}); err != nil {
 		return fmt.Errorf("clear active turns: %w", err)
 	}
+	if err := st.ExpireWaitingPrompts(ctx, func(spaceID int64) bool {
+		return space.InUse(data, spaceID)
+	}, store.PromptRestartReason); err != nil {
+		return fmt.Errorf("expire permission prompts: %w", err)
+	}
 
 	ui, err := web.Dist()
 	if err != nil {
@@ -185,6 +191,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 		return fmt.Errorf("open memory: %w", err)
 	}
 	api := server.New(st, ms, data, exe)
+	api.SetPromptWait(*promptWait)
 	defer api.Close()
 	srv := &http.Server{
 		Handler:           web.Handler(ui, api),

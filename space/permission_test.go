@@ -133,3 +133,28 @@ func TestSession_NewMessageDeniesWaitingPrompt(t *testing.T) {
 		t.Errorf("turns = %+v, %v, want two done turns", turns, err)
 	}
 }
+
+func TestSession_CloseDeniesWaitingPromptAsStopped(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	ag := newAskAgent()
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunBot(ctx, *testBotID(t, st, "architect"), "PARK", nil, nil, discard); !errors.Is(err, ErrWaiting) {
+		t.Fatalf("RunBot = %v, want ErrWaiting", err)
+	}
+
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if p, err := st.PermissionPrompt(ctx, 1); err != nil || p.Status != store.PromptDenied || p.Reason != "stopped" {
+		t.Errorf("prompt = %+v, %v, want denied with reason stopped", p, err)
+	}
+	if turn, err := st.Turn(ctx, 1); err != nil || turn.Status != "failed" || turn.Error != "interrupted" {
+		t.Errorf("turn = %+v, %v, want failed, interrupted", turn, err)
+	}
+}

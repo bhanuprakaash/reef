@@ -19,6 +19,9 @@ const (
 	// and the user may still allow it.
 	PromptExpired = "expired"
 
+	// PromptRestartReason is why a prompt that waited when its server stopped expired.
+	PromptRestartReason = "reef restarted"
+
 	AnswerOnce   = "once"
 	AnswerAlways = "always"
 	AnswerDeny   = "deny"

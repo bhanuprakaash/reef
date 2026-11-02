@@ -73,7 +73,6 @@ const (
 	WrapCommand = "/wrap"
 
 	_newMessageReason = "a new message came; the user did not answer the prompt"
-	_restartedReason  = "reef restarted"
 
 	_wrapPrompt = "Wrap up this Space. Call the get_brief tool first. Then call the " +
 		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
@@ -140,7 +139,7 @@ func Open(
 	if err := failStaleTurns(ctx, st, spaceID); err != nil {
 		return nil, err
 	}
-	err = st.ExpireWaitingPrompts(ctx, func(id int64) bool { return id != spaceID }, _restartedReason)
+	err = st.ExpireWaitingPrompts(ctx, func(id int64) bool { return id != spaceID }, store.PromptRestartReason)
 	if err != nil {
 		return nil, err
 	}
