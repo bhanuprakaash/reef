@@ -3625,43 +3625,83 @@ async function providers() {
   const rows = pane.getByRole('listitem');
   await pane.getByRole('heading', { name: 'Providers' }).waitFor();
   await rows.first().waitFor();
+  const expand = async (row) => {
+    const toggle = row.locator('button[aria-expanded]');
+    if ((await toggle.getAttribute('aria-expanded')) === 'false') await toggle.click();
+  };
+  const expandAll = async () => {
+    for (const row of await rows.all()) await expand(row);
+  };
   const detected = (await getJson('/providers')).filter((p) => p.detected);
+  const collapsed = (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  check(detected.every((p) => collapsed.some((t) => t.includes(p.name) && t.includes('PATH') && t.includes('Ready'))), 'a row shows the install name, PATH and Ready before it is opened', collapsed.join(' | '));
+  const firstToggle = rows.first().locator('button[aria-expanded]');
+  check((await firstToggle.getAttribute('aria-expanded')) === 'false', 'a row starts collapsed');
+  await firstToggle.click();
+  check((await firstToggle.getAttribute('aria-expanded')) === 'true', 'clicking a row opens its details');
+  await expandAll();
   const text = (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
-  check(detected.length > 0 && detected.every((p) => text.some((t) => t.includes(p.name) && t.includes('Found on PATH') && t.includes(p.path))), 'the page lists every detected install with its path', text.join(' | '));
+  check(detected.length > 0 && detected.every((p) => text.some((t) => t.includes(p.name) && t.includes('Found on PATH') && t.includes(p.path))), 'an opened row lists every detected install with its path', text.join(' | '));
   check(detected.every((p) => !p.version || text.some((t) => t.includes(p.version))), 'a detected install shows its version when the server has one', JSON.stringify(detected.map((p) => p.version ?? null)));
-  check(text.some((t) => t.includes('Default, Opus, Sonnet, Haiku')), 'a claude install lists the model names the role panel offers');
+  check(text.some((t) => t.includes('Default Opus Sonnet Haiku')), 'a claude install lists the model names the role panel offers');
   check((await rows.filter({ hasText: 'Found on PATH' }).getByRole('button', { name: /^Remove/ }).count()) === 0, 'a detected install has no Remove');
   await shot('desktop-dark-list');
 
-  const form = pane.getByRole('form', { name: 'Add provider' });
-  const kind = (k) => form.getByRole('group', { name: 'Kind' }).getByRole('button', { name: k, exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add provider' });
+  const form = dialog.getByRole('form', { name: 'Add provider' });
+  const kindButton = { claude: /^Claude Code/, codex: /^Codex/ };
+  const toStep2 = async (k) => {
+    if (!(await dialog.isVisible())) await main.getByRole('button', { name: 'Add provider', exact: true }).click();
+    if (await form.isVisible()) await dialog.getByRole('button', { name: 'Back', exact: true }).click();
+    await dialog.getByRole('button', { name: kindButton[k] }).click();
+    await dialog.getByRole('button', { name: 'Next', exact: true }).click();
+    await form.waitFor();
+  };
   const fill = async (k, folder, n) => {
-    await kind(k);
-    await form.getByLabel('Folder').fill(folder);
+    await toStep2(k);
+    await form.getByLabel('Folder with the binary').fill(folder);
     await form.getByLabel('Name', { exact: true }).fill(n);
     await form.getByRole('button', { name: 'Add provider' }).click();
   };
   const bad = async (label, pattern, k, folder, n) => {
     await fill(k, folder, n);
-    const msg = await errorText(pattern, 15000);
+    let msg = null;
+    try {
+      await dialog.getByText(pattern).waitFor({ timeout: 15000 });
+      msg = await dialog.getByText(pattern).textContent();
+    } catch {}
     check(!!msg, label, msg ?? '(not shown)');
   };
-  check((await page.getByRole('button', { name: 'Choose…' }).count()) === 0, 'a plain browser has no Choose button, the folder is typed');
-  await bad('a folder that does not exist shows the server error inline', /not a directory/, 'claude', '/nonexistent-reef-ui', name);
-  await bad('a folder without the kind binary shows the server error inline', /no codex binary/, 'codex', fakeDir, name);
-  await bad('a name taken by the one on PATH shows the server error inline', /taken by the one found on PATH/, 'claude', fakeDir, 'claude');
+  await main.getByRole('button', { name: 'Add provider', exact: true }).click();
+  check((await dialog.getByText('Step 1 of 2').isVisible()) && (await dialog.getByRole('button', { name: 'Next', exact: true }).isDisabled()), 'the Add provider dialog opens on step 1 with Next disabled until a kind is picked');
+  await shot('desktop-dark-dialog-step1');
+  await dialog.getByRole('button', { name: kindButton.claude }).click();
+  check((await dialog.getByRole('button', { name: kindButton.claude }).getAttribute('aria-pressed')) === 'true' && (await dialog.getByRole('button', { name: 'Next', exact: true }).isEnabled()), 'picking Claude Code marks it pressed and enables Next');
+  await dialog.getByRole('button', { name: 'Next', exact: true }).click();
+  await form.waitFor();
+  check((await dialog.getByText('Step 2 of 2').isVisible()) && (await form.getByLabel('Folder with the binary').getAttribute('placeholder')) === '/Users/you/claude-work' && (await form.getByLabel('Name', { exact: true }).getAttribute('placeholder')) === 'work-claude', 'step 2 asks for the folder and name with placeholders for the picked kind');
+  check((await dialog.getByRole('button', { name: 'Choose…' }).count()) === 0, 'a plain browser has no Choose button, the folder is typed');
+  await shot('desktop-dark-dialog-step2');
+  await bad('a folder that does not exist shows the server error in the dialog', /not a directory/, 'claude', '/nonexistent-reef-ui', name);
+  await bad('a folder without the kind binary shows the server error in the dialog', /no codex binary/, 'codex', fakeDir, name);
+  await bad('a name taken by the one on PATH shows the server error in the dialog', /taken by the one found on PATH/, 'claude', fakeDir, 'claude');
   await shot('desktop-dark-error');
   check((await getJson('/providers')).every((p) => p.detected), 'none of the bad adds stored a provider');
 
   await fill('claude', fakeDir, name);
+  await dialog.waitFor({ state: 'hidden' });
   const added = rows.filter({ hasText: name });
   await added.waitFor();
+  await expand(added);
   const stored = (await getJson('/providers')).find((p) => p.name === name);
   const addedText = (await added.innerText()).replace(/\s+/g, ' ');
-  check(stored && !stored.detected && stored.folder === fakeDir && addedText.includes(fakeDir) && addedText.includes('Added') && (await added.getByRole('button', { name: `Remove ${name}` }).count()) === 1, 'adding the fake claude folder shows it as Added with its folder and a Remove', addedText);
-  check((await form.getByLabel('Folder').inputValue()) === '' && (await form.getByLabel('Name', { exact: true }).inputValue()) === '', 'the form clears after a successful add');
+  check(stored && !stored.detected && stored.folder === fakeDir && addedText.includes(fakeDir) && addedText.includes('Added from a folder') && (await added.getByRole('button', { name: `Remove ${name}` }).count()) === 1, 'adding the fake claude folder closes the dialog and lists it as Added with its folder and a Remove', addedText);
   await shot('desktop-dark-added');
-  await bad('the same name again shows the conflict inline', /already exists/, 'claude', fakeDir, name);
+  await toStep2('claude');
+  check((await form.getByLabel('Folder with the binary').inputValue()) === '' && (await form.getByLabel('Name', { exact: true }).inputValue()) === '', 'the dialog is empty when opened again after a successful add');
+  await bad('the same name again shows the conflict in the dialog', /already exists/, 'claude', fakeDir, name);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await dialog.waitFor({ state: 'hidden' });
 
   await openMate();
   const select = page.getByRole('combobox', { name: `${mate} provider`, exact: true });
@@ -3691,6 +3731,7 @@ async function providers() {
       await setTheme(mode);
       await page.goto(`${base}/settings?section=providers`);
       await added.waitFor();
+      await expandAll();
       await page.waitForTimeout(400);
       check(await noOverflow(), `${label} ${mode}: Settings Providers has no horizontal scroll`);
       await shot(`${label}-${mode}-page`);
@@ -3704,6 +3745,7 @@ async function providers() {
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${base}/settings?section=providers`);
+  await expand(added);
   await added.getByRole('button', { name: `Remove ${name}` }).click();
   const inUse = await errorText(new RegExp(`used by bot ${mate}`), 15000);
   check(!!inUse && (await getJson('/providers')).some((p) => p.name === name), 'Remove of an install a Bot uses shows the server conflict and keeps it', inUse ?? '(not shown)');
@@ -3712,6 +3754,7 @@ async function providers() {
   await pick(`${mate} provider`, 'Default (PATH)', main);
   await saveMate();
   await page.goto(`${base}/settings?section=providers`);
+  await expand(added);
   await added.getByRole('button', { name: `Remove ${name}` }).click();
   await added.waitFor({ state: 'detached' });
   check((await getJson('/providers')).every((p) => p.name !== name), 'Remove deletes the install once no Bot uses it', JSON.stringify((await getJson('/providers')).map((p) => p.name)));
