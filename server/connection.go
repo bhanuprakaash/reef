@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -13,6 +16,8 @@ import (
 func (s *server) connectionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /connections", s.listConnections)
 	mux.HandleFunc("POST /connections", s.createConnection)
+	mux.HandleFunc("GET /connections/available", s.availableConnections)
+	mux.HandleFunc("POST /connections/import", s.importConnection)
 	mux.HandleFunc("/connections", methodNotAllowed)
 	mux.HandleFunc("PUT /connections/{id}", s.putConnection)
 	mux.HandleFunc("DELETE /connections/{id}", s.deleteConnection)
@@ -44,6 +49,112 @@ func (s *server) createConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, redactConnection(c))
+}
+
+// availableConnection is an MCP server the user already has, with secrets masked like a
+// connection's. Added says a connection with the same command and arguments, or the same url,
+// exists.
+type availableConnection struct {
+	Source       string            `json:"source"`
+	Name         string            `json:"name"`
+	Kind         string            `json:"kind"`
+	Command      string            `json:"command,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
+	URL          string            `json:"url,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	Added        bool              `json:"added"`
+	ConnectionID int64             `json:"connectionId,omitempty"`
+}
+
+func (s *server) availableConnections(w http.ResponseWriter, r *http.Request) {
+	projectID, err := queryID(r, "projectId")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	found, err := s.findMCP(r.Context(), projectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	have, err := s.st.Connections(r.Context())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	out := make([]availableConnection, 0, len(found))
+	for _, f := range found {
+		v := redactConnection(f.Conn)
+		a := availableConnection{
+			Source: f.Source, Name: f.Name, Kind: "command", Command: v.Command, Args: v.Args,
+			Env: v.Env, URL: v.URL, Headers: v.Headers,
+		}
+		if f.Conn.URL != "" {
+			a.Kind = "url"
+		}
+		if i := slices.IndexFunc(have, func(c store.Connection) bool { return sameServer(c, f.Conn) }); i >= 0 {
+			a.Added, a.ConnectionID = true, have[i].ID
+		}
+		out = append(out, a)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// importConnection reads the server again from its source and copies it whole, so the secrets
+// never pass through the client.
+func (s *server) importConnection(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Source    string `json:"source"`
+		Name      string `json:"name"`
+		ProjectID *int64 `json:"projectId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	found, err := s.findMCP(r.Context(), in.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	i := slices.IndexFunc(found, func(f foundMCP) bool { return f.Source == in.Source && f.Name == in.Name })
+	if i < 0 {
+		writeError(w, fmt.Errorf("%w: no %s server named %q", store.ErrNotFound, in.Source, in.Name))
+		return
+	}
+	conn := found[i].Conn
+	conn.Name = _badNameChars.ReplaceAllString(in.Name, "-")
+	c, err := s.st.CreateConnection(r.Context(), conn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, redactConnection(c))
+}
+
+// findMCP lists the user's MCP servers; the project's own are included when projectID is set.
+func (s *server) findMCP(ctx context.Context, projectID *int64) ([]foundMCP, error) {
+	var projectPath string
+	if projectID != nil {
+		p, err := s.st.Project(ctx, *projectID)
+		if err != nil {
+			return nil, err
+		}
+		projectPath = p.Path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("find home folder: %w", err)
+	}
+	return findMCPServers(ctx, home, projectPath), nil
+}
+
+func sameServer(a, b store.Connection) bool {
+	if a.URL != "" || b.URL != "" {
+		return a.URL == b.URL
+	}
+	return a.Command == b.Command && slices.Equal(a.Args, b.Args)
 }
 
 func (s *server) putConnection(w http.ResponseWriter, r *http.Request) {
@@ -92,23 +203,32 @@ func (s *server) deleteConnection(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// _mask stands in for a secret in REST responses: env values, every argument, and the userinfo and
-// query of a url.
+// _mask stands in for a secret in REST responses: env and header values, every argument, and the
+// userinfo and query of a url.
 const _mask = "****"
 
+// _badNameChars are what an imported server's name loses to become a connection name.
+var _badNameChars = regexp.MustCompile(`[^A-Za-z0-9_-]`)
+
 func redactConnection(c store.Connection) store.Connection {
-	if c.Env != nil {
-		env := make(map[string]string, len(c.Env))
-		for k := range c.Env {
-			env[k] = _mask
-		}
-		c.Env = env
-	}
+	c.Env = maskValues(c.Env)
+	c.Headers = maskValues(c.Headers)
 	if c.Args != nil {
 		c.Args = slices.Repeat([]string{_mask}, len(c.Args))
 	}
 	c.URL = redactURL(c.URL)
 	return c
+}
+
+func maskValues(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k := range m {
+		out[k] = _mask
+	}
+	return out
 }
 
 func redactURL(raw string) string {
@@ -135,20 +255,30 @@ func redactURL(raw string) string {
 }
 
 // keepSecrets fills in from stored where the editor sent back a mask, or sent no env for a local
-// process, so saving needs no sight of the secrets. A mask with nothing stored behind it fails.
+// process or no headers for a url, so saving needs no sight of the secrets. A mask with nothing
+// stored behind it fails.
 func keepSecrets(in *store.Connection, stored store.Connection) error {
 	if in.Env == nil && in.Command != "" {
 		in.Env = stored.Env
 	}
-	for k, v := range in.Env {
-		if v != _mask {
-			continue
+	if in.Headers == nil && in.URL != "" {
+		in.Headers = stored.Headers
+	}
+	for _, f := range []struct {
+		name     string
+		in, have map[string]string
+	}{{"env", in.Env, stored.Env}, {"header", in.Headers, stored.Headers}} {
+		for k, v := range f.in {
+			if v != _mask {
+				continue
+			}
+			sv, ok := f.have[k]
+			if !ok {
+				return fmt.Errorf("%w: %s %s is masked and has no stored value; enter it again",
+					store.ErrInvalid, f.name, k)
+			}
+			f.in[k] = sv
 		}
-		sv, ok := stored.Env[k]
-		if !ok {
-			return fmt.Errorf("%w: env %s is masked and has no stored value; enter it again", store.ErrInvalid, k)
-		}
-		in.Env[k] = sv
 	}
 	for i, v := range in.Args {
 		if v != _mask {
