@@ -34,8 +34,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 112 {
-		t.Errorf("user_version = %d, want 112", version)
+	if version != 113 {
+		t.Errorf("user_version = %d, want 113", version)
 	}
 
 	at := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.UTC)
@@ -109,8 +109,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 112 {
-		t.Errorf("user_version = %d, want 112", version)
+	if version != 113 {
+		t.Errorf("user_version = %d, want 113", version)
 	}
 	var approvals int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM approval").Scan(&approvals); err != nil {
@@ -248,6 +248,7 @@ func TestOpen_UpgradeClearsEmojiProjectIcons(t *testing.T) {
 		"INSERT INTO project (name, path, icon, created_at) VALUES ('blog', '/work/blog', 'rocket', '2026-01-02T03:04:05Z')",
 		"ALTER TABLE connection DROP COLUMN headers",
 		"ALTER TABLE connection DROP COLUMN oauth",
+		"DROP TABLE connection_sign_in",
 		"PRAGMA user_version = 110",
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {

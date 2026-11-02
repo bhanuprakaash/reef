@@ -275,7 +275,15 @@ export type Connection = {
   url?: string;
   headers?: Record<string, string>;
   oauth?: { clientId?: string; callbackPort?: number };
+  signIn?: ConnectionSignIn[];
   createdAt: string;
+};
+
+export type ConnectionSignIn = {
+  backend: string;
+  state: 'signed_in' | 'needs_sign_in' | 'failed';
+  detail: string;
+  updatedAt: string;
 };
 
 export type ConnectionLogin = { backend: string; ok: boolean; output: string };

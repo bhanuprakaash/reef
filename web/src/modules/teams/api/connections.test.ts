@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { useImportConnection, useLoginConnection } from './connections';
+import { catalog } from '@/modules/teams/utils/catalog';
+import { useAddCatalogConnection, useImportConnection, useLoginConnection } from './connections';
 
 const { api } = vi.hoisted(() => ({
   api: vi.fn<(path: string, init: { method: string; body: string }) => Promise<{ id: number }>>(),
@@ -8,7 +9,7 @@ vi.mock('@/lib/api-client', () => ({ api }));
 vi.mock('@tanstack/react-query', () => ({
   useMutation: (options: unknown) => options,
   useQuery: (options: unknown) => options,
-  useQueryClient: () => ({}),
+  useQueryClient: () => ({ invalidateQueries: () => Promise.resolve() }),
 }));
 
 const mutation = useImportConnection as unknown as () => {
@@ -49,4 +50,38 @@ it('signs a connection in with a POST to its login', async () => {
   expect(api.mock.calls[0]![0]).toBe('/connections/7/login');
   expect(api.mock.calls[0]![1].method).toBe('POST');
   expect(api.mock.calls[0]![1].body).toBe('{}');
+});
+
+const addCatalog = (
+  useAddCatalogConnection as unknown as () => {
+    mutationFn: (input: {
+      entry: (typeof catalog)[number];
+      values: Record<string, string>;
+    }) => Promise<unknown>;
+  }
+)();
+const entry = (id: string) => catalog.find((e) => e.id === id)!;
+
+it('adds GitLab on a host with a POST to connections and then signs in', async () => {
+  await addCatalog.mutationFn({ entry: entry('gitlab'), values: { host: 'gitlab.example.com' } });
+
+  expect(api.mock.calls.map((c) => [c[0], c[1].method])).toEqual([
+    ['/connections', 'POST'],
+    ['/connections/9/login', 'POST'],
+  ]);
+  expect(JSON.parse(api.mock.calls[0]![1].body)).toEqual({
+    name: 'gitlab',
+    url: 'https://gitlab.example.com/api/v4/mcp',
+  });
+});
+
+it('adds GitHub with a bearer header and makes no login call', async () => {
+  await addCatalog.mutationFn({ entry: entry('github'), values: { token: 'ghp_abc' } });
+
+  expect(api.mock.calls.map((c) => c[0])).toEqual(['/connections']);
+  expect(JSON.parse(api.mock.calls[0]![1].body)).toEqual({
+    name: 'github',
+    url: 'https://api.githubcopilot.com/mcp/',
+    headers: { Authorization: 'Bearer ghp_abc' },
+  });
 });

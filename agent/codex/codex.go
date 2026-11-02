@@ -76,10 +76,14 @@ type (
 		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
 		Params struct {
-			Delta      string `json:"delta"`
-			ItemID     string `json:"itemId"`
-			Item       item   `json:"item"`
-			TokenUsage struct {
+			Name          string          `json:"name"`          // mcpServer/startupStatus/updated
+			Status        string          `json:"status"`        // mcpServer/startupStatus/updated
+			Error         json.RawMessage `json:"error"`         // a string in mcpServer/startupStatus/updated
+			FailureReason string          `json:"failureReason"` // mcpServer/startupStatus/updated
+			Delta         string          `json:"delta"`
+			ItemID        string          `json:"itemId"`
+			Item          item            `json:"item"`
+			TokenUsage    struct {
 				Last struct {
 					InputTokens           int64 `json:"inputTokens"`
 					CachedInputTokens     int64 `json:"cachedInputTokens"`
@@ -577,6 +581,11 @@ func (m message) event() (ev agent.Event, ok bool) {
 			CacheReadTokens:  u.CachedInputTokens,
 			CacheWriteTokens: u.CacheWriteInputTokens,
 		}}, true
+	case m.Method == "mcpServer/startupStatus/updated" && p.Status == "ready":
+		return agent.Event{Kind: agent.KindMCP, MCPServer: p.Name, Text: agent.MCPConnected}, true
+	case m.Method == "mcpServer/startupStatus/updated" && p.Status == "failed" &&
+		(p.FailureReason == "reauthenticationRequired" || strings.Contains(string(p.Error), "not logged in")):
+		return agent.Event{Kind: agent.KindMCP, MCPServer: p.Name, Text: agent.MCPNeedsAuth}, true
 	case m.Method == "turn/completed" && p.Turn.Status == "failed":
 		msg := "turn failed"
 		if p.Turn.Error != nil {

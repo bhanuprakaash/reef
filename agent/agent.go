@@ -79,13 +79,23 @@ const (
 	// KindCompacted says the backend has shortened the session's history. The agent no longer
 	// holds everything it was sent, so what the caller sent it once it must send again.
 	KindCompacted Kind = "compacted"
+	// KindMCP reports whether the backend could use the MCP server MCPServer: Text is MCPConnected
+	// or MCPNeedsAuth. Other states are not reported.
+	KindMCP Kind = "mcp"
+)
+
+// States of an MCP server in a KindMCP event.
+const (
+	MCPConnected = "connected"
+	MCPNeedsAuth = "needs_auth"
 )
 
 // Event is one normalized step of a session. Its JSON is the wire format
 // reef-agent prints, one line per event.
 type Event struct {
 	Kind         Kind            `json:"kind"`
-	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer
+	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer, MCP state
+	MCPServer    string          `json:"mcpServer,omitempty"` // KindMCP
 	SessionID    string          `json:"sessionId,omitempty"` // KindSession
 	Model        string          `json:"model,omitempty"`     // KindSession
 	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it

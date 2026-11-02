@@ -34,10 +34,39 @@ func (s *server) listConnections(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	for i, c := range cs {
-		cs[i] = redactConnection(c)
+	views, err := s.connectionViews(r.Context(), cs...)
+	if err != nil {
+		writeError(w, err)
+		return
 	}
-	writeJSON(w, http.StatusOK, nonNil(cs))
+	writeJSON(w, http.StatusOK, nonNil(views))
+}
+
+// connectionView is a connection as REST shows it: secrets masked, with its sign-in states.
+type connectionView struct {
+	store.Connection
+	SignIn []store.SignIn `json:"signIn"`
+}
+
+func (s *server) connectionViews(ctx context.Context, cs ...store.Connection) ([]connectionView, error) {
+	signIns, err := s.st.ConnectionSignIns(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]connectionView, len(cs))
+	for i, c := range cs {
+		out[i] = connectionView{redactConnection(c), nonNil(signIns[c.ID])}
+	}
+	return out, nil
+}
+
+func (s *server) writeConnection(w http.ResponseWriter, r *http.Request, status int, c store.Connection) {
+	views, err := s.connectionViews(r.Context(), c)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, status, views[0])
 }
 
 func (s *server) createConnection(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +81,7 @@ func (s *server) createConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, redactConnection(c))
+	s.writeConnection(w, r, http.StatusCreated, c)
 }
 
 // availableConnection is an MCP server the user already has, with secrets masked like a
@@ -134,7 +163,7 @@ func (s *server) importConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, redactConnection(c))
+	s.writeConnection(w, r, http.StatusCreated, c)
 }
 
 // findMCP lists the user's MCP servers; the project's own are included when projectID is set.
@@ -191,7 +220,7 @@ func (s *server) putConnection(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, redactConnection(c))
+	s.writeConnection(w, r, http.StatusOK, c)
 }
 
 func (s *server) deleteConnection(w http.ResponseWriter, r *http.Request) {
@@ -355,9 +384,22 @@ func (s *server) loginConnection(w http.ResponseWriter, r *http.Request) {
 		if err != nil && text == "" {
 			text = err.Error()
 		}
+		state, detail := store.SignedIn, ""
+		if err != nil {
+			state, detail = store.SignInFailed, lastLine(text)
+		}
+		if err := s.st.SetConnectionSignIn(r.Context(), id, backend, state, detail); err != nil {
+			writeError(w, err)
+			return
+		}
 		out = append(out, loginResult{Backend: backend, OK: err == nil, Output: text})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+func lastLine(text string) string {
+	lines := strings.Split(strings.TrimSpace(text), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 func backendLogin(ctx context.Context, backend, name string, s agent.MCPServer) (string, error) {

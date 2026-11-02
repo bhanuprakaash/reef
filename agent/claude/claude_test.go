@@ -30,6 +30,15 @@ func TestParse(t *testing.T) {
 			want: []agent.Event{{Kind: agent.KindSession, SessionID: "3c1296cc-1e28-4167-a8a8-dfb0facf9381", Model: "claude-opus-5-5"}},
 		},
 		{
+			name: "init reports servers that connect or need sign-in",
+			give: `{"type":"system","subtype":"init","session_id":"s1","model":"m","mcp_servers":[{"name":"reef","status":"connected"},{"name":"slack","status":"needs-auth"},{"name":"bad","status":"failed"}]}`,
+			want: []agent.Event{
+				{Kind: agent.KindSession, SessionID: "s1", Model: "m"},
+				{Kind: agent.KindMCP, MCPServer: "reef", Text: agent.MCPConnected},
+				{Kind: agent.KindMCP, MCPServer: "slack", Text: agent.MCPNeedsAuth},
+			},
+		},
+		{
 			name: "hook is skipped",
 			give: `{"type":"system","subtype":"hook_started","hook_id":"015c16a7-c42b-4557-b43a-d55ccfb33e5a","hook_name":"SessionStart:startup","hook_event":"SessionStart","session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381"}`,
 		},

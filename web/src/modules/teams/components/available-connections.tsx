@@ -1,6 +1,7 @@
 import { useAvailableConnections, useImportConnection } from '@/modules/teams/api/connections';
 import { availableLabel } from '@/modules/teams/utils/connections';
 import type { AvailableConnection } from '@/types/api';
+import { Fold } from '@/modules/teams/components/fold';
 import { Button } from '@/components/button';
 
 export function AvailableRow({
@@ -41,8 +42,7 @@ export function AvailableConnections({ projectId }: { projectId?: number }) {
   const available = useAvailableConnections(projectId);
   const add = useImportConnection();
   return (
-    <div className="flex flex-col gap-1">
-      <h3 className="text-sm font-medium">Available on this Mac</h3>
+    <Fold title={`From this Mac (${available.data?.length ?? 0})`}>
       {available.isError && <p className="text-sm text-danger">{available.error.message}</p>}
       {available.data?.length === 0 && (
         <p className="text-sm text-muted">No MCP servers found on this Mac.</p>
@@ -60,6 +60,6 @@ export function AvailableConnections({ projectId }: { projectId?: number }) {
         ))}
       </ul>
       {add.isError && <p className="text-sm text-danger">{add.error.message}</p>}
-    </div>
+    </Fold>
   );
 }
