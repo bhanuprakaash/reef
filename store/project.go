@@ -14,6 +14,13 @@ import (
 // _tileColours are the colours a project tile can take, the palette of web/src/utils/project-tile.ts.
 var _tileColours = []string{"#B84E22", "#1F7A6F", "#6A59E0", "#B03E73", "#2F72C0", "#5F7A1E", "#8F6A12", "#5E6B78"}
 
+// _projectIcons are the icon names a project tile can take, the set of web/src/components/project-icons.tsx.
+var _projectIcons = []string{
+	"rocket", "bolt", "flame", "wave", "leaf", "globe", "star", "bulb", "flask", "wrench",
+	"box", "puzzle", "target", "lock", "chart", "note", "palette", "gamepad", "bot", "brain",
+	"cart", "chat", "phone", "cloud", "home", "compass", "code", "book",
+}
+
 // Project is a repo folder Reef works in.
 type Project struct {
 	ID         int64     `json:"id"`
@@ -166,6 +173,9 @@ func (p Project) validate() error {
 	}
 	if p.Path == "" {
 		return fmt.Errorf("%w: project path is required", ErrInvalid)
+	}
+	if p.Icon != "" && !slices.Contains(_projectIcons, p.Icon) {
+		return fmt.Errorf("%w: project icon %q is not one of %s", ErrInvalid, p.Icon, strings.Join(_projectIcons, ", "))
 	}
 	if p.Colour != "" && !slices.ContainsFunc(_tileColours, func(c string) bool { return strings.EqualFold(c, p.Colour) }) {
 		return fmt.Errorf("%w: project colour %q is not one of %s", ErrInvalid, p.Colour, strings.Join(_tileColours, ", "))

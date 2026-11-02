@@ -1,45 +1,12 @@
+import { projectIconNames } from '@/components/project-icons';
+import { ProjectTile } from '@/components/project-tile';
 import { useUpdateProject } from '@/modules/projects/api/update-project';
 import type { Project } from '@/types/api';
 import { palette, projectTile } from '@/utils/project-tile';
 
-const emoji = [
-  '🚀',
-  '⚡',
-  '🔥',
-  '🌊',
-  '🌱',
-  '🌍',
-  '⭐',
-  '💡',
-  '🧪',
-  '🛠️',
-  '📦',
-  '🧩',
-  '🎯',
-  '🔒',
-  '📊',
-  '📝',
-  '🎨',
-  '🎮',
-  '🤖',
-  '🧠',
-  '🛒',
-  '💬',
-  '📱',
-  '☁️',
-  '🏠',
-  '🔧',
-  '🐙',
-  '🦊',
-  '🐳',
-  '🍀',
-  '🎵',
-  '🧭',
-];
-
 export function ProjectIconPicker({ project }: { project: Project }) {
   const update = useUpdateProject(project);
-  const colour = projectTile(project).colour;
+  const tile = projectTile(project);
 
   return (
     <div
@@ -47,17 +14,17 @@ export function ProjectIconPicker({ project }: { project: Project }) {
       aria-label="Project icon"
       className="absolute top-full left-0 z-20 mt-2 w-[296px] rounded-menu border border-line bg-card p-3 shadow-menu"
     >
-      <div className="grid grid-cols-8 gap-0.5">
-        {emoji.map((e) => (
+      <div className="grid grid-cols-7 gap-0.5">
+        {projectIconNames.map((n) => (
           <button
-            key={e}
+            key={n}
             type="button"
-            aria-label={e}
-            aria-pressed={project.icon === e}
-            onClick={() => update.mutate({ icon: e })}
-            className="flex size-8 items-center justify-center rounded-lg text-lg hover:bg-hover aria-pressed:bg-hover aria-pressed:ring-2 aria-pressed:ring-ring"
+            aria-label={n}
+            aria-pressed={project.icon === n}
+            onClick={() => update.mutate({ icon: n })}
+            className="flex size-9 items-center justify-center rounded-lg hover:bg-hover aria-pressed:ring-2 aria-pressed:ring-ring"
           >
-            {e}
+            <ProjectTile icon={n} colour={tile.colour} size={30} />
           </button>
         ))}
       </div>
@@ -75,7 +42,7 @@ export function ProjectIconPicker({ project }: { project: Project }) {
             key={c}
             type="button"
             aria-label={`Colour ${c}`}
-            aria-pressed={colour === c}
+            aria-pressed={tile.colour === c}
             onClick={() => update.mutate({ colour: c })}
             style={{ background: c }}
             className="size-6 rounded-full aria-pressed:ring-2 aria-pressed:ring-fg aria-pressed:ring-offset-2 aria-pressed:ring-offset-card"
