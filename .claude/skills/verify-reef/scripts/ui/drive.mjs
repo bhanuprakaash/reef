@@ -3853,6 +3853,21 @@ async function sidebar() {
   await main.getByRole('link', { name: 'review room' }).waitFor();
   check(true, 'the Spaces page still lists it', String(room.id));
   await shot('left-spaces');
+  const group = (name) => main.getByRole('region', { name, exact: true });
+  check((await group('Today').getByRole('link', { name: /review room/ }).count()) === 1 && (await group('Pinned').count()) === 0, 'the Spaces page groups rows by date, Today first, and has no Pinned group while nothing is pinned');
+  await call('PUT', `/pins/space/${room.id}`, {});
+  await page.reload();
+  await group('Pinned').getByRole('link', { name: /review room/ }).waitFor();
+  const [pinnedY, todayY] = [await y(group('Pinned')), await y(group('Today'))];
+  check((await group('Today').getByRole('link', { name: /review room/ }).count()) === 0 && pinnedY < todayY, 'a pinned Space moves to a Pinned group above the date groups', `${pinnedY} < ${todayY}`);
+  await page.waitForTimeout(500);
+  await shot('spaces-groups');
+  await call('DELETE', `/pins/space/${room.id}`);
+  await page.goto(`${base}/conversations`);
+  await group('Today').getByRole('link', { name: /sam chat/ }).waitFor();
+  check((await group('Yesterday').count()) === 0 && (await group('Older').count()) === 0, 'the Conversations page shows only the groups that have rows');
+  await page.waitForTimeout(500);
+  await shot('conversations-groups');
 
   for (let i = 0; i < 9; i++) await call('POST', '/spaces', { projectId: project, name: `bulk-${i}`, botId: sam.id, kind: 'conversation' });
   await page.reload();
@@ -3886,6 +3901,16 @@ async function sidebar() {
   check(sheet.fixed === 'fixed' && box.x === 0 && box.y === 0 && box.height === 844 && box.width <= 390, 'the sidebar opens as a full-height sheet on the left', JSON.stringify(box));
   check(sheet.over <= 0 && (await noScroll()), 'the sheet has no horizontal scroll at 390 px', `sheet ${sheet.over}`);
   await shot('phone-sheet');
+  await page.keyboard.press('Escape');
+  await aside.waitFor({ state: 'hidden' });
+  await page.goto(`${base}/conversations`);
+  await group('Today').waitFor();
+  check(await noScroll(), 'the Conversations page has no horizontal scroll at 390 px');
+  await page.waitForTimeout(500);
+  await shot('phone-groups');
+  await page.goto(`${base}/`);
+  await tabs.getByRole('button', { name: 'Menu' }).click();
+  await aside.waitFor();
   await page.keyboard.press('Escape');
   await aside.waitFor({ state: 'hidden' });
   check(true, 'Escape closes the sheet');

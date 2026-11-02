@@ -5,13 +5,18 @@ import { SpaceRow } from '@/app/space-row';
 import { EmptyState } from '@/components/empty-state';
 import { TextField } from '@/components/text-field';
 import { spacesQuery } from '@/lib/api/get-spaces';
+import { pinKindOf, usePins } from '@/lib/api/pins';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { dateGroup } from '@/utils/date-group';
+
+const GROUPS = ['Pinned', 'Today', 'Yesterday', 'Last 7 days', 'Older'] as const;
 
 function SpaceList({ title, conversations }: { title: string; conversations: boolean }) {
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
   const spaces = useQuery({ ...spacesQuery(project?.id), refetchInterval: 5000 });
+  const pins = usePins().data ?? [];
   const [query, setQuery] = useState('');
 
   const q = query.trim().toLowerCase();
@@ -23,6 +28,10 @@ function SpaceList({ title, conversations }: { title: string; conversations: boo
         c.name.toLowerCase().includes(q),
     )
     .sort(byRecent);
+  const groupOf = (c: (typeof rows)[number]) =>
+    pins.some((p) => p.kind === pinKindOf(c) && p.id === c.id)
+      ? 'Pinned'
+      : dateGroup(c.lastMessage?.createdAt ?? c.createdAt);
   const error = projects.error ?? spaces.error;
 
   return (
@@ -43,13 +52,22 @@ function SpaceList({ title, conversations }: { title: string; conversations: boo
           face="jellyfish"
         />
       )}
-      <ul className="flex flex-col gap-0.5">
-        {rows.map((c) => (
-          <li key={c.id}>
-            <SpaceRow space={c} />
-          </li>
-        ))}
-      </ul>
+      {GROUPS.map((group) => {
+        const inGroup = rows.filter((c) => groupOf(c) === group);
+        if (inGroup.length === 0) return null;
+        return (
+          <section key={group} aria-label={group} className="flex flex-col gap-0.5">
+            <h2 className="px-2.5 pb-1 text-xs text-muted">{group}</h2>
+            <ul className="flex flex-col gap-0.5">
+              {inGroup.map((c) => (
+                <li key={c.id}>
+                  <SpaceRow space={c} />
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }

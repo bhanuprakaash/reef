@@ -84,7 +84,9 @@ logged in and on `PATH`.
   disabled until one is picked). Spaces lists the free
   Spaces and the Spaces of Work items that are not yet
   in Review, Done or Dropped; its See all link opens `/spaces`, which lists them all. Conversations lists the
-  conversations, newest first, with the Bot's creature; its See all link opens `/conversations`. There is no Pinned
+  conversations, newest first, with the Bot's creature; its See all link opens `/conversations`. Both pages have a
+  search box and group their rows under Pinned, Today, Yesterday, Last 7 days and Older (by last message; empty
+  groups are hidden). The sidebar has no Pinned
   section: pinned Bots, chats and Spaces (`GET /pins`) show a pin mark and sort to the top of their own section, under every
   filter. Bots lists the Bots of the newest chats under the filter, pinned Bots first, then the other Bots; its See all link opens `/bots`, and each row opens
   `/bots/ID/chat`. A Space or chat row has a … button and a right-click menu with Rename, Pin or Unpin
