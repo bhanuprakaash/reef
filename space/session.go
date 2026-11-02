@@ -675,8 +675,12 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		Args:    []string{"mcp", "--data", s.dataDir},
 		Env:     map[string]string{TokenEnv: tok.Token},
 	}}
+	signIn := map[string]int64{}
 	for _, c := range r.Connections {
 		servers[c.Name] = c.Server()
+		if c.URL != "" && len(c.Headers) == 0 {
+			signIn[c.Name] = c.ID
+		}
 	}
 	cwd, key, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
 	if err != nil {
@@ -721,6 +725,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, "")
 	m.run.botID, m.run.botSessID = &r.BotID, &bs.ID
+	m.run.Connections = signIn
 	m.run.sessionID = last.SessionID
 	if in.fork {
 		m.run.forkedFrom = last.SessionID

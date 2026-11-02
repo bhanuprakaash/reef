@@ -62,12 +62,21 @@ type Answer struct {
 	Reason string
 }
 
-// MCPServer is a stdio server (Command) or an HTTP server (URL).
+// MCPServer is a stdio server (Command) or an HTTP server (URL, with optional Headers and OAuth).
 type MCPServer struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	OAuth   *OAuth            `json:"oauth,omitempty"`
+}
+
+// OAuth is the OAuth client an HTTP server signs in with when the backend's own default does not
+// fit: a registered client id and the local port its redirect uses.
+type OAuth struct {
+	ClientID     string `json:"clientId,omitempty"`
+	CallbackPort int    `json:"callbackPort,omitempty"`
 }
 
 // Kind says which fields of an Event are set.
@@ -92,13 +101,23 @@ const (
 	// ToolName and Input name the call, RequestID is what Answer takes, Rule is the allow rule
 	// the backend suggests for it and Text the path it reaches outside its folders, if any.
 	KindPermission Kind = "permission"
+	// KindMCP reports whether the backend could use the MCP server MCPServer: Text is MCPConnected
+	// or MCPNeedsAuth. Other states are not reported.
+	KindMCP Kind = "mcp"
+)
+
+// States of an MCP server in a KindMCP event.
+const (
+	MCPConnected = "connected"
+	MCPNeedsAuth = "needs_auth"
 )
 
 // Event is one normalized step of a session. Its JSON is the wire format
 // reef-agent prints, one line per event.
 type Event struct {
 	Kind         Kind            `json:"kind"`
-	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer
+	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer, MCP state
+	MCPServer    string          `json:"mcpServer,omitempty"` // KindMCP
 	SessionID    string          `json:"sessionId,omitempty"` // KindSession
 	Model        string          `json:"model,omitempty"`     // KindSession
 	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it

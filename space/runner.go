@@ -60,6 +60,9 @@ type Runner struct {
 	OnNote func()
 	// OnPermission, when set, sees every permission prompt the Runner stores or resolves.
 	OnPermission func(store.PermissionPrompt)
+	// Connections are the ids of the Bot's connections that sign in, by server name. The
+	// backend's report on one of them is stored as its sign-in state.
+	Connections map[string]int64
 
 	st        *store.Store
 	ag        agent.Agent
@@ -243,6 +246,8 @@ func (r *Runner) read(
 					}
 					r.refreshNote = ""
 				}
+			case agent.KindMCP:
+				r.keepMCP(wctx, ev)
 			case agent.KindCompacted:
 				turn.Compacted, r.firstPromptSent = true, false
 			case agent.KindText:
@@ -452,6 +457,8 @@ func (r *Runner) Watch() {
 				switch {
 				case ev.Kind == agent.KindSession:
 					r.idleSession = ev
+				case ev.Kind == agent.KindMCP:
+					r.keepMCP(context.Background(), ev)
 				case ev.Kind == agent.KindCompacted:
 					r.firstPromptSent = false
 					err := r.st.SetTurnCompacted(context.Background(), r.spaceID, *r.botID, r.sessionID)
@@ -496,6 +503,20 @@ func (r *Runner) keepSession(ev agent.Event) {
 	r.sessionID = ev.SessionID
 	if ev.Model != "" {
 		r.model = ev.Model
+	}
+}
+
+func (r *Runner) keepMCP(ctx context.Context, ev agent.Event) {
+	id, ok := r.Connections[ev.MCPServer]
+	if !ok {
+		return
+	}
+	state := store.SignedIn
+	if ev.Text == agent.MCPNeedsAuth {
+		state = store.NeedsSignIn
+	}
+	if err := r.st.SetConnectionSignIn(ctx, id, r.backend, state, ""); err != nil {
+		log.Printf("keep sign-in of %s for %s in Space %d: %v", ev.MCPServer, r.role, r.spaceID, err)
 	}
 }
 

@@ -347,7 +347,7 @@ export function SettingsPage() {
     terminal: <TerminalSection />,
     updates: <UpdateSection />,
     providers: <ProviderList />,
-    connections: <ConnectionLibrary />,
+    connections: <ConnectionLibrary projectId={project?.id} />,
     skills: <SkillLibrary disk={skills.data ?? []} />,
   };
   const shown = sections.filter((s) => !s.desktopOnly || window.reef);

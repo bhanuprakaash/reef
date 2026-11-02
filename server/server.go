@@ -35,6 +35,8 @@ type server struct {
 	// none set no review runs.
 	now      func() time.Time
 	maintain func(ctx context.Context, spaceID, botID int64, onEvent func(agent.Event)) error
+	// login signs the user in to an HTTP connection for one backend and returns its output.
+	login func(ctx context.Context, backend, name string, s agent.MCPServer) (string, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -119,6 +121,7 @@ func newHandler(
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{}, starting: map[int64]bool{},
 		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{}, now: time.Now,
 		promptTimers: map[int64]*time.Timer{}, promptWait: _defaultPromptWait,
+		login: backendLogin,
 	}
 	for _, opt := range opts {
 		opt(s)

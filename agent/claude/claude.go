@@ -99,7 +99,11 @@ type (
 		Subtype   string `json:"subtype"`
 		SessionID string `json:"session_id"`
 		Model     string `json:"model"` // system/init
-		Event     struct {
+		MCP       []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"mcp_servers"` // system/init
+		Event struct {
 			Type  string `json:"type"`
 			Delta struct {
 				Type string `json:"type"`
@@ -363,7 +367,7 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 				_ = os.Remove(path)
 			}
 		}()
-		args = append(args, "--mcp-config", path)
+		args = append(args, "--mcp-config", path, "--strict-mcp-config")
 		a.mcpPath = path
 	}
 	if len(cfg.Tools) > 0 {
@@ -460,7 +464,7 @@ func (a *Agent) emit(ev agent.Event) bool {
 	}
 }
 
-func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
+func mcpJSON(servers map[string]agent.MCPServer) ([]byte, error) {
 	entries := make(map[string]mcpEntry, len(servers))
 	for name, s := range servers {
 		e := mcpEntry{MCPServer: s}
@@ -469,7 +473,11 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 		}
 		entries[name] = e
 	}
-	b, err := json.Marshal(mcpFile{MCPServers: entries})
+	return json.Marshal(mcpFile{MCPServers: entries})
+}
+
+func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
+	b, err := mcpJSON(servers)
 	if err != nil {
 		return "", err
 	}
@@ -542,7 +550,16 @@ func parseLine(line []byte, st *state) []agent.Event {
 	case "system":
 		if l.Subtype == "init" {
 			st.unprompted = true
-			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
+			evs := []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
+			for _, m := range l.MCP {
+				switch m.Status {
+				case "connected":
+					evs = append(evs, agent.Event{Kind: agent.KindMCP, MCPServer: m.Name, Text: agent.MCPConnected})
+				case "needs-auth":
+					evs = append(evs, agent.Event{Kind: agent.KindMCP, MCPServer: m.Name, Text: agent.MCPNeedsAuth})
+				}
+			}
+			return evs
 		}
 		if l.Subtype == "compact_boundary" {
 			return []agent.Event{{Kind: agent.KindCompacted}}

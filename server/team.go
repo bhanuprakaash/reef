@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -224,7 +225,8 @@ func viewSession(bs store.BotSession, live store.Role, library []store.Skill, pe
 
 func sameConnection(a, b store.Connection) bool {
 	return a.ID == b.ID && a.Name == b.Name && a.Command == b.Command && a.URL == b.URL &&
-		slices.Equal(a.Args, b.Args) && maps.Equal(a.Env, b.Env)
+		slices.Equal(a.Args, b.Args) && maps.Equal(a.Env, b.Env) && maps.Equal(a.Headers, b.Headers) &&
+		reflect.DeepEqual(a.OAuth, b.OAuth)
 }
 
 // outdated says a Reef skill's library version has moved on since the session adopted it. A skill
