@@ -1,11 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
-import type { SpacePreview, WorkItem, Project } from '@/types/api';
+import type { Pin, SpacePreview, WorkItem, Project } from '@/types/api';
 import { SidebarSpaces } from './sidebar-spaces';
 
-const { useQuery, useWorkItems, useInbox, useRunningTurns } = vi.hoisted(() => ({
+const { useQuery, useWorkItems, useInbox, useRunningTurns, usePins } = vi.hoisted(() => ({
   useQuery: vi.fn(),
+  usePins: vi.fn(() => ({ data: [] as Pin[] })),
   useWorkItems: vi.fn(),
   useInbox: vi.fn(),
   useRunningTurns: vi.fn(),
@@ -20,7 +21,8 @@ vi.mock('@/modules/work-items/api/get-work-items', () => ({
   useWorkItems,
 }));
 vi.mock('@/lib/api/pins', () => ({
-  pinKindOf: () => 'space',
+  pinKindOf: (c: { kind: string }) => (c.kind === 'conversation' ? 'chat' : 'space'),
+  usePins,
   useTogglePin: () => ({ pinned: false, toggle: { isPending: false, mutate: vi.fn() } }),
 }));
 vi.mock('@/modules/inbox/api/get-inbox', () => ({ useInbox }));
@@ -75,9 +77,13 @@ const space: SpacePreview = {
   lastMessage: null,
 };
 
-function render(item: WorkItem = workItem, inProject: Project | null = project) {
+function render(
+  item: WorkItem = workItem,
+  inProject: Project | null = project,
+  spaces: SpacePreview[] = [space],
+) {
   useQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => ({
-    data: queryKey[0] === 'spaces' ? [space] : [item],
+    data: queryKey[0] === 'spaces' ? spaces : [item],
   }));
   useWorkItems.mockReturnValue({ data: [item] });
   useInbox.mockReturnValue({ data: [] });
@@ -96,7 +102,7 @@ describe('SidebarSpaces', () => {
 
     const markup = render();
 
-    expect(markup).toContain('#build');
+    expect(markup).toContain('build');
     expect(markup).toContain('title="developer is working"');
     expect(markup).toContain('animate-ping');
   });
@@ -110,8 +116,8 @@ describe('SidebarSpaces', () => {
   it('lists the Space of an in-progress Work item and drops it once the item is in review', () => {
     useRunningTurns.mockReturnValue({ data: [] });
 
-    expect(render()).toContain('#build');
-    expect(render({ ...workItem, status: 'review' })).not.toContain('#build');
+    expect(render()).toContain('build');
+    expect(render({ ...workItem, status: 'review' })).not.toContain('build');
   });
 
   it('asks for the Spaces of the project, and for all of them under All projects', () => {
@@ -130,5 +136,27 @@ describe('SidebarSpaces', () => {
     useRunningTurns.mockReturnValue({ data: [] });
 
     expect(render(workItem, null)).toContain('aria-label="All projects"');
+  });
+
+  it('lists a pinned conversation above a newer one', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+    usePins.mockReturnValue({ data: [{ kind: 'chat', id: 6, title: 'old', createdAt: '' }] });
+    const chat = (id: number, name: string, createdAt: string): SpacePreview => ({
+      ...space,
+      id,
+      kind: 'conversation',
+      workItemId: null,
+      name,
+      createdAt,
+    });
+
+    const markup = render(workItem, project, [
+      chat(5, 'newer', '2026-02-01'),
+      chat(6, 'older', '2026-01-01'),
+    ]);
+
+    expect(markup.indexOf('older')).toBeGreaterThan(-1);
+    expect(markup.indexOf('older')).toBeLessThan(markup.indexOf('newer'));
+    usePins.mockReturnValue({ data: [] });
   });
 });

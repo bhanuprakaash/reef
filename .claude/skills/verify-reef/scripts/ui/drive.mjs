@@ -113,10 +113,9 @@ async function addProject() {
   await section.waitFor();
   return section;
 }
-// Opens the sidebar's + menu and picks `item`: New Work item, New Space or New conversation.
+// Clicks the sidebar's + for `item`: New Work item, New Space or New conversation.
 async function plus(item) {
-  await aside.getByRole('button', { name: 'New', exact: true }).click();
-  await aside.getByRole('menuitem', { name: item }).click();
+  await aside.getByRole('button', { name: item, exact: true }).click();
 }
 // Adds a work item and returns its id, which names its worktree folder and branch.
 async function addWorkItem(name) {
@@ -368,7 +367,7 @@ async function attach() {
     'the Attach to Work item button is gone once the Space has a work item',
     `space row (work_item_id|kind): ${sql(`select work_item_id,kind from space where id=${cid}`)}`,
   );
-  await section.getByRole('link', { name: '#idea chat' }).waitFor();
+  await section.getByRole('link', { name: 'idea chat' }).waitFor();
   check(
     sql(`select kind from space where id=${cid}`) === 'work_item',
     'the attached Space stays in the sidebar Spaces section',
@@ -682,7 +681,7 @@ async function phone() {
   await page.getByRole('button', { name: 'Capture', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Captured' }).waitFor();
   await visit('spaces', /^Spaces/, page.getByRole('heading', { name: 'Spaces', level: 1 }));
-  const row = main.getByRole('link', { name: /#phone room/ });
+  const row = main.getByRole('link', { name: /phone room/ });
   check(await row.isVisible(), 'the Spaces tab lists the Space', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
   await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
   const needsYou = (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length;
@@ -710,7 +709,7 @@ async function phone() {
   writeFileSync(path.join(tree, 'auth.go'), ['package auth', '', 'func check(r *http.Request) error {', '\ttok := r.URL.Query().Get("token")', '\treturn verify(tok)', '}', ''].join('\n'));
 
   await tabs.getByRole('link', { name: /^Spaces/ }).click();
-  await main.getByRole('link', { name: /#phone room/ }).click();
+  await main.getByRole('link', { name: /phone room/ }).click();
   await page.getByRole('heading', { name: 'phone room', level: 1 }).waitFor();
   await rootRow('architect').first().waitFor();
   check(!(await tabs.isVisible()), 'the tab bar is hidden in a Space');
@@ -1666,10 +1665,10 @@ async function wrap() {
   await page.goto(`${base}/spaces/${cid}`);
   await main.getByText('Wrapped', { exact: true }).waitFor();
   await page.goto(`${base}/spaces`);
-  await main.getByRole('link', { name: /#wrap chat/ }).waitFor();
+  await main.getByRole('link', { name: /wrap chat/ }).waitFor();
   await shot('wrapped-spaces');
   check(
-    (await section.getByRole('link', { name: /#wrap chat/ }).count()) === 0,
+    (await section.getByRole('link', { name: /wrap chat/ }).count()) === 0,
     'the wrapped Space is on the Spaces page and not in the sidebar',
   );
   await page.goto(`${base}/spaces/${cid}`);
@@ -2955,7 +2954,7 @@ async function hovercard() {
   await working();
   await idle();
 
-  const row = aside.getByRole('link', { name: /#hover chat/ });
+  const row = aside.getByRole('link', { name: /hover chat/ });
   const tip = page.getByRole('tooltip');
   const away = () => page.mouse.move(900, 700);
   const flat = async () => (await tip.innerText()).replace(/\s+/g, ' ').toLowerCase();
@@ -3085,7 +3084,7 @@ async function hovercard() {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`${base}/spaces`);
-  const phoneRow = main.getByRole('link', { name: /#hover chat/ }).first();
+  const phoneRow = main.getByRole('link', { name: /hover chat/ }).first();
   await phoneRow.waitFor();
   await phoneRow.hover();
   await page.waitForTimeout(900);
@@ -3620,7 +3619,7 @@ async function sidebar() {
   const topDown = [search, link(/^Inbox/), link(/^Board/), link('Spaces'), link('Conversations')];
   const ys = [];
   for (const loc of topDown) ys.push(await y(loc));
-  const bottom = [link('Bots'), link('Crews'), link('Settings')];
+  const bottom = [link('Bots').last(), link('Crews'), link('Settings')];
   const bottomY = await y(bottom[0]);
   const bottomX = [];
   for (const loc of bottom) bottomX.push(await x(loc));
@@ -3637,7 +3636,7 @@ async function sidebar() {
     [link(/^Board/), '/board', 'Board'],
     [link('Spaces'), '/spaces', 'Spaces'],
     [link('Conversations'), '/conversations', 'Conversations'],
-    [link('Bots'), '/bots', 'Bots'],
+    [link('Bots').last(), '/bots', 'Bots'],
     [link('Crews'), '/teams', 'Crews'],
     [link('Settings'), '/settings', 'Settings'],
   ];
@@ -3692,7 +3691,7 @@ async function sidebar() {
   for (const end = Date.now() + 60000; !rooms.length && Date.now() < end; await page.waitForTimeout(300)) rooms = await getJson(`/spaces?workItem=${own}`);
   const room = rooms[0];
   await call('PUT', `/spaces/${room.id}`, { name: 'review room' });
-  const roomRow = section.getByRole('link', { name: '#review room' });
+  const roomRow = section.getByRole('link', { name: 'review room' });
   await roomRow.waitFor({ timeout: 15000 });
   sql(`update work_item set status='in_progress', closed_at=null where id=${own}`, true);
   await page.waitForTimeout(6000);
@@ -3701,7 +3700,7 @@ async function sidebar() {
   await roomRow.waitFor({ state: 'hidden', timeout: 15000 });
   check(true, 'the Space leaves the Spaces section once its Work item is in Review', `item ${own} status ${sql(`select status from work_item where id=${own}`)}`);
   await page.goto(`${base}/spaces`);
-  await main.getByRole('link', { name: '#review room' }).waitFor();
+  await main.getByRole('link', { name: 'review room' }).waitFor();
   check(true, 'the Spaces page still lists it', String(room.id));
   await shot('left-spaces');
 
@@ -4483,20 +4482,19 @@ async function navigate() {
   for (const name of [chat.name, room.name]) {
     const row = rowOf(name);
     await row.first().hover();
-    await row.first().getByRole('button', { name: 'Pin', exact: true }).click();
+    await row.first().getByRole('button', { name: 'More actions' }).click();
+    await page.getByRole('menuitem', { name: 'Pin', exact: true }).click();
   }
   const want = [`bot:${sam.id}`, `chat:${chat.id}`, `space:${room.id}`].sort().join();
   for (let i = 0; i < 20 && (await pins()) !== want; i++) await page.waitForTimeout(250);
   check((await pins()) === want, 'a Bot, a chat and a Space each pin through their own button (GET /pins)', await pins());
-  const pinned = aside.getByRole('region', { name: 'Pinned' });
-  await pinned.waitFor();
-  const readLabels = async () => (await pinned.getByRole('listitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
-  for (let i = 0; i < 20 && (await readLabels()).length !== 3; i++) await page.waitForTimeout(250);
-  const labels = await readLabels();
-  check(labels.length === 3 && [sam.name, chat.name, room.name].every((n) => labels.some((l) => l.includes(n))) && ['Bot', 'Chat', 'Space'].every((k) => labels.some((l) => l.endsWith(k))), 'the Pinned section lists the three with their kind', labels.join(' | '));
+  check((await aside.getByRole('region', { name: 'Pinned' }).count()) === 0, 'there is no Pinned section');
   await page.reload();
-  await aside.getByRole('region', { name: 'Pinned' }).waitFor();
-  check((await aside.getByRole('region', { name: 'Pinned' }).getByRole('listitem').count()) === 3, 'the pins survive a reload');
+  const row = rowOf(chat.name).first();
+  await row.hover();
+  await row.getByRole('button', { name: 'More actions' }).click();
+  check((await page.getByRole('menuitem', { name: 'Unpin', exact: true }).count()) === 1, 'the pins survive a reload');
+  await page.keyboard.press('Escape');
   await shot('pinned');
 
   // Search finds all four kinds by name; a result opens its resource.

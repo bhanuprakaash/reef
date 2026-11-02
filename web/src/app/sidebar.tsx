@@ -1,18 +1,19 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { NewMenu } from '@/app/new-menu';
 import { ProjectSwitcher } from '@/app/project-switcher';
 import { SidebarBots } from '@/app/sidebar-bots';
-import { SidebarPins } from '@/app/sidebar-pins';
 import { SidebarSearch } from '@/app/sidebar-search';
 import { SidebarSpaces } from '@/app/sidebar-spaces';
 import { UpdateCard } from '@/app/update-card';
+import { Button } from '@/components/button';
 import { CountBadge } from '@/components/count-badge';
+import { Dialog } from '@/components/dialog';
 import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
 import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
+import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -86,6 +87,7 @@ export function Sidebar() {
   const inbox = useNeedsYou();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
   const [query, setQuery] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
 
   const [current] = useCurrentProject(projects.data);
   const error = projects.error ?? workItems.error;
@@ -103,7 +105,6 @@ export function Sidebar() {
           <Logo size={18} />
           <span className="text-[15px] tracking-[-0.03em]">reef</span>
         </Link>
-        <NewMenu project={current} />
       </div>
 
       <label className="flex h-[38px] items-center gap-2 rounded-xl border border-search-line bg-search px-3 text-muted">
@@ -154,27 +155,61 @@ export function Sidebar() {
               }
               preview={waiting[0]?.text ?? 'Nothing waiting'}
             />
-            <Row
-              to="/board"
-              active={pathname === '/board'}
-              avatar={
-                <IconCircle>
-                  <rect x="3" y="4" width="5" height="16" rx="1.5" />
-                  <rect x="10" y="4" width="5" height="10" rx="1.5" />
-                  <rect x="17" y="4" width="4" height="13" rx="1.5" />
-                </IconCircle>
-              }
-              title="Board"
-              preview={`${openItems} open`}
-            />
+            <div className="group relative">
+              <Row
+                to="/board"
+                active={pathname === '/board'}
+                avatar={
+                  <IconCircle>
+                    <rect x="3" y="4" width="5" height="16" rx="1.5" />
+                    <rect x="10" y="4" width="5" height="10" rx="1.5" />
+                    <rect x="17" y="4" width="4" height="13" rx="1.5" />
+                  </IconCircle>
+                }
+                title="Board"
+                preview={`${openItems} open`}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="iconSm"
+                aria-label="New Work item"
+                title={current ? 'New Work item' : 'Pick a project first'}
+                disabled={!current}
+                onClick={() => setAddingItem(true)}
+                className="absolute right-2 bottom-1.5 opacity-0 group-hover:opacity-100 hover:text-fg focus-visible:opacity-100 focus-visible:ring-3 focus-visible:ring-ring max-md:right-0 max-md:bottom-1/2 max-md:size-11 max-md:translate-y-1/2 max-md:opacity-100 pointer-coarse:opacity-100"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </Button>
+            </div>
 
             {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-            <SidebarPins />
             <SidebarBots project={current} />
             <SidebarSpaces project={current} />
           </>
         )}
       </div>
+
+      <Dialog open={addingItem} onClose={() => setAddingItem(false)} title="New Work item">
+        {addingItem && current && (
+          <AddWorkItemForm
+            projectId={current.id}
+            onClose={() => setAddingItem(false)}
+            onCreated={(item) => void navigate(`/work-items/${item.id}`)}
+          />
+        )}
+      </Dialog>
 
       <UpdateCard />
 
