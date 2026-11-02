@@ -376,7 +376,7 @@ func evalReply(role string, chain int, step string) (tool, text string) {
 	case role == "lead":
 		return "", b("", "z", "")
 	case role == "developer" && step == "1" && chain == 2:
-		return b("@tester ", "2", ""), ""
+		return b("@tester ", "2", ""), b("@lead ", "x", "cc @tester")
 	case role == "developer" && step == "1":
 		return "", b("@tester ", "2", "")
 	case role == "developer":

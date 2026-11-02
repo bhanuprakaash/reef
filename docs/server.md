@@ -431,7 +431,7 @@ One agent run in a Space.
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, its largest `costUsd` plus the `costUsd` of the turns stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share |
 | `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
 | `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), stored when it is sent, so a running turn has it; a turn whose send fails stores it when it ends. Empty for a turn that failed before its prompt was built. `GET /spaces/{id}/inspector` has its own view of it |
-| `reply` | string | not in the turn's own JSON; the text a done turn wrote before its last `post_to_space`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /spaces/{id}/inspector` has its own view of it |
+| `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_space` (only the text before its last post when work followed it and the rest was posted), kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /spaces/{id}/inspector` has its own view of it |
 
 ### tool_call
 
@@ -959,10 +959,11 @@ a message wakes them.
 When a turn ends, the server reads the messages stored since the last one it read and routes
 those written by the role of the turn that ended: its reply, which is stored as a message from
 the role, and any message it posted with the `post_to_space` tool (see
-[memory.md](memory.md#reef-mcp)). A turn that posted with `post_to_space` stores as a message only
-the text it wrote after its last post (trimmed, when not empty), so a turn that ends with its
-post has one message and wakes no one a second time. The turn keeps the text before that post
-(`reply`, shown by the inspector). A post counts when its tool call did not
+[memory.md](memory.md#reef-mcp)). A turn that posted with `post_to_space` has one message: its
+plain reply at the end of the turn is not stored as a message, so it wakes no one a second time.
+The turn keeps it (`reply`, shown by the inspector). The exception is a turn that called another
+tool after its last post: the text it wrote after that post (trimmed, when not empty) is stored as
+one more message and the turn keeps the text before it (decision 158). A post counts when its tool call did not
 fail. A turn that did not post, a failed or stopped turn, and a direct turn (its reply is the
 direct response) store the reply as before. Other messages, such as a `POST /messages` from the user in
 the middle of a chain, are skipped: they start no turn and do not reset the hop count. Each

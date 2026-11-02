@@ -551,7 +551,7 @@ func deliveryIntro(team store.Team, r store.Role) string {
 		"thread N], and may end its header with \"Asked together:\" naming everyone asked: answer "+
 		"your part only. Your plain reply goes where the header says, a top-level one starting "+
 		"your own thread; pass thread as the parent of post_to_space when the header has one. "+
-		"Only text you write after your last post_to_space is posted too, so end with the post when it is the answer.\n",
+		"Text you write after your last post_to_space is posted only when you did other work after that post.\n",
 		strings.Join(names, ", "))
 	if r.Lead {
 		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"

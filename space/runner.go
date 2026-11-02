@@ -178,7 +178,7 @@ func (r *Runner) Run(
 	var reply strings.Builder
 	toolRows := map[string]int64{}
 	postCalls := map[string]bool{}
-	posted, postedAt := false, 0
+	posted, postedAt, workedAfter := false, 0, false
 	for {
 		select {
 		case <-ctx.Done():
@@ -223,9 +223,10 @@ func (r *Runner) Run(
 				}
 				toolRows[ev.ToolID] = tc.ID
 				postCalls[ev.ToolID] = ev.ToolName == _postTool
+				workedAfter = workedAfter || (posted && ev.ToolName != _postTool)
 			case agent.KindToolResult:
 				if postCalls[ev.ToolID] && !ev.IsError {
-					posted, postedAt = true, reply.Len()
+					posted, postedAt, workedAfter = true, reply.Len(), false
 				}
 				if id, ok := toolRows[ev.ToolID]; ok {
 					if err := r.st.SetToolCallResult(wctx, id, ev.Output); err != nil {
@@ -256,8 +257,10 @@ func (r *Runner) Run(
 				case r.NoReply || (r.direct != nil && r.direct.ReplyToID != nil):
 					turn.Reply, keep = text, false
 				case posted && r.direct == nil:
-					turn.Reply, text = text[:postedAt], strings.TrimSpace(text[postedAt:])
-					keep = text != ""
+					turn.Reply, keep = text, false
+					if tail := strings.TrimSpace(text[postedAt:]); workedAfter && tail != "" {
+						turn.Reply, text, keep = text[:postedAt], tail, true
+					}
 				}
 				if keep {
 					if err := r.keepReply(wctx, text, parent, _replyDone); err != nil {
