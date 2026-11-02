@@ -44,12 +44,21 @@ type Config struct {
 	Fork            bool                 // Resume continues in a copy of the session, which gets a new id; claude only
 }
 
-// MCPServer is a stdio server (Command) or an HTTP server (URL).
+// MCPServer is a stdio server (Command) or an HTTP server (URL, with optional Headers and OAuth).
 type MCPServer struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	OAuth   *OAuth            `json:"oauth,omitempty"`
+}
+
+// OAuth is the OAuth client an HTTP server signs in with when the backend's own default does not
+// fit: a registered client id and the local port its redirect uses.
+type OAuth struct {
+	ClientID     string `json:"clientId,omitempty"`
+	CallbackPort int    `json:"callbackPort,omitempty"`
 }
 
 // Kind says which fields of an Event are set.

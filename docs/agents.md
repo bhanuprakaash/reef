@@ -38,7 +38,7 @@ Interrupt() error                     // stop the turn and the process
   `developerInstructions` on `thread/start` and `thread/resume`; a resumed session gets them again
   because they ride on the `Config`), `Tools` (tools allowed
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
-  them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
+  them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL` with optional `Headers` and `OAuth`; the session has these servers and no others, see MCP config injection below),
   `AddDirs` (extra folders the backend may read: Claude gets one `--add-dir` each; Codex ignores it),
   `Env` (`KEY=value`, added to `os.Environ`).
 
@@ -70,7 +70,7 @@ what it was sent, so a caller that sent it a snapshot once sends it again.
 
 `reef-agent --backend claude|codex [--cwd DIR] [--resume ID] [--permission-mode MODE]
 [--mcp FILE] "prompt"` runs one backend and prints these lines. `FILE` is a JSON object of
-server name to `{command, args, env, url}`. Each stdin line is a
+server name to `{command, args, env, url, headers, oauth}`. Each stdin line is a
 follow-up prompt, sent after a `turn_end`. It exits 1 on an `error` event. On Ctrl-C it
 prints one `usage` line with the session total and exits 130.
 
@@ -80,7 +80,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH --strict-mcp-config] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -198,17 +198,19 @@ object per line:
 -> {"id":1,"method":"initialize","params":{"clientInfo":{"name":"reef","title":null,"version":"0"}}}
 <- {"id":1,"result":{"userAgent":"reef/0.162.1 ...","codexHome":"..."}}
 -> {"method":"initialized"}
--> {"id":2,"method":"thread/start","params":{"cwd":"/tmp/cx","approvalPolicy":"never",
+-> {"id":2,"method":"config/read","params":{"cwd":"/tmp/cx"}}
+<- {"id":2,"result":{"config":{"mcp_servers":{"user-one":{"command":"..."}},...},...}}
+-> {"id":3,"method":"thread/start","params":{"cwd":"/tmp/cx","approvalPolicy":"never",
      "sandbox":"workspace-write","config":{"mcp_servers":{...}}}}      // or thread/resume + threadId
-<- {"id":2,"result":{"thread":{"id":"01a133d7-...","cwd":"/tmp/cx"},...}}
+<- {"id":3,"result":{"thread":{"id":"01a133d7-...","cwd":"/tmp/cx"},...}}
 ```
 
-`sandbox`, `model`, `developerInstructions` and `config` are set only when `PermissionMode` / `Model` / `Instructions` / `MCPServers` are. One goroutine
+`sandbox`, `model` and `developerInstructions` are set only when `PermissionMode` / `Model` / `Instructions` are. `config.mcp_servers` holds the caller's `MCPServers` and, as `{"enabled":false}`, the servers `config/read` found that the caller did not pass. One goroutine
 owns stdout: it waits for each response, skipping other lines, then emits `session` once and
 the events, then calls `Wait`, so a process that exits on its own is reaped. Then each `Send`:
 
 ```
--> {"id":3,"method":"turn/start","params":{"threadId":"01a133d7-...","input":[{"type":"text","text":"<prompt>"}]}}
+-> {"id":4,"method":"turn/start","params":{"threadId":"01a133d7-...","input":[{"type":"text","text":"<prompt>"}]}}
 ```
 
 The response to `turn/start` carries no events. The events arrive as notifications.
@@ -337,13 +339,16 @@ Env
   (tests use `sonnet`).
 
 MCP config injection
-- Claude: `--mcp-config PATH` to a 0600 temp file, removed at claude's first output line (it
+- Claude: `--mcp-config PATH --strict-mcp-config`, with the file at a 0600 temp path, removed at claude's first output line (it
   reads the file once at start-up) or at its exit, so a reef killed after that leaves none. This keeps MCP `env`
-  secrets off argv. The file is `{"mcpServers":{"name":{"command":..,"args":..,"env":..}}}`. HTTP
+  and `headers` secrets off argv. The file is `{"mcpServers":{"name":{"command":..,"args":..,"env":..}}}`. HTTP
   servers need `"type":"http"`; a bare `{"url":...}` is dropped silently. The adapter adds
-  it when `URL` is set. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so
-  the model may call `ToolSearch` first. The user's own MCP config still loads. Without
-  approval, a default-mode session gets an `isError` result ("requested permissions ... but
+  it when `URL` is set, and writes `headers` and `oauth` (`{"clientId":..,"callbackPort":..}`) as they are. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so
+  the model may call `ToolSearch` first. `--strict-mcp-config` makes the file the whole set:
+  claude then ignores the user's own servers (user scope in `~/.claude.json`, the project's `.mcp.json`),
+  those of enabled plugins and the claude.ai connectors, so a session has the servers its caller passed and no others
+  (`claude mcp list` still shows the user's). Without it, `claude -p` loaded all of those next to the file.
+  Without approval, a default-mode session gets an `isError` result ("requested permissions ... but
   you haven't granted it yet"). The adapter passes `--allowedTools`, one comma-joined value (the flag is
   variadic), for the `Tools` only: a caller that wants a server's tools approved lists
   `mcp__<name>__*` in `Tools` (`reef-agent --mcp` does so for every server in its file; a
@@ -354,6 +359,21 @@ MCP config injection
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
   fail with "requires approval" unless the server has
   `default_tools_approval_mode: "approve"`. The adapter sets it for the `reef` server only.
+  A server with `Headers` gets `http_headers`; one with `OAuth.ClientID` gets `oauth.client_id`
+  (`CallbackPort` is Claude's only). Codex merges the thread's `mcp_servers` into the ones in
+  its own `config.toml` (`CODEX_HOME` aware) and the project's `.codex/config.toml`; it does not
+  replace them. So after `initialize` the adapter sends `config/read`, which answers with
+  every server codex would load, and sets `{"enabled":false}` on the thread for each one the caller did not pass.
+  The user's servers stay in their config; the session just does not start them. A `config/read` that fails fails `Start`.
+- Sign-in (an HTTP server that answers 401 and needs OAuth). A session cannot sign in: headless
+  `claude -p` shows the server as `needs-auth` and has no `authenticate` tool, and codex fails its
+  startup with "not logged in. Run `codex mcp login NAME`". Both keep the token outside the
+  config they were given: claude in `~/.claude/.credentials.json` (the keychain on macOS), under
+  `NAME|` and the first 16 hex of the SHA-256 of `{"type","url","headers"}` (the `oauth` settings are
+  not in it); codex in `$CODEX_HOME/.credentials.json` (or the keyring) under the same key. A session whose server has the same name, url and headers as one the
+  user signed in to finds the token and connects; a different name, or other headers, finds none. So a sign-in
+  is done once, by the user, in a session that has that exact server: claude, interactive `claude --strict-mcp-config
+  --mcp-config FILE` then `/mcp`; codex, `codex mcp login NAME` with the server in its config. Reef does not sign in for the user.
 
 Session and thread ids
 - Claude `session_id` is on every line. `--resume ID` keeps the same id (no new id without

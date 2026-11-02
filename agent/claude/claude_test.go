@@ -607,6 +607,39 @@ func TestMCPServersNotPreApproved(t *testing.T) {
 	}
 }
 
+func TestMCPConfigIsStrict(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{Cwd: t.TempDir(), MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, ".json --strict-mcp-config") {
+		t.Errorf("events = %+v, want --strict-mcp-config right after --mcp-config", got)
+	}
+}
+
+func TestWriteMCPConfig_HeadersAndOAuth(t *testing.T) {
+	path, err := writeMCPConfig(map[string]agent.MCPServer{"slack": {
+		URL:     "https://mcp.slack.com/mcp",
+		Headers: map[string]string{"X-Key": "k"},
+		OAuth:   &agent.OAuth{ClientID: "id1", CallbackPort: 3118},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(path) }()
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"mcpServers":{"slack":{"url":"https://mcp.slack.com/mcp","headers":{"X-Key":"k"},` +
+		`"oauth":{"clientId":"id1","callbackPort":3118},"type":"http"}}}`
+	if string(body) != want {
+		t.Errorf("config = %s, want %s", body, want)
+	}
+}
+
 func TestMCPConfigRemovedAtFirstLine(t *testing.T) {
 	a := fakeClaude(t, "hang")
 	cfg := agent.Config{Cwd: t.TempDir(), MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}}}

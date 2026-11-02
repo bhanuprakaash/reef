@@ -266,7 +266,7 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 				_ = os.Remove(path)
 			}
 		}()
-		args = append(args, "--mcp-config", path)
+		args = append(args, "--mcp-config", path, "--strict-mcp-config")
 		a.mcpPath = path
 	}
 	if len(cfg.Tools) > 0 {
