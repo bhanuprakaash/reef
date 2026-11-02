@@ -159,4 +159,28 @@ describe('SidebarSpaces', () => {
     expect(markup.indexOf('older')).toBeLessThan(markup.indexOf('newer'));
     usePins.mockReturnValue({ data: [] });
   });
+
+  it('lists every pinned conversation past the cap of eight', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+    const chats = Array.from({ length: 9 }, (_, n): SpacePreview => ({
+      ...space,
+      id: 10 + n,
+      kind: 'conversation',
+      workItemId: null,
+      name: `pinned-${n}`,
+      createdAt: `2026-01-0${n + 1}`,
+    }));
+    usePins.mockReturnValue({
+      data: chats.map((c): Pin => ({ kind: 'chat', id: c.id, title: c.name, createdAt: '' })),
+    });
+
+    const markup = render(workItem, project, [
+      ...chats,
+      { ...chats[0]!, id: 30, name: 'unpinned', createdAt: '2026-02-01' },
+    ]);
+
+    for (const c of chats) expect(markup).toContain(c.name);
+    expect(markup).not.toContain('unpinned');
+    usePins.mockReturnValue({ data: [] });
+  });
 });
