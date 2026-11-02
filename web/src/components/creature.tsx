@@ -357,7 +357,8 @@ export function bodyColour(look?: Look): string {
 
 function Body({ look, state }: { look?: Look; state: CreatureState }) {
   const d: Drawing = drawings[creatureName(look?.face)];
-  const p = state === 'asleep' ? asleep : { ...d.colors, body: bodyColour(look) };
+  const p =
+    state === 'asleep' || state === 'failed' ? asleep : { ...d.colors, body: bodyColour(look) };
   return (
     <g className={d.motion}>
       {d.shapes(p)}

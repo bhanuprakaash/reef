@@ -42,10 +42,3 @@ export function activity(turn: LiveTurn): Activity | null {
     detail: subagentLabel(live.name, live.input) ?? summarizeInput(live.input),
   };
 }
-
-/** One bubble per tool call, newest last. */
-export function bubbleIds(turn: LiveTurn, n: number): string[] {
-  return flatten(turn.items.flatMap((i) => (i.type === 'tool' ? [i.tool] : [])))
-    .slice(-n)
-    .map((tool) => tool.id);
-}

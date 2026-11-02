@@ -193,23 +193,26 @@ async function newSpace(box, openName, name, team, coordinator) {
   return sql(`select id from Space where name='${name}' order by id desc limit 1`);
 }
 
-// The label of the running turn names its role: `<role> is working`.
-const liveLabel = main.getByText('is working').locator('..');
+// The running turn is a dock pill above the composer: `<role> <timer> is working`. Clicking it opens
+// the steps popover; its "Open turn" link opens the panel with the full stream.
+const livePill = (role) => main.getByRole('button', { name: new RegExp(`^${role}\\b.*is working`) });
 async function workingAs(role, timeout = 240000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
-    if ((await liveLabel.count()) > 0) {
-      const text = (await liveLabel.first().textContent().catch(() => '')) ?? '';
-      if (text.replace('is working', '').trim() === role) return true;
-    }
+    if ((await livePill(role).count()) > 0) return true;
     await page.waitForTimeout(250);
   }
   return false;
 }
-// The running turn is one compact row in the Space; clicking it opens the panel with the full stream.
 const turnPanel = page.getByRole('complementary', { name: 'Turn' });
+const steps = main.getByRole('button', { name: /^Open turn/ }).locator('xpath=..');
+async function openSteps() {
+  await main.getByRole('button', { name: /is working/ }).first().click();
+  await steps.waitFor();
+}
 async function openTurn() {
-  await main.getByRole('button', { name: /is working/ }).click();
+  await openSteps();
+  await main.getByRole('button', { name: /^Open turn/ }).click();
   await turnPanel.waitFor();
 }
 // The top-level message rows of the main list that `author` wrote (they have the reply-in-thread icon or the replies button).
@@ -254,14 +257,18 @@ async function live() {
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
   await working();
-  const row = main.getByRole('button', { name: /is working/ });
-  const card = row.locator('xpath=..');
-  await card.locator('details summary').first().waitFor({ timeout: 120000 });
+  await openSteps();
+  await steps.locator('details summary').first().waitFor({ timeout: 120000 });
   await page.waitForTimeout(1000);
   await shot('midturn');
-  const inline = await card.locator('details summary').count();
-  const first = await card.locator('details summary').first().innerText();
-  check(inline >= 1 && inline <= 3 && /(Bash|Read|Glob|Grep|LS|List)\b/.test(first), 'the running card shows the last tool calls inline, at most 3', `${inline} rows, first: ${first}`);
+  await shot('dock-open');
+  const inline = await steps.locator('details summary').count();
+  const first = await steps.locator('details summary').first().innerText();
+  check(inline >= 1 && inline <= 5 && /(Bash|Read|Glob|Grep|LS|List)\b/.test(first), 'the working pill opens the last tool calls, at most 5', `${inline} rows, first: ${first}`);
+  check((await steps.evaluate((el) => getComputedStyle(el).borderTopWidth)) === '0px', 'the steps popover has no border');
+  await page.keyboard.press('Escape');
+  await steps.waitFor({ state: 'hidden' });
+  await shot('dock-working');
   await openTurn();
   await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
   await shot('turn-panel');
@@ -822,11 +829,32 @@ async function stop() {
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await openTurn();
-  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
-  await page.waitForTimeout(1000);
+  await turnPanel.locator('div.bg-bot-bubble').first().waitFor({ timeout: 60000 });
+  const pill = main.getByRole('button', { name: /is working/ });
+  const timer = async () => {
+    const m = /^\S+\s+(?:(\d+)m )?(\d+)s\b/.exec(await pill.innerText());
+    return m ? Number(m[1] ?? 0) * 60 + Number(m[2]) : -1;
+  };
+  const before = await timer();
+  await page.waitForTimeout(2200);
+  const mid = await timer();
+  await page.reload();
+  await pill.waitFor({ timeout: 30000 });
+  for (const end = Date.now() + 15000; (await timer()) < 0 && Date.now() < end; ) await page.waitForTimeout(250);
+  const after = await timer();
+  check(before >= 0 && mid >= before + 2 && after >= mid, 'the timer keeps counting from the turn start after a reload mid-turn', `${before}s -> ${mid}s -> reload -> ${after}s`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await pill.waitFor();
+  await shot('dock-phone');
+  const pillBox = await pill.boundingBox();
+  check(pillBox !== null && pillBox.x >= 0 && pillBox.x + pillBox.width <= 390 && pillBox.height >= 44, 'the working pill fits a phone and is a 44 px tap target', JSON.stringify(pillBox));
+  await page.setViewportSize({ width: 1200, height: 1000 });
   await page.getByRole('button', { name: 'Stop' }).click();
-  await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
+  await main.getByText(/Failed: interrupted/).first().waitFor({ timeout: 30000 });
   await shot('stopped');
+  await shot('dock-failed');
+  await main.getByText(/Failed: interrupted/).first().locator('..').getByRole('button', { name: 'Retry' }).waitFor({ timeout: 15000 });
+  check(true, 'the failed pill offers Retry');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where space_id=${cid}`));
   const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where space_id=${cid} and author='lead'`);
   const shown = await main.getByText(partial.replace(/[*_`]/g, ''), { exact: false }).count();

@@ -277,42 +277,64 @@
   transform-box: fill-box;
 }
 
-/* One bubble per tool call: it rises off the creature and fades. */
-.bubble {
+/* Bubbles rise off a working Bot, slower while it only thinks. */
+.dock-bubbles {
   position: absolute;
-  bottom: 4px;
-  left: 7px;
-  width: 5px;
-  height: 5px;
-  border: 1.5px solid var(--color-asleep);
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.dock-bubbles i {
+  position: absolute;
+  top: 4px;
+  left: var(--x);
+  width: var(--s);
+  height: var(--s);
+  border: 1.5px solid color-mix(in srgb, var(--color-working) 70%, transparent);
+  background: color-mix(in srgb, var(--color-working) 22%, transparent);
   border-radius: var(--radius-pill);
   opacity: 0;
-  animation: bubble-up 2.8s ease-out forwards;
+  animation: bubble-up var(--t) cubic-bezier(0.3, 0.15, 0.6, 1) infinite;
+  animation-delay: var(--d);
 }
-.bubble-1 {
-  left: 13px;
-  width: 4px;
-  height: 4px;
-  animation-duration: 3.2s;
+.dock-bubbles.slow i {
+  animation-duration: calc(var(--t) * 1.8);
 }
-.bubble-2 {
-  left: 3px;
-  width: 6px;
-  height: 6px;
-  animation-duration: 2.4s;
+.dock-bubbles.slow i:nth-child(n + 4) {
+  display: none;
 }
 @keyframes bubble-up {
   0% {
-    transform: translateY(0) scale(0.4);
+    transform: translate(0, 0) scale(0.5);
     opacity: 0;
   }
-  20% {
-    opacity: 0.8;
+  12% {
+    opacity: 0.95;
+  }
+  40% {
+    transform: translate(5px, -18px) scale(0.95);
   }
   100% {
-    transform: translateY(-26px) scale(1);
+    transform: translate(-5px, -46px) scale(1.15);
     opacity: 0;
   }
+}
+
+/* The dock's faint water tone. */
+.dock-water {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-working) 4%, var(--color-main)),
+    color-mix(in srgb, var(--color-working) 11%, var(--color-main))
+  );
+}
+button.dock-water:hover,
+button.dock-water[aria-expanded='true'] {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-working) 7%, var(--color-main)),
+    color-mix(in srgb, var(--color-working) 16%, var(--color-main))
+  );
 }
 
 /* The status word drifts like light on water. */
@@ -339,7 +361,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bubble {
+  .dock-bubbles {
     display: none;
   }
   .tide {

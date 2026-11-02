@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Tool } from '@/modules/spaces/utils/fold-events';
-import { activity, bubbleIds, toolVerb } from './activity';
+import { activity, toolVerb } from './activity';
 
 const tool: Tool = {
   id: 't1',
@@ -46,12 +46,5 @@ describe('activity', () => {
 
   it('is null while the agent only thinks, so the caller falls back', () => {
     expect(activity({ status: 'running', items: [{ type: 'text', text: 'hi' }] })).toBeNull();
-  });
-});
-
-describe('bubbleIds', () => {
-  it('gives one id per tool call, newest last', () => {
-    const tools = ['a', 'b', 'c', 'd'].map((id) => ({ ...tool, id }));
-    expect(bubbleIds(running(...tools), 3)).toEqual(['b', 'c', 'd']);
   });
 });

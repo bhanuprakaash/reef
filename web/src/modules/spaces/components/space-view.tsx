@@ -23,7 +23,7 @@ import { CoordinationPanel } from '@/modules/spaces/components/coordination-pane
 import { DeniedToolRows } from '@/modules/spaces/components/denied-tool-rows';
 import { FailedTurnRows } from '@/modules/spaces/components/failed-turn-rows';
 import { InspectorPanel } from '@/modules/spaces/components/inspector-panel';
-import { LiveTurn } from '@/modules/spaces/components/live-turn';
+import { LiveDock } from '@/modules/spaces/components/live-dock';
 import { MessageList } from '@/modules/spaces/components/message-list';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
@@ -252,13 +252,6 @@ export function SpaceView({
                   onOpenChain={(chainId) => openSide({ kind: 'direct', chainId })}
                 />
               )}
-              <LiveTurn
-                turn={turn}
-                role={working}
-                look={look}
-                open={turnOpen}
-                onOpen={() => openSide(turnOpen ? null : { kind: 'turn' })}
-              />
               {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
               <FailedTurnRows
                 spaceId={space.id}
@@ -301,6 +294,12 @@ export function SpaceView({
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
             <div className="mx-auto max-w-5xl space-y-2">
               {space.paused !== '' && <PausedBanner spaceId={space.id} reason={space.paused} />}
+              <LiveDock
+                spaceId={space.id}
+                entries={turn.status === 'idle' ? [] : [{ turn, role: working, look }]}
+                paused={space.paused !== ''}
+                onOpenTurn={() => openSide({ kind: 'turn' })}
+              />
               {space.movedTo !== null ? (
                 <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
                   <span className="min-w-0 flex-1 text-sm text-muted">
