@@ -48,32 +48,39 @@ func runRecord(args []string) error {
 	defer fakeLog.Close()
 	stdoutR := bufio.NewReader(stdoutPipe)
 	stdinR := bufio.NewReader(os.Stdin)
+	// Every stdin line goes to claude at once, so Reef's control_response reaches it while the
+	// turn that asked for it is still being recorded. The prompts are handed on, one turn each.
+	prompts := make(chan []byte)
+	go func() {
+		defer close(prompts)
+		for {
+			line, rerr := stdinR.ReadBytes('\n')
+			if len(line) > 0 {
+				if _, werr := stdin.Write(line); werr != nil {
+					return
+				}
+				if extractPrompt(line) != "" {
+					prompts <- line
+				}
+			}
+			if rerr != nil {
+				return
+			}
+		}
+	}()
 	// A wake that resumes an earlier session sends no preamble, so the role cannot be read
 	// off this prompt; it was saved under the session id on that session's first turn.
 	cli := parseArgs(args)
 	role := readRole(dir, cli.resume)
 
-	for {
-		promptLine, rerr := stdinR.ReadBytes('\n')
-		if len(promptLine) > 0 {
-			if _, werr := stdin.Write(promptLine); werr != nil {
-				break
+	for promptLine := range prompts {
+		prompt := extractPrompt(promptLine)
+		if role == "" {
+			if m := _roleRe.FindStringSubmatch(prompt); m != nil {
+				role = m[1]
 			}
-			prompt := extractPrompt(promptLine)
-			if prompt != "" && role == "" {
-				if m := _roleRe.FindStringSubmatch(prompt); m != nil {
-					role = m[1]
-				}
-			}
-			name := ""
-			if prompt != "" {
-				name = matchScenario(role, textPart(prompt))
-			}
-			recordTurn(stdoutR, name, role, prompt, args, fakeLog, dir)
 		}
-		if rerr != nil {
-			break
-		}
+		recordTurn(stdoutR, matchScenario(role, textPart(prompt)), role, prompt, args, fakeLog, dir)
 	}
 	_ = stdin.Close()
 	return cmd.Wait()

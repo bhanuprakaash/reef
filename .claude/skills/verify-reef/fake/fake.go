@@ -62,11 +62,11 @@ func runFake(args []string) error {
 	}
 	defer sessf.Close()
 
-	in := bufio.NewReader(os.Stdin)
+	in := &stdinQueue{in: bufio.NewReader(os.Stdin), ask: cli.askPermissions}
 	for {
-		line, rerr := in.ReadBytes('\n')
+		line, rerr := in.next()
 		if len(line) > 0 {
-			handleTurn(line, cwd, sid, &role, dir, sessf, out, fakeLog, cli.mcpConfig)
+			handleTurn(line, cwd, sid, &role, dir, sessf, out, fakeLog, cli.mcpConfig, in)
 			out.Flush()
 		}
 		if rerr != nil {
@@ -74,6 +74,56 @@ func runFake(args []string) error {
 		}
 	}
 	return nil
+}
+
+// stdinQueue is the fake's stdin. While a turn waits for the answer to a permission prompt,
+// the lines that arrive meanwhile (a new user message) wait here for a later turn.
+type stdinQueue struct {
+	in     *bufio.Reader
+	ask    bool // --permission-prompt-tool stdio: a recorded prompt waits for an answer
+	queued [][]byte
+	err    error
+}
+
+// next is the oldest line not handled yet; its error is the read error, with the last line.
+func (q *stdinQueue) next() ([]byte, error) {
+	if len(q.queued) > 0 {
+		line := q.queued[0]
+		q.queued = q.queued[1:]
+		return line, nil
+	}
+	if q.err != nil {
+		return nil, q.err
+	}
+	return q.in.ReadBytes('\n')
+}
+
+// answer reads stdin up to the control_response of requestID and returns whether it allowed
+// the call and, on a deny, its message. ok is false when stdin ended first.
+func (q *stdinQueue) answer(requestID string) (allow bool, message string, ok bool) {
+	for {
+		line, err := q.in.ReadBytes('\n')
+		var l struct {
+			Type     string `json:"type"`
+			Response struct {
+				RequestID string `json:"request_id"`
+				Response  struct {
+					Behavior string `json:"behavior"`
+					Message  string `json:"message"`
+				} `json:"response"`
+			} `json:"response"`
+		}
+		if json.Unmarshal(line, &l) == nil && l.Type == "control_response" && l.Response.RequestID == requestID {
+			return l.Response.Response.Behavior == "allow", l.Response.Response.Message, true
+		}
+		if len(line) > 0 {
+			q.queued = append(q.queued, line)
+		}
+		if err != nil {
+			q.err = err
+			return false, "", false
+		}
+	}
 }
 
 func writeLine(out *bufio.Writer, v any) {
@@ -111,7 +161,7 @@ func appendSessionRaw(f *os.File, raw, cwd, sid string) {
 
 func handleTurn(
 	raw []byte, cwd, sid string, role *string, dir string, sessf *os.File, out *bufio.Writer,
-	fakeLog *os.File, mcpConfig string,
+	fakeLog *os.File, mcpConfig string, in *stdinQueue,
 ) {
 	prompt := extractPrompt(raw)
 	if prompt == "" {
@@ -135,7 +185,7 @@ func handleTurn(
 		logTurn(fakeLog, *role, "none", cwd, sid)
 		return
 	}
-	replay(name, *role, cwd, sid, prompt, out, sessf, fakeLog, mcpConfig)
+	replay(name, *role, cwd, sid, prompt, out, sessf, fakeLog, mcpConfig, in)
 }
 
 type recHeader struct {
@@ -155,10 +205,14 @@ type recLine struct {
 
 // replay prints name's recording for this turn, cwd and session swapped in, sleeping the
 // recorded gaps (capped at 1s), running the side effects of its tool calls and appending
-// the session file the way real claude would.
+// the session file the way real claude would. A recorded permission prompt (control_request)
+// is printed and waits for its answer when claude was started with --permission-prompt-tool
+// stdio: an allow goes on as recorded, a deny gives the call an error result with the answer's
+// message, and the rest of the turn up to its result is dropped. Without the flag the call
+// gets the refusal "This command requires approval" the same way.
 func replay(
 	name, role, cwd, sid, prompt string, out *bufio.Writer, sessf *os.File, fakeLog *os.File,
-	mcpConfig string,
+	mcpConfig string, in *stdinQueue,
 ) {
 	path := filepath.Join(recordingsDir(), name+".jsonl")
 	f, err := os.Open(path)
@@ -192,6 +246,8 @@ func replay(
 	logTurn(fakeLog, role, name, cwd, sid)
 
 	errByID := toolResultErrors(lines)
+	gated := permissionCalls(lines)
+	assistants := map[string]string{}
 	toolCwd := cwd
 	switch name {
 	case "write-d", "write-file", "delete-readme", "work-developer", "work-tester", "f-file", "append-commit", "google-architect-woken", "google-developer-woken", "google-tester-woken":
@@ -217,9 +273,21 @@ func replay(
 	}
 
 	prev := 0.0
+	skipping := false
 	for _, l := range lines {
+		var rec struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				ToolUseID string `json:"tool_use_id"`
+			} `json:"request"`
+		}
+		_ = json.Unmarshal([]byte(l.Out), &rec)
 		gap := l.T - prev
 		prev = l.T
+		if skipping && rec.Type != "result" {
+			continue
+		}
 		if gap > 1 {
 			gap = 1
 		}
@@ -248,18 +316,44 @@ func replay(
 			}
 		}
 
-		fmt.Fprintln(out, replaced)
-		out.Flush()
-
-		var kind struct {
-			Type string `json:"type"`
+		if rec.Type != "control_request" || in.ask {
+			fmt.Fprintln(out, replaced)
+			out.Flush()
 		}
-		_ = json.Unmarshal([]byte(replaced), &kind)
+
 		switch {
-		case kind.Type == "assistant":
+		case rec.Type == "control_request":
+			refusal := "This command requires approval"
+			if in.ask {
+				allow, message, ok := in.answer(rec.RequestID)
+				if !ok {
+					return
+				}
+				if allow {
+					applyToolUses(assistants[rec.Request.ToolUseID], toolCwd, mcpConfig, func(id string) bool {
+						return id != rec.Request.ToolUseID || errByID[id]
+					})
+					continue
+				}
+				refusal = message
+			}
+			denied := map[string]any{
+				"type": "user", "session_id": sid, "parent_tool_use_id": nil,
+				"message": map[string]any{"role": "user", "content": []map[string]any{{
+					"type": "tool_result", "tool_use_id": rec.Request.ToolUseID, "content": refusal, "is_error": true,
+				}}},
+			}
+			writeLine(out, denied)
+			out.Flush()
+			appendSessionEvent(sessf, denied, cwd, sid)
+			skipping = true
+		case rec.Type == "assistant":
 			appendSessionRaw(sessf, replaced, cwd, sid)
-			applyToolUses(replaced, toolCwd, mcpConfig, errByID)
-		case kind.Type == "user" && !isReplayPrompt:
+			for _, id := range toolUseIDs(replaced) {
+				assistants[id] = replaced
+			}
+			applyToolUses(replaced, toolCwd, mcpConfig, func(id string) bool { return errByID[id] || gated[id] })
+		case rec.Type == "user" && !isReplayPrompt:
 			appendSessionRaw(sessf, replaced, cwd, sid)
 		}
 	}
@@ -292,9 +386,46 @@ func toolResultErrors(lines []recLine) map[string]bool {
 	return errByID
 }
 
-// applyToolUses runs the side effect of every tool_use block of an assistant line whose
-// recorded result was not an error.
-func applyToolUses(raw, cwd, mcpConfig string, errByID map[string]bool) {
+// permissionCalls is the tool_use ids a recording's permission prompts ask about.
+func permissionCalls(lines []recLine) map[string]bool {
+	ids := map[string]bool{}
+	for _, l := range lines {
+		var o struct {
+			Type    string `json:"type"`
+			Request struct {
+				ToolUseID string `json:"tool_use_id"`
+			} `json:"request"`
+		}
+		if json.Unmarshal([]byte(l.Out), &o) == nil && o.Type == "control_request" {
+			ids[o.Request.ToolUseID] = true
+		}
+	}
+	return ids
+}
+
+// toolUseIDs is the ids of the tool_use blocks of an assistant line.
+func toolUseIDs(raw string) []string {
+	var a struct {
+		Message struct {
+			Content []struct {
+				Type string `json:"type"`
+				ID   string `json:"id"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	_ = json.Unmarshal([]byte(raw), &a)
+	var ids []string
+	for _, b := range a.Message.Content {
+		if b.Type == "tool_use" {
+			ids = append(ids, b.ID)
+		}
+	}
+	return ids
+}
+
+// applyToolUses runs the side effect of every tool_use block of an assistant line that skip
+// does not name.
+func applyToolUses(raw, cwd, mcpConfig string, skip func(id string) bool) {
 	var a struct {
 		Message struct {
 			Content []struct {
@@ -309,7 +440,7 @@ func applyToolUses(raw, cwd, mcpConfig string, errByID map[string]bool) {
 		return
 	}
 	for _, b := range a.Message.Content {
-		if b.Type != "tool_use" || errByID[b.ID] {
+		if b.Type != "tool_use" || skip(b.ID) {
 			continue
 		}
 		runToolUse(b.Name, b.Input, cwd, mcpConfig)

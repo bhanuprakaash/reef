@@ -40,7 +40,8 @@ Interrupt() error                     // stop the turn and the process
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
   them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
   `AddDirs` (extra folders the backend may read: Claude gets one `--add-dir` each; Codex ignores it),
-  `Env` (`KEY=value`, added to `os.Environ`).
+  `Env` (`KEY=value`, added to `os.Environ`), `AskPermissions` (a tool call that needs permission
+  waits for an answer instead of being refused; Codex ignores it, see Permission prompts below).
 
 An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are left out.
 
@@ -56,6 +57,7 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 {"kind":"turn_end","costUsd":1.1,"sessionUsage":{"inputTokens":1184,"outputTokens":534,"cacheReadTokens":91382,"cacheWriteTokens":31940}}
 {"kind":"background","text":"The background command finished with exit code 0."}
 {"kind":"compacted"}
+{"kind":"permission","requestId":"9d1f7c4e-...","toolId":"toolu_01Q...","toolName":"Bash","input":{"command":"cat /x"},"rule":"Bash(cat /x)","text":"/x"}
 {"kind":"error","text":"No conversation found with session ID: ..."}
 ```
 
@@ -80,7 +82,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--permission-prompt-tool stdio] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -183,6 +185,44 @@ Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands
 {"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"..."}
 ```
 
+### Permission prompts
+
+With `Config.AskPermissions` claude gets `--permission-prompt-tool stdio`. A tool call that needs
+permission is then not refused: claude prints a `control_request` line and waits. The turn stays
+open until the caller answers.
+
+```jsonc
+{"type":"control_request","request_id":"9d1f7c4e-...","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"cat /x"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"localSettings"}],"blocked_path":"/x","tool_use_id":"toolu_01Q..."}}
+```
+
+The adapter maps it to one `permission` event: `requestId`, `toolId` (`tool_use_id`), `toolName`,
+`input`, `text` (`blocked_path`) and `rule`, the first rule of the first `addRules` suggestion as
+`Tool(ruleContent)`, or `Tool` when it has no content; empty when claude suggests none. The call's
+own `tool_call` event comes before it. A `control_request` of another subtype gives no event.
+
+`*claude.Agent` implements `agent.Asker`. `Answer(requestID, agent.Answer{Allow, Rule, Reason})`
+writes one `control_response` line on stdin, under the same lock as `Send`:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-...","response":{"behavior":"allow","updatedInput":{"command":"cat /x"}}}}
+{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-...","response":{"behavior":"allow","updatedInput":{"command":"cat /x"},"updatedPermissions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"session"}]}}}
+{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-...","response":{"behavior":"deny","message":"no answer from the user"}}}
+```
+
+- Allow runs the tool and the turn goes on. `updatedInput` is the request's own `input`. With
+  `Rule` set the rule is also allowed for the rest of the session (`updatedPermissions`).
+- Deny gives the tool call an error `tool_result` whose text is exactly `Reason`, and the
+  model answers. The adapter never sends `interrupt`: it loses the message and ends the turn
+  with an error.
+- `Answer` of a request id it has not seen, or already answered, returns an error.
+- `--add-dir` folders are readable without a prompt. A path outside them, and a command the
+  allow rules do not cover, prompt.
+- Checked on claude 2.1.316 with `--permission-mode default`; with the user's `auto` mode a
+  `cat` of a file outside the folder ran without a prompt.
+
+Codex has no equivalent: `approvalPolicy` is always `never`, so it never asks and `Answer` does
+not exist on its adapter.
+
 ## Codex
 
 Transport is `codex app-server` (JSON-RPC over stdio), not `codex exec --json`.
@@ -265,6 +305,7 @@ and `agentMessage`.
 | `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). These events are the turn's live count only: the `result` line sends no `usage` of its own. The messages' usage leaves out the subagents' model calls (their messages have no `message_delta`) and claude's own side calls (a small-model call for the session title, about 1.2k input tokens, once per session). The `turn_end` or `error` carries `sessionUsage`, the sum of the result's `modelUsage`, which counts all of it for the whole session so far, also after a `--resume` (checked: cache read 38,208 = 22,860 earlier + 15,348 this turn). The adapter sends it as it is, and the Space `Runner` stores the turn's usage as that total minus what the session's earlier turns had, replacing the sum of the events. A turn that has no `modelUsage` keeps the sum of its events. A background turn that starts before the result of the turn it runs inside has sent its usage already; the later total holds it. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
 | `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification`, carries a cost and `sessionUsage`. `total_cost_usd` is the running cost of the whole session, not the turn, and a `--resume` process continues the earlier total instead of starting from zero. The adapter sends it as it is, so it does not depend on where a process starts; the Space `Runner` stores the turn's own cost, that total minus the total the session's previous turn reported (kept on the turn as `session_cost_usd`; for a session stored before that, its largest cost plus the costs stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share). A background `task-notification` result sends no cost: the next turn's total holds it. | `turn/completed` with any status but `failed`; carries no cost |
 | `background` | The text of a turn claude ran by itself for a finished background task (no echoed prompt), sent at its `result` with `origin` `task-notification`. None when the turn wrote no text. | Never. |
+| `permission` | `control_request` line with `request.subtype` `can_use_tool`, only with `AskPermissions`, see Permission prompts. Sent after the call's `tool_call`. | Never. |
 | `compacted` | `system` line with subtype `compact_boundary`, see Compaction above. | `item/completed` of an item of type `contextCompaction`. |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined), carries a cost and `sessionUsage` the same way as `turn_end`. Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 

@@ -29,6 +29,11 @@ resumebg)
 	echo '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"cache_creation_input_tokens":425,"cache_read_input_tokens":18362,"output_tokens":3}},"parent_tool_use_id":null}'
 	echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"42","session_id":"d6c291c5-ec96-403e-9f97-720d1dee78db","usage":{"input_tokens":2,"cache_creation_input_tokens":425,"cache_read_input_tokens":18362,"output_tokens":3}}'
 	;;
+ask)
+	echo '{"type":"control_request","request_id":"9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"cat /x","description":"Read x"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"localSettings"}],"blocked_path":"/x","tool_use_id":"toolu_01Ask"}}'
+	read -r answer
+	printf '%s\n' "$answer" >"$FAKE_OUT"
+	;;
 argv)
 	echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"'"$*"'"}]}}'
 	;;

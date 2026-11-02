@@ -102,6 +102,16 @@ and prompt (or the scenario and the missing file) on stderr and in the result, a
 going. `--resume` of a missing session answers `No conversation found` and exits 1, the way real
 claude does. The session file goes to `~/.claude/projects/<key>/<sid>.jsonl` like real claude's,
 so existing `grep` checks still work.
+With `--permission-prompt-tool stdio` in its args (Reef's `AskPermissions`), a recorded
+`control_request` line is printed and the fake reads stdin until the `control_response` with its
+`request_id`; other lines that arrive meanwhile (a new user message) wait for a later turn. An
+allow replays on as recorded, running the call's side effect then, not before. A deny prints an
+`is_error` `tool_result` with the answer's message, drops the recorded lines up to the turn's
+`result` and prints it. Without the flag the same `tool_result` reads `This command requires
+approval`. `record` mode forwards every stdin line, `control_response` too, to the real claude and
+saves its `control_request` line like any other. The `prompt-outside` and `read-chat-folder`
+scenarios (`read the file outside`, `read the file in your folder`) are for these prompts; their
+recordings come from a `record` run.
 
 Add a scenario: a line in `fake/scenario.go`'s table (`{name, role, pattern}`, `role: ""` for
 any). Record or refresh its recording: run the same prompt once in `record` mode (a short one,

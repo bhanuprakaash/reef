@@ -105,6 +105,35 @@ func TestParse(t *testing.T) {
 			want: []agent.Event{{Kind: agent.KindToolResult, ToolID: "toolu_01", Output: "a\nb", IsError: true}},
 		},
 		{
+			name: "permission request",
+			give: `{"type":"control_request","request_id":"9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"cat /x","description":"Read x"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"localSettings"},{"type":"addRules","rules":[{"toolName":"Read","ruleContent":"//x/**"}],"behavior":"allow","destination":"session"}],"blocked_path":"/x","tool_use_id":"toolu_01Ask"}}`,
+			want: []agent.Event{{
+				Kind: agent.KindPermission, RequestID: "9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11", ToolID: "toolu_01Ask",
+				ToolName: "Bash", Input: json.RawMessage(`{"command":"cat /x","description":"Read x"}`),
+				Rule: "Bash(cat /x)", Text: "/x",
+			}},
+		},
+		{
+			name: "permission request without a suggestion",
+			give: `{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"WebFetch","input":{"url":"https://example.com"},"tool_use_id":"toolu_02"}}`,
+			want: []agent.Event{{
+				Kind: agent.KindPermission, RequestID: "r1", ToolID: "toolu_02", ToolName: "WebFetch",
+				Input: json.RawMessage(`{"url":"https://example.com"}`),
+			}},
+		},
+		{
+			name: "permission rule without content",
+			give: `{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"WebFetch","input":{},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"WebFetch"}],"behavior":"allow","destination":"session"}],"tool_use_id":"toolu_03"}}`,
+			want: []agent.Event{{
+				Kind: agent.KindPermission, RequestID: "r2", ToolID: "toolu_03", ToolName: "WebFetch",
+				Input: json.RawMessage(`{}`), Rule: "WebFetch",
+			}},
+		},
+		{
+			name: "other control request is skipped",
+			give: `{"type":"control_request","request_id":"r3","request":{"subtype":"hook_callback"}}`,
+		},
+		{
 			name: "result",
 			give: `{"type":"result","subtype":"success","is_error":false,"result":"Output: hello-from-tool","session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381","total_cost_usd":0.0123,"usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123},"modelUsage":{"claude-opus-5-5":{"inputTokens":4,"outputTokens":123,"cacheReadInputTokens":22898,"cacheCreationInputTokens":10112},"claude-haiku-5-5":{"inputTokens":1200,"outputTokens":20,"cacheReadInputTokens":0,"cacheCreationInputTokens":0}}}`,
 			want: []agent.Event{
@@ -193,6 +222,27 @@ func TestParse_resultHeldWithItsCall(t *testing.T) {
 		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 63, CacheReadTokens: 7817, CacheWriteTokens: 8139}},
 		{Kind: agent.KindToolCall, ToolID: "toolu_01", ToolName: "Read", Input: json.RawMessage(`{"file_path":"/tmp/note.txt"}`)},
 		{Kind: agent.KindToolResult, ToolID: "toolu_01", Output: "note"},
+	}
+	var st state
+	var got []agent.Event
+	for _, line := range lines {
+		got = append(got, parse([]byte(line), &st)...)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestParse_toolCallBeforePermission(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01Ask","name":"Bash","input":{"command":"cat /x"}}]},"parent_tool_use_id":null}`,
+		`{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"cat /x"},"tool_use_id":"toolu_01Ask"}}`,
+		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":2,"output_tokens":63}},"parent_tool_use_id":null}`,
+	}
+	want := []agent.Event{
+		{Kind: agent.KindToolCall, ToolID: "toolu_01Ask", ToolName: "Bash", Input: json.RawMessage(`{"command":"cat /x"}`)},
+		{Kind: agent.KindPermission, RequestID: "r1", ToolID: "toolu_01Ask", ToolName: "Bash", Input: json.RawMessage(`{"command":"cat /x"}`)},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 63}},
 	}
 	var st state
 	var got []agent.Event
@@ -616,6 +666,81 @@ func TestMCPConfigRemovedAtFirstLine(t *testing.T) {
 	<-a.Events()
 	if _, err := os.Stat(a.mcpPath); !os.IsNotExist(err) {
 		t.Errorf("stat %s while claude runs: %v, want not exist", a.mcpPath, err)
+	}
+}
+
+func TestAskPermissions(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	if err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir(), AskPermissions: true}); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.HasSuffix(got[0].Output, " --permission-prompt-tool stdio") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
+func TestAnswer(t *testing.T) {
+	tests := []struct {
+		name string
+		give agent.Answer
+		want string
+	}{
+		{
+			name: "allow once",
+			give: agent.Answer{Allow: true},
+			want: `{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11","response":{"behavior":"allow","updatedInput":{"command":"cat /x","description":"Read x"}}}}`,
+		},
+		{
+			name: "allow always",
+			give: agent.Answer{Allow: true, Rule: "Bash(cat /x)"},
+			want: `{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11","response":{"behavior":"allow","updatedInput":{"command":"cat /x","description":"Read x"},"updatedPermissions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"session"}]}}}`,
+		},
+		{
+			name: "allow always without content",
+			give: agent.Answer{Allow: true, Rule: "Bash"},
+			want: `{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11","response":{"behavior":"allow","updatedInput":{"command":"cat /x","description":"Read x"},"updatedPermissions":[{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"}]}}}`,
+		},
+		{
+			name: "deny",
+			give: agent.Answer{Reason: "no answer from the user"},
+			want: `{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-0b7e-4c43-8e56-3a2f6f0f6c11","response":{"behavior":"deny","message":"no answer from the user"}}}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "answer")
+			t.Setenv("FAKE_OUT", out)
+			a := fakeClaude(t, "ask")
+			if err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir()}); err != nil {
+				t.Fatal(err)
+			}
+			ev := <-a.Events()
+			if ev.Kind != agent.KindPermission {
+				t.Fatalf("event = %+v, want a permission", ev)
+			}
+			if err := a.Answer(ev.RequestID, tt.give); err != nil {
+				t.Fatal(err)
+			}
+			collect(t, drain(a))
+			got, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.TrimSpace(string(got)) != tt.want {
+				t.Errorf("wrote %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAnswerUnknownRequest(t *testing.T) {
+	a := fakeClaude(t, "hang")
+	if err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Answer("nope", agent.Answer{Allow: true}); err == nil {
+		t.Error("Answer of an unknown request = nil, want an error")
 	}
 }
 
