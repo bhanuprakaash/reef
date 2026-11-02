@@ -52,6 +52,18 @@ const shot = async (step) => {
   console.log(`shot ${file}`);
 };
 
+// The Space header: the Bots popup (the Bots button, or the faces below 768 px) and its Bot settings
+// item, which opens the Bots panel; the "..." menu and one of its items.
+const botsButton = () => main.getByRole('button', { name: /^(Show )?Bots$/ });
+async function openBotSettings() {
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
+}
+async function openMore(item) {
+  await main.getByRole('button', { name: 'More', exact: true }).click();
+  await main.getByRole('menuitem', { name: item, exact: true }).click();
+}
+
 // Opens the custom select named `label` (inside `within`) and clicks the option named `option`.
 async function pick(label, option, within = page) {
   await within.getByRole('combobox', { name: label, exact: true }).click();
@@ -355,18 +367,21 @@ async function attach() {
   await section.getByRole('link', { name: 'idea chat' }).click();
   await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
   await shot('before-attach');
-  await page.getByRole('button', { name: 'Attach to Work item' }).click();
+  await openMore('Attach to Work item');
   const dialog = page.getByRole('dialog', { name: 'Attach to a Work item' });
   await pick('Work item', 'Search', dialog);
   await shot('attach-form');
   await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
   await page.getByText(/This Space is now attached to work item "Search"/).first().waitFor({ timeout: 15000 });
   await shot('attached');
+  await main.getByRole('button', { name: 'More', exact: true }).click();
+  await main.getByRole('menuitem', { name: 'Open Work item', exact: true }).waitFor();
   check(
-    (await page.getByRole('button', { name: 'Attach to Work item' }).count()) === 0,
-    'the Attach to Work item button is gone once the Space has a work item',
+    (await main.getByRole('menuitem', { name: 'Attach to Work item' }).count()) === 0,
+    'the Attach to Work item item is gone once the Space has a work item',
     `space row (work_item_id|kind): ${sql(`select work_item_id,kind from space where id=${cid}`)}`,
   );
+  await page.keyboard.press('Escape');
   await section.getByRole('link', { name: 'idea chat' }).waitFor();
   check(
     sql(`select kind from space where id=${cid}`) === 'work_item',
@@ -740,7 +755,7 @@ async function phone() {
   await thread.getByRole('button', { name: 'Close thread' }).click();
   await thread.waitFor({ state: 'hidden' });
 
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   const team = page.getByRole('complementary', { name: 'Bots' });
   await team.waitFor();
   const sb = await box(team.locator('xpath=..'));
@@ -750,7 +765,7 @@ async function phone() {
   await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
   await team.waitFor({ state: 'hidden' });
 
-  await main.getByRole('button', { name: 'Inspector', exact: true }).click();
+  await openMore('Inspector');
   const inspector = page.getByRole('complementary', { name: 'Inspector' });
   await inspector.getByText('By role').waitFor();
   const ib = await box(inspector.locator('xpath=..'));
@@ -1259,7 +1274,7 @@ async function inspector() {
   await workingAs('developer');
   await idle();
 
-  await main.getByRole('button', { name: 'Inspector' }).click();
+  await openMore('Inspector');
   const panel = page.getByRole('complementary', { name: 'Inspector' });
   const devRow = panel.locator('li', { hasText: 'developer' });
   await devRow.waitFor({ timeout: 15000 });
@@ -1351,7 +1366,7 @@ async function subagent() {
   const stored = sql(`select count(*) from tool_call where parent_id is not null`);
   check(Number(stored) > 0, 'the subagent tool calls are stored with the Agent call as parent', `tool_call rows with a parent: ${stored}`);
 
-  await main.getByRole('button', { name: 'Inspector' }).click();
+  await openMore('Inspector');
   const panel = page.getByRole('complementary', { name: 'Inspector' });
   const turnRow = panel.locator('details').filter({ hasText: 'Prompt' }).first();
   await turnRow.locator('summary').first().click();
@@ -2089,7 +2104,7 @@ async function workshop() {
   const edited = await fetch(`${base}/bots/${devId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...devBot, model: 'workshop-edited-model' }) });
   check(edited.status === 200, 'the developer Bot is edited after its session adopted', String(edited.status));
   await page.goto(`${base}/spaces/${cid}`);
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   const botsPanel = page.getByRole('complementary', { name: 'Bots' });
   await botsPanel.getByText('Apply here to adopt edits').waitFor();
   const adopted = await botsPanel.innerText();
@@ -2445,7 +2460,7 @@ async function team() {
   await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
   const running = await workingAs('developer');
   check(running, 'the developer turn is running');
-  const avatars = main.getByRole('button', { name: 'Show Bots' });
+  const avatars = main.getByRole('img', { name: 'Bots' });
   check((await avatars.locator('.c-ring').count()) === 1, 'the header avatars ring one role while it works');
   check((await page.getByText('working…', { exact: true }).count()) === 0, 'no floating working badge');
   const panel = page.getByRole('complementary', { name: 'Bots' });
@@ -2453,7 +2468,7 @@ async function team() {
   const space = main.locator('section').first();
   const before = await space.boundingBox();
   await shot('closed-working');
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   await panel.waitFor();
   const pop = await panel.locator('xpath=../..').boundingBox();
   const head = await main.locator('header').boundingBox();
@@ -2473,12 +2488,12 @@ async function team() {
   await shot('popover-working');
   await page.keyboard.press('Escape');
   await panel.waitFor({ state: 'hidden' });
-  await avatars.click();
+  await openBotSettings();
   await panel.waitFor();
   await page.mouse.click(300, 600);
   await panel.waitFor({ state: 'hidden' });
   check(true, 'Escape and a click outside both close the popover');
-  await main.getByRole('button', { name: 'Bots', exact: true }).click();
+  await openBotSettings();
   await panel.getByRole('button', { name: 'Close Bots' }).click();
   await panel.waitFor({ state: 'hidden' });
   check(true, 'its X closes it');
@@ -2883,7 +2898,10 @@ async function conversationMove() {
   const link = main.getByRole('link', { name: 'Open the Space' });
   check((await link.getAttribute('href')) === `/spaces/${typedTo}`, 'the conversation links to the new Space', await link.getAttribute('href'));
   check((await page.getByLabel('Message').count()) === 0, 'the moved conversation has no message box', String(await page.getByLabel('Message').count()));
-  check((await main.getByRole('button', { name: 'Add Bot' }).count()) === 0, 'the moved conversation has no Add Bot button');
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Bot settings', exact: true }).waitFor();
+  check((await main.getByRole('menuitem', { name: 'Add Bot', exact: true }).count()) === 0, 'the moved conversation has no Add Bot item in the Bots popup');
+  await page.keyboard.press('Escape');
   check((await members(typedTo)) === 'sam*,kit', 'the new Space has sam leading and kit', await members(typedTo));
   const shape = sql(`select kind, team_id is null from Space where id=${typedTo}`);
   check(shape === 'free|1', 'the new Space is free and has no Team', shape);
@@ -2900,12 +2918,15 @@ async function conversationMove() {
   const clicked = await start();
   await exchange(login);
   await page.setViewportSize({ width: 390, height: 844 });
-  await main.getByRole('button', { name: 'Add Bot' }).waitFor();
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Add Bot', exact: true }).waitFor();
   const header = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-  check(header <= 0, 'the conversation with the Add Bot button has no horizontal scroll at 390 px', String(header));
+  check(header <= 0, 'the conversation with its Bots popup open has no horizontal scroll at 390 px', String(header));
   await shot('phone-add-teammate');
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 800 });
-  await main.getByRole('button', { name: 'Add Bot' }).click();
+  await botsButton().click();
+  await main.getByRole('menuitem', { name: 'Add Bot', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a Bot' });
   await dialog.getByRole('button', { name: 'kit', exact: true }).waitFor();
   check((await dialog.getByRole('button', { name: 'sam', exact: true }).count()) === 0, "the dialog does not offer the conversation's own Bot");
@@ -4407,13 +4428,16 @@ async function spaceHeader() {
   turn(freeSpace.id, 500, 0, 0, 0);
 
   const header = main.locator('header').first();
-  const actions = async () => {
+  const menuItems = async (button, labels) => {
+    await header.getByRole('button', { name: button, exact: true }).click();
     const found = [];
-    for (const [role, label] of [['link', 'Open Work item'], ['button', 'Attach to Work item'], ['button', 'Add Bot']]) {
-      if ((await header.getByRole(role, { name: label, exact: true }).count()) > 0) found.push(label);
+    for (const label of labels) {
+      if ((await header.getByRole('menuitem', { name: label, exact: true }).count()) > 0) found.push(label);
     }
-    return found.join(', ');
+    await page.keyboard.press('Escape');
+    return found;
   };
+  const actions = async () => [...(await menuItems('More', ['Open Work item', 'Attach to Work item'])), ...(await menuItems('Bots', ['Add Bot']))].join(', ');
   const headerText = async () => (await header.innerText()).replace(/\s+/g, ' ');
   const memberNames = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => m.name);
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -4423,7 +4447,7 @@ async function spaceHeader() {
   };
   const panel = page.getByRole('complementary', { name: 'Bots' });
   const members = async () => {
-    await header.getByRole('button', { name: 'Bots', exact: true }).click();
+    await openBotSettings();
     await panel.waitFor();
     const rows = panel.locator('ul').first().getByRole('listitem');
     const out = { count: await rows.count(), creatures: await rows.locator('svg').count(), text: (await rows.allInnerTexts()).join(' | ').replace(/\s+/g, ' ').toLowerCase(), leads: await panel.locator('.rounded-pill').filter({ hasText: /^coordinator$/ }).count() };
@@ -4446,12 +4470,21 @@ async function spaceHeader() {
   check(mWork.count === (await memberNames(workSpace.id)).length && mWork.creatures >= mWork.count && mWork.leads === 1, "the member list shows one creature per member of GET /spaces/{id}/members and one coordinator badge", JSON.stringify(mWork));
   await shot('desktop-work-item');
   await page.keyboard.press('Escape');
+  check((await header.getByRole('button', { name: 'New chat', exact: true }).count()) === 0, 'a Work item Space has no New chat');
+  check(await header.getByRole('button', { name: 'Wrap up', exact: true }).isVisible(), 'a Work item Space has Wrap up in the header');
+  await main.getByRole('button', { name: 'More', exact: true }).click();
+  await shot('more');
+  await page.keyboard.press('Escape');
 
   await open(freeSpace.id, `free-space-${suffix}`);
   const freeText = await headerText();
   check(freeText.includes('free Space') && !freeText.includes('Budget'), 'a free Space header names its kind and has no budget chip', freeText);
+  check((await header.getByRole('button', { name: 'Wrap up', exact: true }).count()) === 0, 'a free Space has no Wrap up');
+  await page.waitForTimeout(500);
+  await shot('space');
   check((await actions()) === 'Attach to Work item, Add Bot', 'a free Space has Attach to Work item and Add Bot, no Open Work item', await actions());
-  await header.getByRole('button', { name: 'Add Bot', exact: true }).click();
+  await header.getByRole('button', { name: 'Bots', exact: true }).click();
+  await header.getByRole('menuitem', { name: 'Add Bot', exact: true }).click();
   const addDialog = page.getByRole('dialog', { name: 'Add a Bot' });
   await addDialog.getByRole('button', { name: kit.name, exact: true }).waitFor();
   check((await addDialog.getByRole('button', { name: 'lead', exact: true }).count()) === 0, "the picker leaves out the Space's own members");
@@ -4460,6 +4493,18 @@ async function spaceHeader() {
   await addDialog.waitFor({ state: 'hidden' });
   const after = await memberNames(freeSpace.id);
   check(after.join() === `lead,${kit.name}`, 'Add Bot on a free Space puts the Bot in GET /spaces/{id}/members', after.join());
+  await header.getByRole('button', { name: 'Bots', exact: true }).click();
+  const roster = header.getByRole('group', { name: 'Bots in this Space' });
+  await roster.waitFor();
+  const rosterText = (await roster.innerText()).replace(/\s+/g, ' ');
+  check(rosterText.includes('lead') && rosterText.includes(kit.name) && rosterText.includes('coordinator'), 'the Bots popup lists the roster with the coordinator marked', rosterText);
+  check((await header.getByRole('menuitem').allInnerTexts()).join() === 'Add Bot,Bot settings', 'the Bots popup ends with Add Bot and Bot settings');
+  await shot('bots-popup');
+  await header.getByRole('menuitem', { name: 'Bot settings', exact: true }).click();
+  await panel.waitFor();
+  check((await header.getByRole('menuitem').count()) === 0, 'Bot settings closes the popup and opens the Bots panel');
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'hidden' });
   const mFree = await members();
   check(mFree.count === 2 && mFree.text.includes(kit.name) && mFree.leads === 1, 'the member list now shows both members', JSON.stringify(mFree));
   await shot('desktop-free');
@@ -4467,14 +4512,22 @@ async function spaceHeader() {
 
   await open(conversation.id, `chat-${suffix}`);
   const convText = await headerText();
-  const face = await header.getByRole('button', { name: 'Show Bots' }).locator('svg').first().innerHTML();
+  const face = await header.getByRole('img', { name: 'Bots' }).locator('svg').first().innerHTML();
   check(convText.includes('conversation') && !convText.includes('Budget'), 'a conversation header names its kind and has no budget chip', convText);
   check(face.includes('#8B5CF6') && !face.includes('#8E8E93'), "a conversation header shows the Bot's creature in its colour, not a pebble");
   check((await actions()) === 'Add Bot', 'a conversation has Add Bot only', await actions());
+  const newChat = header.getByRole('button', { name: 'New chat', exact: true });
+  check((await newChat.count()) === 1, 'a conversation header has New chat');
+  await shot('conv');
   const mConv = await members();
   check(mConv.count === 1 && mConv.text.includes(sam.name), 'the conversation lists its one Bot', JSON.stringify(mConv));
   await shot('desktop-conversation');
   await page.keyboard.press('Escape');
+  const before = (await getJson('/spaces')).length;
+  await newChat.click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith(`/${conversation.id}`));
+  const fresh = await getJson(`/spaces/${page.url().split('/').pop()}`);
+  check(fresh.kind === 'conversation' && fresh.botId === sam.id && fresh.id !== conversation.id && (await getJson('/spaces')).length === before + 1, 'New chat opens a new conversation with the same Bot', `${fresh.kind} bot ${fresh.botId} id ${fresh.id}`);
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const [id, title, step] of [[workSpace.id, workSpace.name, 'phone-work-item'], [freeSpace.id, `free-space-${suffix}`, 'phone-free'], [conversation.id, `chat-${suffix}`, 'phone-conversation']]) {
@@ -4482,21 +4535,29 @@ async function spaceHeader() {
     check(await noOverflow(), `${step} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(step);
   }
+  await open(workSpace.id, workSpace.name);
+  check(!(await header.getByRole('button', { name: 'Wrap up', exact: true }).isVisible()), 'on a phone the header has no Wrap up button');
+  await header.getByRole('button', { name: 'More', exact: true }).click();
+  check(await header.getByRole('menuitem', { name: 'Wrap up', exact: true }).isVisible(), 'on a phone Wrap up is in the "..." menu');
+  await shot('phone');
+  await page.keyboard.press('Escape');
   await page.setViewportSize({ width: 1280, height: 800 });
 
   await open(freeSpace.id, `free-space-${suffix}`);
-  await header.getByRole('button', { name: 'Attach to Work item', exact: true }).click();
+  await openMore('Attach to Work item');
   const attachDialog = page.getByRole('dialog', { name: 'Attach to a Work item' });
   await pick('Work item', itemB.title, attachDialog);
   await attachDialog.getByRole('button', { name: 'Attach', exact: true }).click();
-  await header.getByRole('link', { name: 'Open Work item', exact: true }).waitFor();
+  await header.getByRole('button', { name: 'More', exact: true }).click();
+  await header.getByRole('menuitem', { name: 'Open Work item', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
   const attached = await getJson(`/spaces/${freeSpace.id}`);
   check(attached.workItemId === itemB.id && attached.kind === 'work_item', 'Attach from the header makes the Space a Work item Space of the item', `workItemId ${attached.workItemId}, kind ${attached.kind}`);
   const attachedText = await headerText();
   check(attachedText.includes(itemB.title) && attachedText.includes(`Budget ${attached.tokensUsed.toLocaleString('en-US')} /`) && attached.tokensUsed === 500, "the attached Space's header shows the item and its budget used", attachedText);
   check((await actions()) === 'Open Work item', 'the attached Space offers Open Work item only', await actions());
   await shot('desktop-attached');
-  await header.getByRole('link', { name: 'Open Work item', exact: true }).click();
+  await openMore('Open Work item');
   await page.waitForURL(`**/work-items/${itemB.id}`);
   const spaces = main.getByRole('region', { name: 'Spaces' });
   await spaces.getByRole('link', { name: new RegExp(`free-space-${suffix}`) }).waitFor();
