@@ -136,10 +136,12 @@ logged in and on `PATH`.
   type label (Failed, Paused, Held, Review, Question, Replied, Sub-item, Proposed, Started, Space
   proposed), a one-line preview of its text with the markdown marks removed, and its age. A
   Needs-you row shows its one action: Retry for a failed turn, Continue for a pause or a held
-  wake, Review for an item in review, Reply for a question. Hovering a row adds Open (Needs you)
-  or Open and Dismiss (FYI). Clicking a row opens it in place to the rendered message with the
+  wake, Review for an item in review, Reply for a question; Review and Reply open the Space.
+  Hovering a Needs-you row with Retry or Continue adds Open Space, and hovering an FYI row adds
+  Open and Dismiss. Clicking a row opens it in place to the rendered message with the
   same actions, and a blue dot marks a row not opened yet (kept in this browser). FYI has Dismiss
-  all seen, which dismisses the FYI rows already opened. The window asks once, on a click, to
+  all seen, which dismisses the FYI rows already opened, except Space proposed rows (dismissing
+  one deletes the proposal, so only its own Dismiss does). The window asks once, on a click, to
   show desktop notifications and then shows one for each new item since the page loaded, except
   the FYI items of Work items.
 - Crews (the Crews tab of `/bots`, `/bots?tab=crews&team=<name>`; `/teams` and `/teams/<name>` redirect there): a compact list of Crews (the selected one is in the URL; on a phone the list and the Crew are separate views), and one Crew with its description and Bot rows. It creates one (`POST /teams`) with a name, an optional description (the `responsibility` field), Bots and an optional coordinator suggestion and deletes one (`DELETE /teams/{name}`, from the … menu, which also has Duplicate). There is no Save button: the description saves when you leave the field, and the star ("Answers first", the coordinator suggestion), × and Add Bot save at once, each with `PUT /teams/{name}`, and a "Saved" tick shows. A Crew has no queue, memory or capability editor: a Bot's profile is edited on the Bot. "New crew" (Duplicate opens it too) asks for a name, a description and a Crew to start from, and sends `POST /teams?from=<source>` with the source's Bot ids; it is rejected if that name is taken. A Crew's name is its key, so it cannot be renamed.

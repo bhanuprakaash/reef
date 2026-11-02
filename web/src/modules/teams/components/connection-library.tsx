@@ -142,7 +142,6 @@ function ConnectionRow({ connection, used }: { connection: Connection; used: num
   return (
     <li className="py-3">
       <div className="flex items-center gap-3">
-        <span className="size-2 shrink-0 rounded-full bg-done" aria-hidden="true" />
         <span className="min-w-0 flex-1">
           <span className="block font-mono text-[13px]">{connection.name}</span>
           <span className="block truncate text-xs text-muted">
@@ -208,7 +207,8 @@ export function ConnectionLibrary() {
         </div>
       )}
       <p className="text-xs text-muted">
-        Changes reach new chats, and open chats after Apply here.
+        A connection listens for nothing and sends nothing on its own. Changes reach new chats, and
+        open chats after Apply here.
       </p>
     </div>
   );

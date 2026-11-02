@@ -82,7 +82,6 @@ function numeric(children: ReactNode) {
   return typeof children === 'string' && number.test(children);
 }
 
-// Gives the Bot an @mention names, with the card to show for it, or null to leave the mention plain.
 export const MentionCards = createContext<(name: string) => { look: Look; card: ReactNode } | null>(
   () => null,
 );

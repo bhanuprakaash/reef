@@ -6,9 +6,9 @@ import { useNotificationPermission } from '@/lib/use-notification-permission';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { PendingMemoryList } from '@/modules/inbox/components/pending-memory';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
-import { useDismissItem } from '@/modules/inbox/api/dismiss-item';
+import { useDismissItems } from '@/modules/inbox/api/dismiss-item';
 import { useSeenItems } from '@/modules/inbox/hooks/use-seen-items';
-import { itemKey } from '@/modules/inbox/utils/new-items';
+import { dismissableSeen, itemKey } from '@/modules/inbox/utils/new-items';
 import type { InboxItem } from '@/types/api';
 
 const groups: { group: InboxItem['group']; title: string; hint: string }[] = [
@@ -22,10 +22,10 @@ export function InboxList() {
   const pendingMemory = usePendingMemory();
   const { permission, request } = useNotificationPermission();
   const { seen, markSeen } = useSeenItems();
-  const dismiss = useDismissItem();
+  const dismissAll = useDismissItems();
   const items = inbox.data ?? [];
   const needsYou = items.filter((i) => i.group === 'needs_you').length;
-  const seenFyi = items.filter((i) => i.group === 'fyi' && seen.includes(itemKey(i)));
+  const seenFyi = dismissableSeen(items, seen);
 
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-7 py-6">
@@ -47,6 +47,7 @@ export function InboxList() {
         )}
       </header>
       {inbox.isError && <p className="text-sm text-danger">{inbox.error.message}</p>}
+      {dismissAll.isError && <p className="text-sm text-danger">{dismissAll.error.message}</p>}
       <PendingMemoryList />
       {inbox.data?.length === 0 && !pendingMemory.data?.length && (
         <EmptyState
@@ -71,8 +72,8 @@ export function InboxList() {
                   variant="ghost"
                   size="sm"
                   className="ml-auto"
-                  disabled={dismiss.isPending}
-                  onClick={() => seenFyi.forEach((i) => dismiss.mutate(i))}
+                  disabled={dismissAll.isPending}
+                  onClick={() => dismissAll.mutate(seenFyi)}
                 >
                   Dismiss all seen ({seenFyi.length})
                 </Button>

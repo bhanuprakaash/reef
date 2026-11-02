@@ -280,10 +280,21 @@ function TerminalSection() {
   );
 }
 
-const sections = [
+const sections: {
+  id: string;
+  title: string;
+  group: string;
+  lede: string;
+  desktopOnly?: boolean;
+}[] = [
   { id: 'profile', title: 'Profile', group: 'You', lede: 'Reef tells your Bots who you are.' },
-  { id: 'appearance', title: 'Appearance', group: 'You' },
-  { id: 'notifications', title: 'Notifications', group: 'You' },
+  { id: 'appearance', title: 'Appearance', group: 'You', lede: 'Dark, light, or match macOS.' },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    group: 'You',
+    lede: 'Reef can tell you when a Work item needs you.',
+  },
   {
     id: 'terminal',
     title: 'Terminal',
@@ -291,7 +302,13 @@ const sections = [
     lede: 'Where the Terminal toggle opens a Work item’s worktree.',
     desktopOnly: true,
   },
-  { id: 'updates', title: 'Updates', group: 'This Mac', desktopOnly: true },
+  {
+    id: 'updates',
+    title: 'Updates',
+    group: 'This Mac',
+    lede: 'Check for a new Reef, then restart to install it.',
+    desktopOnly: true,
+  },
   {
     id: 'providers',
     title: 'Providers',
@@ -384,7 +401,7 @@ export function SettingsPage() {
             ‹ Settings
           </button>
           <h2 className="text-[20px] font-normal tracking-[-0.01em]">{current.title}</h2>
-          {current.lede && <p className="mt-[3px] text-[13px] text-muted">{current.lede}</p>}
+          <p className="mt-[3px] text-[13px] text-muted">{current.lede}</p>
           <div className="mt-3.5 flex flex-col gap-3">{panes[current.id]}</div>
         </section>
       </div>
