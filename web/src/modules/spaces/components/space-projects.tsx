@@ -20,8 +20,11 @@ export function SpaceProjects({ spaceId, projects, readOnly }: Props) {
       <ul>
         {current.map((p) => (
           <li key={p.id} className="flex min-h-9 items-center gap-2 text-[14.5px]">
-            <span className="min-w-0 flex-1 truncate">{p.name}</span>
-            {!readOnly && (
+            <span className="min-w-0 flex-1 truncate">
+              {p.name}
+              {p.deletingAt && ' (deleted)'}
+            </span>
+            {!readOnly && !p.deletingAt && (
               <Button
                 variant="ghost"
                 size="sm"

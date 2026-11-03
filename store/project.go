@@ -114,6 +114,15 @@ func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	return scanAll(rows, scanProject)
 }
 
+// DeletedProjects lists projects whose deletion has started.
+func (s *Store) DeletedProjects(ctx context.Context) ([]Project, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT "+_projectCols+" FROM project WHERE deleting_at IS NOT NULL ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("list deleted projects: %w", err)
+	}
+	return scanAll(rows, scanProject)
+}
+
 // UpdateProject sets the name, path, base branch, purpose, icon and colour of p.ID.
 func (s *Store) UpdateProject(ctx context.Context, p Project) (Project, error) {
 	if err := p.validate(); err != nil {

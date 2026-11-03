@@ -18,6 +18,7 @@ import { claudeModelOptions } from '@/utils/models';
 import { Creature, type CreatureState } from '@/components/creature';
 
 type Props = {
+  readOnly?: boolean;
   spaceId: number;
   workItemId: number | null;
   roles: Role[];
@@ -302,6 +303,7 @@ export function BotProfile({
 }
 
 export function TeamPanel({
+  readOnly = false,
   spaceId,
   workItemId,
   roles,
@@ -362,7 +364,7 @@ export function TeamPanel({
                     <button
                       type="button"
                       aria-label={`Open ${r.name}`}
-                      onClick={() => setSelected(r.botId)}
+                      onClick={() => !readOnly && setSelected(r.botId)}
                       className={`flex w-full items-center gap-3 rounded-field px-1.5 py-2 text-left hover:bg-card ${state === 'working' ? 'bg-card' : ''}`}
                     >
                       <Creature look={r} state={state} size={30} animate />
@@ -384,8 +386,12 @@ export function TeamPanel({
               })}
             </ul>
           </div>
-          <SpaceProjects spaceId={spaceId} projects={projects} readOnly={workItemId !== null} />
-          {workItemId === null && <SpaceFixes spaceId={spaceId} />}
+          <SpaceProjects
+            spaceId={spaceId}
+            projects={projects}
+            readOnly={readOnly || workItemId !== null}
+          />
+          {!readOnly && workItemId === null && <SpaceFixes spaceId={spaceId} />}
           {workItemId !== null && (
             <div>
               <h2 className="mb-1.5 text-[13px] text-muted">Brief</h2>

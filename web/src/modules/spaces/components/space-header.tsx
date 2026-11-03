@@ -12,6 +12,7 @@ import { StatusDot } from '@/components/status-dot';
 import { useDismiss } from '@/lib/use-dismiss';
 
 type Props = {
+  readOnly?: boolean;
   space: SpaceDetail;
   scope: ReactNode;
   status?: string;
@@ -177,6 +178,7 @@ function BotsPopup({
 }
 
 export function SpaceHeader({
+  readOnly = false,
   space,
   scope,
   status,
@@ -208,7 +210,7 @@ export function SpaceHeader({
   const canWrap = workItem && space.closedAt === null;
   const canAttach = !workItem && space.kind === 'free';
   const canClose = canAttach && space.closedAt === null;
-  const canAdd = canAddBot(space);
+  const canAdd = !readOnly && canAddBot(space);
   const pick = (action: () => void) => () => {
     setMoreOpen(false);
     action();

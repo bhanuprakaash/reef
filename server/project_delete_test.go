@@ -97,6 +97,12 @@ func TestDeleteProject_KeepsRepositoryWorkspacesRefsAndUnfinishedChanges(t *test
 	if _, body := do(t, http.MethodGet, env.url+"/projects", ""); strings.Contains(body, `"name":"app"`) {
 		t.Errorf("GET /projects = %s, want the deleted project left out", body)
 	}
+	if status, body := do(t, http.MethodGet, env.url+"/projects?deleted=1", ""); status != 200 || !strings.Contains(body, `"name":"app"`) {
+		t.Errorf("deleted projects = %d %s, want app", status, body)
+	}
+	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/projects?history=1", ""); status != 200 || !strings.Contains(body, `"name":"app"`) || !strings.Contains(body, `"deletedAt":"`) {
+		t.Errorf("history projects = %d %s, want deleted app", status, body)
+	}
 	if status, _ := do(t, http.MethodGet, env.url+"/messages?space=2", ""); status != 200 {
 		t.Errorf("GET messages of a deleted project's Space = %d, want 200", status)
 	}

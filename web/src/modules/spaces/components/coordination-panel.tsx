@@ -9,6 +9,7 @@ import { Creature, faceOf, type Faces } from '@/components/creature';
 import { StatusDot } from '@/components/status-dot';
 
 type Props = {
+  readOnly?: boolean;
   spaceId: number;
   chain: Chain;
   live?: LiveTurn;
@@ -21,6 +22,7 @@ type Props = {
 };
 
 export function CoordinationPanel({
+  readOnly = false,
   spaceId,
   chain,
   live,
@@ -125,14 +127,16 @@ export function CoordinationPanel({
         {chain.state === 'paused' && (
           <div className="flex flex-wrap items-center gap-3">
             <p className="min-w-0 flex-1 basis-48 text-[13px] text-paused-fg">Paused: {reason}</p>
-            <Button
-              variant="paused"
-              type="button"
-              disabled={cont.isPending}
-              onClick={() => cont.mutate(spaceId)}
-            >
-              Continue
-            </Button>
+            {!readOnly && (
+              <Button
+                variant="paused"
+                type="button"
+                disabled={cont.isPending}
+                onClick={() => cont.mutate(spaceId)}
+              >
+                Continue
+              </Button>
+            )}
           </div>
         )}
         {retryTurn && !paused && (chain.state === 'failed' || chain.state === 'stopped') && (
