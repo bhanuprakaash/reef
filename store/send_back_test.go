@@ -44,7 +44,7 @@ func TestSendBackKeepsTheAssignmentAndItsProof(t *testing.T) {
 		t.Error("the owner accepted Done, want only the user")
 	}
 
-	w, err := s.SendBack(ctx, 1, "docs page is missing")
+	w, err := s.SendBack(ctx, 1, "docs page is missing", ByUser)
 	if err != nil {
 		t.Fatal(err)
 	}

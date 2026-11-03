@@ -31,6 +31,9 @@ type repoProvider interface {
 	// holds the CLI's own output, which can carry a token.
 	Account(ctx context.Context, host string) (string, error)
 	OpenRequest(ctx context.Context, remote repoRemote, dir, head, base, title, description string) (store.RepoRequest, error)
+	// Status reads the state, review and checks of request number on remote. The text of a
+	// failure is a fixed phrase, like Account's.
+	Status(ctx context.Context, remote repoRemote, number int64) (repoStatus, error)
 }
 
 // repoCLI runs a provider's CLI. gh and glab both answer `api --hostname HOST user`.
@@ -135,6 +138,7 @@ func (s *server) repoRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /workspaces/{id}/request", s.openRepoRequest)
 	mux.HandleFunc("GET /workspaces/{id}/requests", s.workspaceRequests)
 	mux.HandleFunc("GET /work-items/{id}/requests", s.workItemRequests)
+	mux.HandleFunc("GET /spaces/{id}/requests", s.spaceRequests)
 	mux.HandleFunc("GET /repo-connections", s.listRepoConnections)
 	mux.HandleFunc("POST /repo-connections", s.connectRepo)
 	mux.HandleFunc("/repo-connections", methodNotAllowed)

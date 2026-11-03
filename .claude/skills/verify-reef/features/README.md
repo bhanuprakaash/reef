@@ -80,7 +80,6 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Direct conversations](./conversations.md): start a conversation with a Bot, add a Bot with `@name` or the action to move it to a Space, two conversations with their own sessions, the list newest first, continue an old one by resume, the Bot's profile, the sidebar. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Team queue and review](./queue-and-review.md): approve work items; each starts at once with its Space and first prompt, with no Team or Bot limit, the lead's sub-items, submit for review with proof, the next item starting live, send back and Done. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd. `$H feature queue-and-review` runs the queue lines, `$H feature work-item-flow` the whole flow.
 - [Full team](./full-team.md): `write` per Bot on claude and codex, `teams/full.json`, one worktree per work item, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with no approvals. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
-- [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team Space (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
 ### Work item flow
 

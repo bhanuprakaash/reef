@@ -202,7 +202,7 @@ func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note
 		}
 	}
 	if to == "queued" {
-		return s.st.SendBack(ctx, item.ID, note)
+		return s.st.SendBack(ctx, item.ID, note, store.ByUser)
 	}
 	pending, err := s.st.PendingProposals(ctx, &item.ID, nil)
 	if err != nil {

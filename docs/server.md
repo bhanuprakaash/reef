@@ -131,7 +131,7 @@ logged in and on `PATH`.
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
-  page (`/projects/{id}`) with its work items grouped by status in board order and its free Spaces, and a right rail with Purpose and Base branch (each saves when the field loses focus, no Save button), Repository (the connection and `owner/repo` path, prefilled from `GET /projects/{id}/remote`, saved with Bind; a disconnected connection shows its reason) and the project memory (3 newest, Show all, one add row). A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the owner submits; one section per repository with branch, commit, base, workspace folder and checks, the PR of the item's branch and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the owner, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
+  page (`/projects/{id}`) with its work items grouped by status in board order and its free Spaces, and a right rail with Purpose and Base branch (each saves when the field loses focus, no Save button), Repository (the connection and `owner/repo` path, prefilled from `GET /projects/{id}/remote`, saved with Bind; a disconnected connection shows its reason) and the project memory (3 newest, Show all, one add row). A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the owner submits; one section per repository with branch, commit, base, workspace folder and checks, each repository's pull or merge requests with their state, checks and review, and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the owner, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, owner and project are in the URL. Dragging a card from Queued to Backlog is `PATCH /work-items/{id}`; a Backlog card is queued by its Approve form (`POST /work-items/{id}/approve`), not by dragging; dropping a queued card on another queued card is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
 - Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in two groups, Needs you and
   FYI, with a count each. Every item is one compact row: the Bot's face, the Space name, a plain
@@ -322,20 +322,11 @@ What the owner submitted a top-level item with (`submit_for_review`, see [memory
 | `spaceId` | number | the Space the owner submitted from; the wrap-up runs there |
 | `acceptanceLines` | array | the item's lines as they are now, with `checked` and `note` as the submit set them |
 | `commands` | array | `{"command", "output"}` each, as submitted, that name no repository; `[]` when none |
-| `repositories` | array | one per workspace of the item at submit, in workspace order: `{"workspaceId", "projectId", "projectName", "branch", "head", "baseRef", "dir", "dirty", "checks"}`. `projectName` stays the Project's name after it is deleted. `checks` are the submitted commands whose `project` is that Project's name. No PR or MR field: opening one is the provider slice; the window shows `Not opened yet` |
+| `repositories` | array | one per workspace of the item at submit, in workspace order: `{"workspaceId", "projectId", "projectName", "branch", "head", "baseRef", "dir", "dirty", "checks"}`. `projectName` stays the Project's name after it is deleted. `checks` are the submitted commands whose `project` is that Project's name. No PR or MR field: a repository's requests are `GET /work-items/{id}/requests`, which the window shows beside it, or `Not opened yet` |
 | `screenshots` | array | absolute paths of files under the data folder; `[]` when none |
 | `submittedAt` | string | RFC 3339 |
 
-The row also keeps whether the wrap-up was started (`wrap_started`), which is not in REST. The PR of the proof is the item's branch PR: `GET /work-items/{id}/pr`. Migration 54 [`054_proof.sql`](../store/migrations/054_proof.sql); the repositories are the `proof_repository` table (one row per workspace, replaced by each submit), migration 108.
-
-### work_item_github
-
-The last GitHub PR state the [GitHub poll](#github-poll) posted about a Work item, kept across
-a restart so it does not repeat a note. No REST route; tables `work_item_github` (one row per
-item: `pr_number`, `pr_state`, `pr_url`) and `work_item_github_check` (one row per
-`(work item, check name, run key)` of the item's PR: `run_key`, `woken`; a row's existence
-means it was noted), migration 42
-[`042_work_item.sql`](../store/migrations/042_work_item.sql).
+The row also keeps whether the wrap-up was started (`wrap_started`), which is not in REST. Migration 54 [`054_proof.sql`](../store/migrations/054_proof.sql); the repositories are the `proof_repository` table (one row per workspace, replaced by each submit), migration 108.
 
 ### brief
 
@@ -729,7 +720,7 @@ tool calls.
 | `POST /projects` | `name`, `path`, `purpose` (optional, plain words), `icon` and `colour` (optional) | 201 | 400 missing field, a `path` that is not an absolute path to an existing folder, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch), `icon` and `colour` (optional; empty clears them) | 200 | 400 (same `path` rule, a `baseBranch` that is not a branch name, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours), 404 |
-| `DELETE /projects/{id}` | | 204. Records `deletingAt` first, so no work is admitted against the Project: a queued item cannot start, a turn in a Space that runs against it is 409 `runs against deleted project <name>`, and adding it as a target, creating an item in it or opening a quick-fix workspace in it is refused. Then it stops the agents of the Spaces of every item that targets it (its own or another Project's) and of every Space holding a workspace in it, pauses the active Space of each such item with a note, which puts the item in Needs you, sends a queued item with no Space back to `backlog` (its approval is withdrawn) and retires the Project's `project:<id>` memory (the memory of its items, Bots and mixed conversations is untouched). Last it records `deletedAt`. The repository folder, worktrees, workspace rows, unfinished changes, checkpoint refs, branches, Work items, Spaces and messages all stay. Each step can run again, so a second `DELETE` finishes a cut one, and so does the next start of `reef serve`: it finishes every Project with `deletingAt` and no `deletedAt` before it starts the queue. The GitHub poll skips an item whose own Project is deleted. A paused item goes on only after `DELETE /work-items/{id}/targets/{projectId}` takes the deleted Project off it | 404 |
+| `DELETE /projects/{id}` | | 204. Records `deletingAt` first, so no work is admitted against the Project: a queued item cannot start, a turn in a Space that runs against it is 409 `runs against deleted project <name>`, and adding it as a target, creating an item in it or opening a quick-fix workspace in it is refused. Then it stops the agents of the Spaces of every item that targets it (its own or another Project's) and of every Space holding a workspace in it, pauses the active Space of each such item with a note, which puts the item in Needs you, sends a queued item with no Space back to `backlog` (its approval is withdrawn) and retires the Project's `project:<id>` memory (the memory of its items, Bots and mixed conversations is untouched). Last it records `deletedAt`. The repository folder, worktrees, workspace rows, unfinished changes, checkpoint refs, branches, Work items, Spaces and messages all stay. Each step can run again, so a second `DELETE` finishes a cut one, and so does the next start of `reef serve`: it finishes every Project with `deletingAt` and no `deletedAt` before it starts the queue. Repository tracking skips a request whose Project is deleted. A paused item goes on only after `DELETE /work-items/{id}/targets/{projectId}` takes the deleted Project off it | 404 |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /projects/{id}/remote` | | 200 `{provider, host, path, connectionId}`: the repository the Project's `origin` URL names (`https://`, `ssh://` and `user@host:path` forms; a credential in the URL is dropped), and the id of the connection on that host, `null` when none is connected yet. Nothing is stored | 400 no `origin`, a host other than github.com or gitlab.com, or a path that is not `owner/repo` (`group/.../repo` on GitLab); 404 |
@@ -1378,8 +1369,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Eight kin
   `GET /spaces/{id}/prompts`.
 - `pause`: `{"reason":"..."}` when a cap pauses the Space: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
-- `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
-  poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
+- `note`: `{}`, sent when a message is posted outside a turn, such as a [repository
+  tracking](#repository-tracking) note, so a subscriber knows to re-read `GET /messages`.
 - `name`: `{}`, sent when the provider's name replaces a Space's default name, so a subscriber knows to re-read `GET /spaces`.
 - `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
   `failed` response after the last `turn` event, so a subscriber knows to re-read `GET /spaces/{id}/direct-messages`. Every
@@ -1426,6 +1417,7 @@ restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each it
 | `fyi` | `sub_item` | a Bot made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
 | `fyi` | `proposed` | a Bot proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it | `id` | `POST /inbox/dismiss` |
 | `fyi` | `started` | the queue moved an item to in progress, including one sent back from review | `Started from the queue: ` and its title | `id` | `POST /inbox/dismiss` |
+| `fyi` | `delivery` | a check failed on a pull request or merge request of a Done Work item, which is not restarted ([repository tracking](#repository-tracking)); `workItemId` is the item | the failed checks, the request and the item | `id` | `POST /inbox/dismiss` |
 | `fyi` | `space_proposed` | a Bot proposed a Space with `propose_space`; `workItemId` is null, `proposal` has `id`, `proposedBy`, `name`, `botIds` and `coordinatorBotId` | who proposed it, and its name | `id` | `POST /inbox/dismiss`; the window opens the new Space form with the proposal filled in, and dismisses it when the Space is created |
 | `needs_you` | `question` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting); and the message ends in a question mark, ignoring trailing spaces and the marks `*`, `_`, `)`, `"` and a backtick | the first 2000 characters of that message | `messageId` | any new message, such as a send |
 | `fyi` | `reply` | the same, and the message does not end in a question mark | the first 2000 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
@@ -1524,48 +1516,25 @@ and prints the reason instead of running the line. The line `/continue` does wha
 `continue` does (`space.Continue`). See [memory.md](memory.md#reef-chat). Hops do not
 exist in `reef chat`: it wakes nobody.
 
-## GitHub poll
+## Repository tracking
 
-`reef serve` polls GitHub for each top-level work item that has a workspace of its home Project, every `REEF_GH_INTERVAL`
-(default 60s), once right away and then on that interval until the server closes: `gh pr
-view work-item/<id> --json number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,baseRefName,statusCheckRollup,body,additions,deletions,files`, run in the project's
-folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
-`detailsUrl`, `completedAt`) or a `StatusContext` (`context`, `state`, `targetUrl`,
-`startedAt`); both are read.
+`reef serve` reads the status of every pull request and merge request in `repo_request` that is not merged, once right away and then every `REEF_REPO_INTERVAL` (default 60s) until the server closes: `gh pr view N --repo HOST/PATH --json state,reviewDecision,statusCheckRollup` for GitHub, `glab api --hostname HOST projects/PATH/merge_requests/N` for GitLab, through the `repoProvider` contract (decision 162). It reads the stored rows and the CLI logins only, so it needs no running Bot, no Bot session and no MCP server; a revoked or stopped Bot does not stop it, and a restart carries on from the stored rows. A request of a Project being or already deleted is skipped; a closed request is still read, as it may reopen.
 
-When the PR first appears, changes state (`open`, `merged`, `closed`) or a check run
-finishes (a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is
-not `PENDING`/`EXPECTED`), the work item's active Space (its one open Space) gets
-one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
-A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
-`completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
-again on a later push, is a different run key and is noted again, and two runs of the same
-name in one rollup (a matrix job, two workflows) are two rows, both noted. The state posted
-is stored one row per `(work item, name, run key)` (migration 42
-[`042_work_item.sql`](../store/migrations/042_work_item.sql), tables
-`work_item_github` and `work_item_github_check`), so a restart does not repeat it and a second
-poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
-`gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
-work item for that cause; logged again once the cause changes. A work item with a workspace but no
-Space yet has nowhere to post: the note is recorded as sent only once it is actually posted,
-so it is not lost and posts once the first Space exists.
+Each read stores, on the row, `state` (`opened`, `closed` without a merge, or `merged`), `review` (`approved`, `changes_requested` or `review_required`; GitLab gives the last two from `detailed_merge_status`), the `checks` (`name`, `state` of `pass`, `fail`, `pending` or `neutral`, and a `key` that tells one run from the next: the run URL on GitHub, the pipeline id on GitLab) and `checkedAt`. A read that fails stores `checkError`, one of the fixed phrases of a connection (never the CLI's own output) or `request not found on the provider` or `provider unreachable`, keeps the last good status, and is tried again on the next read; a good read clears it. A merged request is no longer read.
 
-Every failed run in a rollup (a `CheckRun` whose `conclusion` is `FAILURE`, `ERROR`,
-`TIMED_OUT` or `STARTUP_FAILURE`, or a `StatusContext` whose `state` is anything but
-`SUCCESS`/`PENDING`/`EXPECTED`) also wakes the `developer` role in that Space, once per run,
-also across restarts (`work_item_github_check.woken`): several failed runs in the same rollup,
-not yet woken, are one wake, not one each, its text naming every one of them plus the last 50
-lines of `gh run view <run id> --log-failed` for each run whose id can be read from the
-`CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log for that run. A Space
-whose team has no `developer` role gets the note only. The wake text, including any log
-fetch, is built before the Space is claimed, so a user send that arrives during the fetch
-finds the Space still idle and is not refused. The wake runs as its own chain, the way a
-retried turn does (decision 39), attributed to author `reef` rather than `user`: it counts as a hop like any agent-originated wake, so a run of
-failing checks still pauses at the hop cap instead of resetting the count every time; the
-Space's other caps (pause, token budget) also still apply. A Space with a turn running, or
-paused (including by the hop cap), cannot take the wake on that poll; the note still posts,
-the wake is retried on a later poll once the Space is idle, and the busy cause is logged
-once, not every poll.
+A check run newly failed on an open request is routed once. The failed `(name, key)` pairs of a read are its failure; Reef acts when the failure is not the one it last handled, and marks it handled only once it is delivered (or deliberately left to the inbox), so a delivery that could not run is retried on the next read and a failure seen again does nothing. A failure that goes away is forgotten, so the same run failing again later is new. Where it goes depends on the Work item the request belongs to:
+
+| the request's Work item | what happens |
+| --- | --- |
+| `in_progress`, `needs_you` | a message from `reef` in its open Space names the failed checks, and the Space's coordinator is woken by Bot identity (decision 156) through the Space's normal turn queue, as one wake from `reef` that counts as a hop |
+| `review` | the item is sent back as the user's Send back does, to the front of the queue with review-feedback priority, with the failure as its note (`Reef sent this back from review: ...`), a `reef` message in the Space says so, and the owner is woken in the same scope |
+| `done` | not restarted: one `delivery` item in the inbox's FYI group says which check failed on which request |
+| no Work item (a quick fix) | the same wake as `in_progress`, in the request's Space |
+| `queued`, `backlog`, `dropped`, no Space yet | nothing yet; the failure stays unhandled and is routed once the item runs |
+
+A Space that is paused (by the user, a cap or the hop cap), closed or running a turn is not woken, and its pause is never cleared: the wake is retried on a later read. A wrap-up still running in a Work item's Space delays the send-back the same way. No check log is fetched; the wake names the check and the request URL.
+
+The window shows the merge order from `dependsOn` ("merge step 2, after ...") beside each request, in the Fixes list of a conversation and in the proof panel of a Work item alike. It is only a record: nothing blocks or performs a merge, and the user controls the order.
 
 ## Append-only
 
@@ -1678,6 +1647,6 @@ log shows `marked 1 running turns failed: server restarted`, `GET /turns/2` is `
 
 `POST /workspaces/{id}/request` accepts `title` and `description`, pushes the ready workspace's branch to its bound GitHub or GitLab repository and opens or links an open pull request or merge request. The workspace base takes precedence over the Project base. The origin push URL must match the bound repository. Errors give a safe reason and can be retried; opening a request never merges it.
 
-`GET /workspaces/{id}/requests` and `GET /work-items/{id}/requests` list persisted repository-qualified requests, including their originating workspace and Work item or quick-fix Space.
+`GET /workspaces/{id}/requests`, `GET /work-items/{id}/requests` and `GET /spaces/{id}/requests` list persisted repository-qualified requests, including their originating workspace and Work item or quick-fix Space, `dependsOn` and what [repository tracking](#repository-tracking) last read: `state`, `review`, `checks`, `checkedAt` and `checkError`.
 
 `POST /workspaces/{id}/request` also takes `dependsOn`, the ids of other requests of the same fix (the quick fix of that name in its Space, or the Work item) that must merge first. It replaces the stored list, `[]` clears it and leaving it out keeps it; the stored list is `dependsOn` on each request. 400 for the request itself, a request of another fix or a cycle (the request is already open then; the error names its URL). The list is the merge order shown to the user: Reef adds no merge gate and never merges.

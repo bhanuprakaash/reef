@@ -20,7 +20,7 @@ func TestGitLabRequest_CreateRetryAndRejection(t *testing.T) {
 	ctx := context.Background()
 	ts, st := newEmbedServer(t, nil)
 	repo, _ := originRepo(t, "develop")
-	p, err := st.CreateProject(ctx, store.Project{Name: "request", Path: repo, BaseBranch: "main"})
+	p, err := st.CreateProject(ctx, store.Project{Name: "request", Path: repo})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,12 +35,12 @@ func TestGitLabRequest_CreateRetryAndRejection(t *testing.T) {
 	if _, err = st.SetProjectRemote(ctx, p.ID, c.ID, "group/app"); err != nil {
 		t.Fatal(err)
 	}
-	w, err := st.EnsureWorkspace(ctx, store.Workspace{ProjectID: p.ID, SpaceID: &sp.ID, Name: "fix", Dir: repo, Branch: "fix", Base: "main"})
+	w, err := st.EnsureWorkspace(ctx, store.Workspace{ProjectID: p.ID, SpaceID: &sp.ID, Name: "fix", Dir: repo, Branch: "fix"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	gitIn(t, repo, "checkout", "-b", "fix")
-	w.State = store.WorkspaceReady
+	w.State, w.BaseRef = store.WorkspaceReady, "refs/heads/main"
 	if err = st.SetWorkspace(ctx, w); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ if [ "$2" = list ]; then
   if [ -f "$MR_MARKER" ]; then echo '[{"iid":7,"web_url":"https://gitlab.com/group/app/-/merge_requests/7","state":"opened","source_branch":"fix","target_branch":"main","source_project_id":12,"target_project_id":12}]'; else echo '[]'; fi
 elif [ "$2" = create ]; then
   if [ -n "$MR_REJECT" ]; then echo 'token glpat-secret' >&2; exit 1; fi
-  touch "$MR_MARKER"
+  echo "$8" > "$MR_MARKER"
 fi
 `
 	for name, content := range map[string]string{"git": git, "glab": glab} {
@@ -86,6 +86,9 @@ fi
 		if status != 200 || json.Unmarshal([]byte(body), &got) != nil || got.Number != 7 || got.Path != "group/app" || got.SpaceID == nil || *got.SpaceID != sp.ID {
 			t.Fatalf("request %d = %d %s", i, status, body)
 		}
+	}
+	if target, err := os.ReadFile(marker); err != nil || string(target) != "main\n" {
+		t.Fatalf("target branch = %q, %v, want main", target, err)
 	}
 	status, body = do(t, http.MethodGet, fmt.Sprintf("%s/workspaces/%d/requests", ts.URL, w.ID), "")
 	if status != 200 || json.Unmarshal([]byte(body), &rows) != nil || len(rows) != 1 {

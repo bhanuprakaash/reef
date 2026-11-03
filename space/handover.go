@@ -105,12 +105,12 @@ func handover(
 		b.WriteString(handoverList("Completed", done))
 		b.WriteString(handoverList("Unfinished", open))
 		fmt.Fprintf(&b, "Workspace: %s, branch %s\n", dir, worktree.Branch(f.TreeKey()))
-		pr, ok, err := st.WorkItemGitHub(ctx, f.ID)
+		reqs, err := st.WorkItemRequests(ctx, f.ID)
 		if err != nil {
 			return "", err
 		}
-		if ok && pr.PRURL != "" {
-			fmt.Fprintf(&b, "Pull request: %s\n", pr.PRURL)
+		for _, r := range reqs {
+			fmt.Fprintf(&b, "Pull request: %s (%s)\n", r.URL, r.State)
 		}
 	}
 	if ms != nil {

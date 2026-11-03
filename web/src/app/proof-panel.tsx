@@ -1,19 +1,9 @@
 import { Link } from 'react-router';
-import { useWorkItemPR } from '@/modules/spaces/api/get-work-item-pr';
+import { RequestList } from '@/modules/spaces/components/request-list';
 import { useProof } from '@/modules/work-items/api/get-proof';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
-import { StageChip } from '@/components/stage-chip';
-import type { ProofCommand, ProofRepository, WorkItemPR } from '@/types/api';
-
-const PR_COLOR: Record<WorkItemPR['state'], string> = {
-  OPEN: 'var(--color-done)',
-  MERGED: 'var(--color-architect)',
-  CLOSED: 'var(--color-failed)',
-};
-
-const prState = (pr: WorkItemPR) =>
-  pr.isDraft && pr.state === 'OPEN' ? 'Draft' : pr.state[0] + pr.state.slice(1).toLowerCase();
+import type { ProofCommand, ProofRepository } from '@/types/api';
 
 export function ProofPanel({ workItemId }: { workItemId: number }) {
   const proof = useProof(workItemId);
@@ -42,11 +32,11 @@ export function ProofPanel({ workItemId }: { workItemId: number }) {
           compact
         />
       )}
+      {proof.data === null && <RequestList path={`/work-items/${workItemId}/requests`} />}
       {p && (
         <div className="space-y-4">
-          <ProofPullRequest workItemId={workItemId} />
           {p.repositories.map((r) => (
-            <Repository key={r.workspaceId} r={r} />
+            <Repository key={r.workspaceId} r={r} workItemId={workItemId} />
           ))}
           {p.commands.length === 0 &&
             p.repositories.every((r) => r.checks.length === 0) &&
@@ -89,7 +79,7 @@ function Commands({ commands }: { commands: ProofCommand[] }) {
   );
 }
 
-function Repository({ r }: { r: ProofRepository }) {
+function Repository({ r, workItemId }: { r: ProofRepository; workItemId: number }) {
   return (
     <section className="space-y-2 rounded-field border border-line p-3">
       <h3 className="text-sm font-medium">{r.projectName}</h3>
@@ -106,30 +96,15 @@ function Repository({ r }: { r: ProofRepository }) {
         <dt>Workspace</dt>
         <dd className="font-mono break-all text-soft">{r.dir}</dd>
         <dt>Pull request</dt>
-        <dd>Not opened yet</dd>
+        <dd>
+          <RequestList
+            path={`/work-items/${workItemId}/requests`}
+            workspaceId={r.workspaceId}
+            empty="Not opened yet"
+          />
+        </dd>
       </dl>
       <Commands commands={r.checks} />
     </section>
-  );
-}
-
-function ProofPullRequest({ workItemId }: { workItemId: number }) {
-  const query = useWorkItemPR(workItemId);
-  const pr = query.data?.pr;
-  if (query.isError) return <p className="text-sm text-danger">{query.error.message}</p>;
-  if (!query.data) return null;
-  if (!pr) return <p className="text-[13px] text-muted">No pull request for this Work item yet.</p>;
-  return (
-    <p className="flex items-center gap-2 text-[13px] text-muted">
-      <StageChip label={prState(pr)} color={PR_COLOR[pr.state]} />
-      <a
-        href={pr.url}
-        target="_blank"
-        rel="noreferrer"
-        className="min-w-0 truncate border-b border-line text-soft"
-      >
-        #{pr.number} {pr.title}
-      </a>
-    </p>
   );
 }

@@ -422,6 +422,7 @@ export type InboxItem = {
     | 'sub_item'
     | 'proposed'
     | 'started'
+    | 'delivery'
     | 'space_proposed';
   group: 'needs_you' | 'fyi';
   spaceId: number;
@@ -504,6 +505,22 @@ export type InspectorRole = {
 export type Inspector = {
   roles: InspectorRole[];
   turns: InspectorTurn[];
+};
+
+export type RepoRequest = {
+  id: number;
+  provider: 'github' | 'gitlab';
+  host: string;
+  path: string;
+  number: number;
+  url: string;
+  state: 'opened' | 'closed' | 'merged';
+  workspaceId: number;
+  review: string;
+  checks: { name: string; state: 'pass' | 'fail' | 'pending' | 'neutral'; key: string }[];
+  checkedAt: string | null;
+  checkError: string;
+  dependsOn: number[];
 };
 
 export type WorkItemPR = {

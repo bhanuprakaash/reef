@@ -246,6 +246,9 @@ func (s *server) claimAttached(ctx context.Context, w store.WorkItem, sp store.S
 // with the user's note.
 func (s *server) wakeSentBack(ctx context.Context, spaceID int64, note string) {
 	text := "Sent back from review by the user:\n" + note
+	if strings.HasPrefix(note, _reefSendBack) {
+		text = note
+	}
 	err := s.startUserTurn(ctx, spaceID, userTurn{kind: _message, text: text})
 	if err == nil {
 		return

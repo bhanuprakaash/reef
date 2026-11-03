@@ -49,6 +49,8 @@ var _scenarios = []scenario{
 	{"propose-deploy", "sam", pat(`^PROPOSE THE FAILING DEPLOY$`)},
 	{"skill-draft", "", pat(`^DRAFT A SKILL$`)},
 	{"sent-back-lead", "lead", pat(`^Sent back from review by the user:`)},
+	{"sent-back-lead", "lead", pat(`^Reef sent this back from review:`)},
+	{"queue-lead", "lead", pat(`failed on (pull|merge) request`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
 	{"read-space", "sam", pat(`Why did we choose sessions in #\[Login\]\(space:1\)`)},

@@ -19,6 +19,7 @@ const (
 	KindSubItem  = "sub_item"
 	KindProposed = "proposed"
 	KindStarted  = "started"
+	KindDelivery = "delivery"
 
 	KindSpaceProposed = "space_proposed"
 )
@@ -75,8 +76,8 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 // Text ends with how many) or failed (a turn retry may run again that the user did not stop;
 // TurnID), review (a top-level Work item in review) or question (the Space ended on a message
 // of an agent that woke nobody and ends in a question mark; Text starts that message, MessageID
-// is its id). In FYI, Kind is reply (the same, with no question mark) or sub_item, proposed or
-// started (a row of inbox_fyi; ID). An item of a Work item has no Space: SpaceID is 0.
+// is its id). In FYI, Kind is reply (the same, with no question mark) or sub_item, proposed, started
+// or delivery (a row of inbox_fyi; ID). An item of a Work item has no Space: SpaceID is 0.
 type InboxItem struct {
 	Kind       string         `json:"kind"`
 	Group      string         `json:"group"`
@@ -166,7 +167,7 @@ func (s *Store) DismissInbox(ctx context.Context, i InboxItem) error {
 		return s.dismissSpaceProposal(ctx, *i.ID)
 	case i.Kind == "reply" && i.MessageID != nil:
 		return s.dismissWaiting(ctx, i.SpaceID, *i.MessageID)
-	case i.ID != nil && slices.Contains([]string{KindSubItem, KindProposed, KindStarted}, i.Kind):
+	case i.ID != nil && slices.Contains([]string{KindSubItem, KindProposed, KindStarted, KindDelivery}, i.Kind):
 		res, err := s.db.ExecContext(ctx, "DELETE FROM inbox_fyi WHERE id = ? AND kind = ?", *i.ID, i.Kind)
 		if err != nil {
 			return fmt.Errorf("dismiss %s FYI: %w", i.Kind, err)

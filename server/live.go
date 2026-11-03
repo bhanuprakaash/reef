@@ -240,7 +240,7 @@ func (s *server) lookup(id int64) *live {
 }
 
 // notify tells an open stream on the Space that something changed outside a turn, such as a
-// github poll note ("note") or a failed direct response recorded after the chain's last turn
+// repository tracking note ("note") or a failed direct response recorded after the chain's last turn
 // frame ("direct"), so the window refreshes without a reload. A Space nobody has opened yet
 // has no entry and is a no-op.
 func (s *server) notify(id int64, event string) {

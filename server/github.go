@@ -5,12 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,7 +22,7 @@ const (
 	_noPRText = "no pull requests found"
 )
 
-// ghPR is the gh pr view output this poll reads.
+// ghPR is the gh pr view output the pull request panel and Status read.
 type ghPR struct {
 	Number            int       `json:"number"`
 	Title             string    `json:"title"`
@@ -65,10 +61,6 @@ type ghCheck struct {
 	CompletedAt string `json:"completedAt"`
 }
 
-// _runID finds the run id in a CheckRun's detailsUrl, such as
-// https://github.com/x/y/actions/runs/123/job/456.
-var _runID = regexp.MustCompile(`/actions/runs/(\d+)/`)
-
 // checkName is the name a note calls the check by.
 func (c ghCheck) checkName() string {
 	if c.Typename == "StatusContext" {
@@ -95,18 +87,6 @@ func (c ghCheck) runKey() string {
 	return c.StartedAt
 }
 
-// runID is the run id in a CheckRun's detailsUrl, or "" when there is none to find.
-func (c ghCheck) runID() string {
-	if c.Typename != "CheckRun" {
-		return ""
-	}
-	m := _runID.FindStringSubmatch(c.DetailsURL)
-	if m == nil {
-		return ""
-	}
-	return m[1]
-}
-
 // outcome reports whether the check has finished, and the word a note uses for it.
 func (c ghCheck) outcome() (finished bool, word string) {
 	if c.Typename == "StatusContext" {
@@ -131,122 +111,6 @@ func resultWord(v string) string {
 	default:
 		return strings.ToLower(v)
 	}
-}
-
-// ghInterval is how often reef serve polls GitHub, REEF_GH_INTERVAL or 60s. A zero or
-// negative value, which would panic time.NewTicker, also defaults.
-func ghInterval() time.Duration {
-	if v := os.Getenv("REEF_GH_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return d
-		}
-	}
-	return 60 * time.Second
-}
-
-// startGitHubPoll polls every work item with a worktree for its PR and CI status once right
-// away, then every ghInterval until the server closes, so a restart does not sit on a stale
-// note for a whole interval. Both the first poll and the ticker run on the same background
-// goroutine, so construction never blocks on gh.
-func (s *server) startGitHubPoll() {
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		s.pollGitHub(s.ctx)
-		t := time.NewTicker(ghInterval())
-		defer t.Stop()
-		for {
-			select {
-			case <-s.ctx.Done():
-				return
-			case <-t.C:
-				s.pollGitHub(s.ctx)
-			}
-		}
-	}()
-}
-
-// pollGitHub checks every top-level work item with a worktree against its PR, and posts a reef note in
-// the work item's active Space when the PR's state changes or a check finishes. No gh
-// on PATH: nothing is posted, logged once.
-func (s *server) pollGitHub(ctx context.Context) {
-	ghPath, err := exec.LookPath("gh")
-	if err != nil {
-		s.logGhNoPathOnce()
-		return
-	}
-	items, err := s.st.WorkItems(ctx, store.WorkItemFilter{})
-	if err != nil {
-		log.Printf("github poll: list work items: %v", err)
-		return
-	}
-	for _, f := range items {
-		if f.ParentID != nil {
-			continue
-		}
-		if err := s.pollWorkItemGitHub(ctx, ghPath, f); err != nil {
-			log.Printf("github poll: work item %d: %v", f.ID, err)
-		}
-	}
-}
-
-// pollWorkItemGitHub polls the PR of one work item. A work item with no workspace of its home project yet, or no gh
-// PR (no PR, or gh not logged in), posts nothing.
-func (s *server) pollWorkItemGitHub(ctx context.Context, ghPath string, f store.WorkItem) error {
-	p, err := s.st.Project(ctx, f.ProjectID)
-	if err != nil {
-		return err
-	}
-	if !p.Active() {
-		return nil
-	}
-	ws, err := s.itemWorkspaces(ctx, f)
-	if err != nil {
-		return err
-	}
-	i := slices.IndexFunc(ws, func(w store.Workspace) bool { return w.ProjectID == p.ID })
-	if i < 0 {
-		return nil
-	}
-	if _, err := os.Stat(filepath.Join(ws[i].Dir, ".git")); err != nil {
-		return nil
-	}
-	pr, err := runGh(ctx, ghPath, p.Path, f.TreeKey())
-	if err != nil {
-		s.logGhErrOnce(f.ID, err)
-		return nil
-	}
-	if err := s.notePRState(ctx, f, pr); err != nil {
-		return err
-	}
-	return s.noteFinishedChecks(ctx, f, pr, ghPath, p.Path)
-}
-
-// logGhNoPathOnce logs that gh is not on PATH once, guarded by ghMu since the first poll
-// runs on its own goroutine and can overlap a caller that polls or inspects the server right
-// after construction, such as a test.
-func (s *server) logGhNoPathOnce() {
-	s.ghMu.Lock()
-	defer s.ghMu.Unlock()
-	if s.ghNoGhLogged {
-		return
-	}
-	log.Print("github poll: gh is not on PATH")
-	s.ghNoGhLogged = true
-}
-
-// logGhErrOnce logs a gh error for the work item once, and again only once its text changes,
-// so a cause such as "no PR for the branch" does not fill the log on every poll. Guarded by
-// ghMu for the same reason as logGhNoPathOnce.
-func (s *server) logGhErrOnce(workItemID int64, err error) {
-	text := err.Error()
-	s.ghMu.Lock()
-	defer s.ghMu.Unlock()
-	if s.ghWorkItemErrLogged[workItemID] == text {
-		return
-	}
-	log.Printf("github poll: work item %d: %v", workItemID, err)
-	s.ghWorkItemErrLogged[workItemID] = text
 }
 
 func runGh(ctx context.Context, ghPath, dir, slug string) (ghPR, error) {
@@ -403,189 +267,4 @@ func (s *server) mergeWorkItemPR(w http.ResponseWriter, r *http.Request) {
 	}
 	view := newPRView(pr)
 	writeJSON(w, http.StatusOK, map[string]*prView{"pr": &view})
-}
-
-// notePRState posts a reef note when the PR appeared or changed state since the last poll.
-func (s *server) notePRState(ctx context.Context, f store.WorkItem, pr ghPR) error {
-	stored, ok, err := s.st.WorkItemGitHub(ctx, f.ID)
-	if err != nil {
-		return err
-	}
-	if ok && stored.PRNumber == int64(pr.Number) && stored.PRState == pr.State {
-		return nil
-	}
-	body := fmt.Sprintf("PR #%d %s: %s", pr.Number, strings.ToLower(pr.State), pr.URL)
-	posted, err := s.noteWorkItem(ctx, f.ID, body)
-	if err != nil || !posted {
-		return err
-	}
-	return s.st.SetWorkItemGitHub(ctx, store.WorkItemGitHub{
-		WorkItemID: f.ID, PRNumber: int64(pr.Number), PRState: pr.State, PRURL: pr.URL,
-	})
-}
-
-// noteFinishedChecks posts a reef note for each check run that finished and was not yet
-// noted, once per run: the same check name run again, such as a rerun on a later push, is its
-// own run, noted on its own. A check run is recorded as noted only once its note was actually
-// posted, so a work item with no Space yet, or a failed CreateMessage, is retried on a later
-// poll instead of losing the note. Every failed run in the rollup wakes the developer in one
-// wake; noting and waking are independent, so a wake that could not run (the Space is busy
-// or paused) is retried on a later poll even though the run was already noted.
-func (s *server) noteFinishedChecks(ctx context.Context, f store.WorkItem, pr ghPR, ghPath, dir string) error {
-	var failed []ghCheck
-	for _, c := range pr.StatusCheckRollup {
-		finished, word := c.outcome()
-		if !finished {
-			continue
-		}
-		name, key := c.checkName(), c.runKey()
-		noted, err := s.st.GitHubCheckNoted(ctx, f.ID, name, key)
-		if err != nil {
-			return err
-		}
-		if !noted {
-			posted, err := s.noteWorkItem(ctx, f.ID, fmt.Sprintf("%s %s", name, word))
-			if err != nil {
-				return err
-			}
-			if posted {
-				if err := s.st.RecordGitHubCheck(ctx, f.ID, name, key); err != nil {
-					return err
-				}
-			}
-		}
-		if word == "failed" {
-			failed = append(failed, c)
-		}
-	}
-	if len(failed) == 0 {
-		return nil
-	}
-	return s.wakeCoordinator(ctx, f, pr, failed, ghPath, dir)
-}
-
-// noteWorkItem posts a reef note in the work item's active Space, and tells an open
-// stream on it that a message arrived, so the window refreshes without a reload. It reports
-// posted = false, without error, when the work item has no Space yet, so the caller does not
-// record the note as sent.
-func (s *server) noteWorkItem(ctx context.Context, workItemID int64, body string) (posted bool, err error) {
-	ch, err := s.st.WorkItemActiveSpace(ctx, workItemID)
-	if errors.Is(err, store.ErrNotFound) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if _, err = s.st.CreateMessage(ctx, store.Message{
-		SpaceID: ch.ID, Author: store.ReefAuthor, Body: body,
-	}); err != nil {
-		return false, err
-	}
-	s.notify(ch.ID, "note")
-	return true, nil
-}
-
-// wakeCoordinator sends failed checks to the Space coordinator, once per run.
-func (s *server) wakeCoordinator(
-	ctx context.Context, f store.WorkItem, pr ghPR, checks []ghCheck, ghPath, dir string,
-) error {
-	var unwoken []ghCheck
-	for _, c := range checks {
-		woken, err := s.st.WokenGitHubCheck(ctx, f.ID, c.checkName(), c.runKey())
-		if err != nil {
-			return err
-		}
-		if !woken {
-			unwoken = append(unwoken, c)
-		}
-	}
-	if len(unwoken) == 0 {
-		return nil
-	}
-	ch, err := s.st.WorkItemActiveSpace(ctx, f.ID)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	team, err := s.st.SpaceTeam(ctx, ch.ID)
-	if err != nil {
-		return err
-	}
-	if len(team.Roles) == 0 {
-		return fmt.Errorf("%w: Space has no coordinator", store.ErrInvalid)
-	}
-	text := s.ghWakeText(ctx, pr, unwoken, ghPath, dir)
-	chain, ch, err := s.claim(ctx, ch.ID, _message)
-	if err != nil {
-		if errors.Is(err, store.ErrConflict) {
-			s.logGhErrOnce(f.ID, fmt.Errorf("wake coordinator: %w", err))
-			return nil
-		}
-		return err
-	}
-	botID := team.Roles[0].BotID
-	w := wake{from: store.ReefAuthor, role: team.Roles[0].Name, botID: &botID, text: text}
-	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
-		if errors.Is(err, store.ErrConflict) {
-			s.logGhErrOnce(f.ID, fmt.Errorf("wake coordinator: %w", err))
-			return nil
-		}
-		return err
-	}
-	for _, c := range unwoken {
-		if err := s.st.MarkGitHubCheckWoken(ctx, f.ID, c.checkName(), c.runKey()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ghWakeText is the wake text for one or more failed check runs, joined with a blank line:
-// each run's check name and the PR, plus the last 50 lines of its failed log when the run id
-// can be read from the check.
-func (s *server) ghWakeText(ctx context.Context, pr ghPR, checks []ghCheck, ghPath, dir string) string {
-	parts := make([]string, len(checks))
-	for i, c := range checks {
-		parts[i] = ghCheckWakeText(ctx, pr, c, ghPath, dir)
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-// ghCheckWakeText is the wake text for one failed check run: the check name and the PR, plus
-// the last 50 lines of the run's failed log when the run id can be read from the check.
-func ghCheckWakeText(ctx context.Context, pr ghPR, c ghCheck, ghPath, dir string) string {
-	text := fmt.Sprintf("%s failed on PR #%d: %s", c.checkName(), pr.Number, pr.URL)
-	runID := c.runID()
-	if runID == "" {
-		return text
-	}
-	tail, err := ghLogTail(ctx, ghPath, dir, runID)
-	if err != nil {
-		log.Printf("github poll: run %s log: %v", runID, err)
-		return text
-	}
-	return text + "\n\n" + tail
-}
-
-// ghLogTail is the last n lines of `gh run view id --log-failed`, run in dir.
-func ghLogTail(ctx context.Context, ghPath, dir, runID string) (string, error) {
-	cctx, cancel := context.WithTimeout(ctx, _ghTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(cctx, ghPath, "run", "view", runID, "--log-failed")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("gh run view: %w", err)
-	}
-	return lastLines(string(out), 50), nil
-}
-
-func lastLines(s string, n int) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, "\n")
 }

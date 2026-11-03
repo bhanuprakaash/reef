@@ -24,7 +24,7 @@ job() {
 		feature) "$H" feature "$name" ;;
 		ui)
 			if [ "$name" = pr ]; then
-				export REEF_FAKE_GH="$out/gh-$2" REEF_GH_INTERVAL=1s
+				export REEF_FAKE_GH="$out/gh-$2"
 				mkdir -p "$REEF_FAKE_GH"
 				export PATH="$(dirname "$H")/ui/fake-gh:$PATH"
 			fi

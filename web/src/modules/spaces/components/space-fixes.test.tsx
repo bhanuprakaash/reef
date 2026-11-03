@@ -7,6 +7,8 @@ const { useSpaceWorkspaces, useAbandonSpaceWorkspace } = vi.hoisted(() => ({
   useAbandonSpaceWorkspace: vi.fn(),
 }));
 
+vi.mock('@/modules/spaces/components/request-list', () => ({ RequestList: () => null }));
+
 vi.mock('@/modules/spaces/api/space-workspaces', () => ({
   useSpaceWorkspaces,
   useAbandonSpaceWorkspace,
@@ -19,7 +21,6 @@ const fix = {
   baseSource: 'local',
   head: 'abc1234',
   dirty: false,
-  requests: [],
 };
 
 function render(data: unknown[]) {
@@ -46,35 +47,6 @@ describe('SpaceFixes', () => {
     expect(markup).toContain('fix/3-login at abc1234');
     expect(markup).toContain('origin could not be refreshed');
     expect(markup).not.toContain('old in App');
-  });
-
-  it('links the requests of one fix across repositories in merge order', () => {
-    const request = { provider: 'gitlab', state: 'opened', url: 'https://gitlab.com/g/x' };
-    const markup = render([
-      {
-        ...fix,
-        id: 1,
-        name: 'sync',
-        branch: 'fix/3-sync',
-        state: 'ready',
-        note: '',
-        requests: [{ ...request, id: 1, path: 'g/app', number: 12, dependsOn: [2] }],
-      },
-      {
-        ...fix,
-        id: 2,
-        projectName: 'Lib',
-        name: 'sync',
-        branch: 'fix/3-sync',
-        state: 'ready',
-        note: '',
-        requests: [{ ...request, id: 2, path: 'g/lib', number: 11, dependsOn: [] }],
-      },
-    ]);
-
-    expect(markup).toContain('href="https://gitlab.com/g/x"');
-    expect(markup).toMatch(/app !12.*merge step 2, after lib !11/);
-    expect(markup).toMatch(/lib !11.*merge step 1/);
   });
 
   it('shows nothing when the conversation has no fix', () => {

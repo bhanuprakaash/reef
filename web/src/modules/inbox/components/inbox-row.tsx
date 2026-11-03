@@ -24,6 +24,7 @@ const kindColors: Record<InboxItem['kind'], string> = {
   sub_item: 'text-muted',
   proposed: 'text-muted',
   started: 'text-muted',
+  delivery: 'text-failed',
   space_proposed: 'text-working',
 };
 

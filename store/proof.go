@@ -184,8 +184,8 @@ func (s *Store) proofRepositories(ctx context.Context, id int64) ([]ProofReposit
 
 // SendBack puts the item in review at the front of the queue, keeps note for the owner's
 // next wake (see ClaimSendBack) and rejects the wrap-up proposal its Space waits on, which the
-// next submit replaces. A blank note is ErrInvalid.
-func (s *Store) SendBack(ctx context.Context, id int64, note string) (WorkItem, error) {
+// next submit replaces. by is ByUser or ByReef. A blank note is ErrInvalid.
+func (s *Store) SendBack(ctx context.Context, id int64, note, by string) (WorkItem, error) {
 	if strings.TrimSpace(note) == "" {
 		return WorkItem{}, fmt.Errorf("%w: a note for the owner is required to send work item %d back", ErrInvalid, id)
 	}
@@ -197,7 +197,7 @@ func (s *Store) SendBack(ctx context.Context, id int64, note string) (WorkItem, 
 		"UPDATE proof SET send_back_note = ? WHERE work_item_id = ?", note, id); err != nil {
 		return WorkItem{}, fmt.Errorf("keep send-back note: %w", err)
 	}
-	w, err := s.MoveWorkItem(ctx, id, _queued, ByUser)
+	w, err := s.MoveWorkItem(ctx, id, _queued, by)
 	if err != nil {
 		return WorkItem{}, err
 	}

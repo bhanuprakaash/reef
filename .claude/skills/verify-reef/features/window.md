@@ -73,7 +73,7 @@ Preconditions:
 - `ui review` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
 - `ui theme` needs the team `duo` applied (like `ui inbox`) and leaves a reply for the inbox screen.
 - `ui workshop` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
-- `ui pr` needs a fake gh: serve-start with `REEF_FAKE_GH=<folder>`, `REEF_GH_INTERVAL=1s` and `scripts/ui/fake-gh` first on `PATH`, then `ui pr` with the same `REEF_FAKE_GH`; the fake keeps the PR in `<folder>/pr.json` and logs merges to `<folder>/merges.log`.
+- `ui pr` needs a fake gh: serve-start with `REEF_FAKE_GH=<folder>` and `scripts/ui/fake-gh` first on `PATH`, then `ui pr` with the same `REEF_FAKE_GH`; the fake keeps the PR in `<folder>/pr.json` and logs merges to `<folder>/merges.log`.
 - `ui coordination` needs `duo` and `full` applied to the `ui` folder (the lead's direct request runs the architect at once).
 - `ui subagent` commits a `sub.txt` to the run's folder (the Space runs in a worktree), asks the lead to read it through a subagent, and replays `fake/recordings/subagent-read.jsonl`, a real claude recording with `parent_tool_use_id` on the subagent's calls; it needs no team.
 - `ui denials` applies its own team `denials` (a lead and a read-only reviewer, both allowed only `Read`) through `POST /bots` and `PUT /teams/denials`, and reads the fake claude's args from `fake-claude.log`, so it only runs on the fake `claude`.
