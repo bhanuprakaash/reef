@@ -50,6 +50,9 @@ func projectDir(path string) (string, error) {
 
 func (s *server) listProjects(w http.ResponseWriter, r *http.Request) {
 	ps, err := s.st.Projects(r.Context())
+	if r.URL.Query().Get("deleted") == "1" {
+		ps, err = s.st.DeletedProjects(r.Context())
+	}
 	if err != nil {
 		writeError(w, err)
 		return

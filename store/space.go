@@ -460,14 +460,27 @@ func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, e
 // SpaceProjects lists the active projects Space id is associated with, by id; the association
 // with a deleted project stays as a row.
 func (s *Store) SpaceProjects(ctx context.Context, id int64) ([]Project, error) {
+	return s.spaceProjects(ctx, id, false)
+}
+
+// AllSpaceProjects includes deleted project associations for history.
+func (s *Store) AllSpaceProjects(ctx context.Context, id int64) ([]Project, error) {
+	return s.spaceProjects(ctx, id, true)
+}
+
+func (s *Store) spaceProjects(ctx context.Context, id int64, all bool) ([]Project, error) {
 	if err := s.requireSpace(ctx, id); err != nil {
 		return nil, err
+	}
+	filter := " AND " + _activeProject
+	if all {
+		filter = ""
 	}
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.icon, project.colour, project.created_at, project.repo_connection_id, project.remote_path, "+
 			"project.deleting_at, project.deleted_at "+
 			"FROM space_project JOIN project ON project.id = space_project.project_id "+
-			"WHERE space_project.space_id = ? AND "+_activeProject+" ORDER BY project.id", id)
+			"WHERE space_project.space_id = ?"+filter+" ORDER BY project.id", id)
 	if err != nil {
 		return nil, fmt.Errorf("list Space projects: %w", err)
 	}

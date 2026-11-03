@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { ProjectSwitcher } from '@/app/project-switcher';
 import { SidebarBots } from '@/app/sidebar-bots';
 import { SidebarSearch } from '@/app/sidebar-search';
+import { DeletedProjects } from '@/app/deleted-projects';
 import { SidebarSpaces } from '@/app/sidebar-spaces';
 import { UpdateCard } from '@/app/update-card';
 import { Button } from '@/components/button';
@@ -196,6 +197,7 @@ export function Sidebar() {
             {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
             <SidebarBots project={current} />
             <SidebarSpaces project={current} />
+            <DeletedProjects />
           </>
         )}
       </div>

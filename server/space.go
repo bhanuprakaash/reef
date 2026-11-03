@@ -440,6 +440,18 @@ func (s *server) listSpaceProjects(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if r.URL.Query().Get("history") == "1" {
+		ps, err := s.st.AllSpaceProjects(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if ps == nil {
+			ps = []store.Project{}
+		}
+		writeJSON(w, http.StatusOK, ps)
+		return
+	}
 	s.writeSpaceProjects(w, r, id)
 }
 

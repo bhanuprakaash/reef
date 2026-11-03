@@ -389,7 +389,7 @@ neither a working directory nor permission to change a repository, and filters n
 - `POST /spaces` with `projectId` associates the new Space with it at once; with no `projectId` and no
   work item the Space starts with none. A Space of a work item is associated with the item's project.
 - `GET /spaces?project=ID` lists the Spaces associated with the project, so a Space with two projects
-  is listed under both. `GET /spaces/{id}/projects` lists a Space's active projects: one being deleted or deleted is left out, its association row stays. `PUT` and `DELETE
+  is listed under both. `GET /spaces/{id}/projects` lists a Space's active projects: one being deleted or deleted is left out, its association row stays. `GET /spaces/{id}/projects?history=1` includes those associations with their deletion timestamps, without changing them. `PUT` and `DELETE
   /spaces/{id}/projects/{projectId}` add and remove one (a Space of a work item is 400: it stays in its
   work item's project); each change that does something writes a note by `reef` in the Space's history, `You associated Project X with this conversation.` or `... removed Project X from this conversation.` (a Bot's change through the MCP tools carries its `botId`). The Space's messages, turns and sessions do not change when its projects do.
 - Moving a conversation to a new Space (`@name`) copies its projects to the new Space.
@@ -725,7 +725,7 @@ tool calls.
 | --- | --- | --- | --- |
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /status` | | 200 `{"running":N}`, N the Spaces whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
-| `GET /projects` | | 200 | |
+| `GET /projects` | `?deleted=1` lists Projects whose deletion has started, including completed deletions | 200 | |
 | `POST /projects` | `name`, `path`, `purpose` (optional, plain words), `icon` and `colour` (optional) | 201 | 400 missing field, a `path` that is not an absolute path to an existing folder, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch), `icon` and `colour` (optional; empty clears them) | 200 | 400 (same `path` rule, a `baseBranch` that is not a branch name, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours), 404 |

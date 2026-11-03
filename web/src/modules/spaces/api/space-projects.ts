@@ -4,8 +4,8 @@ import type { Project } from '@/types/api';
 
 export function useSpaceProjects(spaceId: number) {
   return useQuery({
-    queryKey: ['spaces', spaceId, 'projects'],
-    queryFn: () => api<Project[]>(`/spaces/${spaceId}/projects`),
+    queryKey: ['spaces', spaceId, 'projects', 'history'],
+    queryFn: () => api<Project[]>(`/spaces/${spaceId}/projects?history=1`),
   });
 }
 

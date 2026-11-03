@@ -27,6 +27,7 @@ import { FailedTurnRows } from '@/modules/spaces/components/failed-turn-rows';
 import { InspectorPanel } from '@/modules/spaces/components/inspector-panel';
 import { LiveDock } from '@/modules/spaces/components/live-dock';
 import { MessageList } from '@/modules/spaces/components/message-list';
+import { HistoryInput } from '@/modules/spaces/components/history-input';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
 import { PromptCards } from '@/modules/spaces/components/prompt-cards';
@@ -51,6 +52,7 @@ import { faceOf } from '@/components/creature';
 
 type Props = {
   space: SpaceDetail;
+  readOnly?: boolean;
   scope: ReactNode;
   status?: string;
   workItems: WorkItem[];
@@ -75,6 +77,7 @@ type Side =
 
 export function SpaceView({
   space,
+  readOnly = false,
   scope,
   status,
   workItems,
@@ -171,11 +174,16 @@ export function SpaceView({
   const showTeam =
     !thread && !chain && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen;
   const wrapDisabled =
-    running || wrap.isPending || proposal.data?.kind === 'wrap' || blocksUser(space.paused);
+    readOnly ||
+    running ||
+    wrap.isPending ||
+    proposal.data?.kind === 'wrap' ||
+    blocksUser(space.paused);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <SpaceHeader
+        readOnly={readOnly}
         space={space}
         scope={scope}
         status={status}
@@ -191,9 +199,9 @@ export function SpaceView({
         tools={tools}
         wrapDisabled={wrapDisabled}
         onWrap={() => wrap.mutate()}
-        attachDisabled={running}
+        attachDisabled={readOnly || running}
         onAttach={() => setAttaching(true)}
-        closeDisabled={running || close.isPending}
+        closeDisabled={readOnly || running || close.isPending}
         onClose={() => close.mutate()}
         onAddBot={() => setAdding(true)}
         onNewChat={() =>
@@ -202,7 +210,7 @@ export function SpaceView({
             { onSuccess: (created) => void navigate(`/spaces/${created.id}`) },
           )
         }
-        newChatDisabled={newChat.isPending}
+        newChatDisabled={readOnly || newChat.isPending}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -273,15 +281,19 @@ export function SpaceView({
                 spaceId={space.id}
                 faces={faces}
                 running={running}
-                paused={space.paused !== ''}
+                paused={readOnly || space.paused !== ''}
                 pillTurnId={failedRetryTarget(failedTurns.data ?? [], turn)?.id}
               />
-              <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
-              <PromptCards spaceId={space.id} roles={roles} />
-              <DeniedToolRows space={space} roles={roles} running={running} />
-              <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
-              <MemberProposalPanel spaceId={space.id} />
-              {drafts}
+              {!readOnly && (
+                <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
+              )}
+              {!readOnly && <PromptCards spaceId={space.id} roles={roles} />}
+              {!readOnly && <DeniedToolRows space={space} roles={roles} running={running} />}
+              {!readOnly && (
+                <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
+              )}
+              {!readOnly && <MemberProposalPanel spaceId={space.id} />}
+              {!readOnly && drafts}
             </div>
           </div>
           {!atBottom && (
@@ -311,58 +323,66 @@ export function SpaceView({
           )}
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
             <div className="mx-auto max-w-5xl space-y-2">
-              {space.paused !== '' && <PausedBanner spaceId={space.id} reason={space.paused} />}
+              {!readOnly && space.paused !== '' && (
+                <PausedBanner spaceId={space.id} reason={space.paused} />
+              )}
               <LiveDock
                 spaceId={space.id}
                 entries={turn.status === 'idle' ? [] : [{ turn, role: working, look }]}
                 waiting={waiting}
-                paused={space.paused !== ''}
+                paused={readOnly || space.paused !== ''}
                 onOpenTurn={() => openSide({ kind: 'turn' })}
               />
-              {space.movedTo !== null ? (
-                <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
-                  <span className="min-w-0 flex-1 text-sm text-muted">
-                    This conversation moved to a new Space
-                  </span>
-                  <Link
-                    to={`/spaces/${space.movedTo}`}
-                    className="text-sm text-fg underline underline-offset-2"
-                  >
-                    Open the Space
-                  </Link>
-                </div>
-              ) : closed ? (
-                <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
-                  <span className="min-w-0 flex-1 text-sm text-muted">Wrapped</span>
-                  {reopen.isError && (
-                    <span className="text-sm text-danger">{reopen.error.message}</span>
-                  )}
-                  <Button type="button" disabled={reopen.isPending} onClick={() => reopen.mutate()}>
-                    Reopen
-                  </Button>
-                </div>
-              ) : space.kind === 'consultation' && roles.length > 0 ? (
-                <GuidanceInput
-                  spaceId={space.id}
-                  botId={roles[0].botId}
-                  botName={roles[0].name}
-                  paused={space.paused !== ''}
-                  running={running}
-                />
-              ) : (
-                <Composer
-                  spaceId={space.id}
-                  conversation={space.kind === 'conversation'}
-                  addable={canAddBot(space)}
-                  running={running}
-                  paused={blocksUser(space.paused)}
-                  reason={space.paused}
-                  roles={roles}
-                  faces={faces}
-                  working={working}
-                  workingBotId={workingBotId}
-                />
-              )}
+              <HistoryInput readOnly={readOnly} reason={space.paused}>
+                {space.movedTo !== null ? (
+                  <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
+                    <span className="min-w-0 flex-1 text-sm text-muted">
+                      This conversation moved to a new Space
+                    </span>
+                    <Link
+                      to={`/spaces/${space.movedTo}`}
+                      className="text-sm text-fg underline underline-offset-2"
+                    >
+                      Open the Space
+                    </Link>
+                  </div>
+                ) : closed ? (
+                  <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
+                    <span className="min-w-0 flex-1 text-sm text-muted">Wrapped</span>
+                    {reopen.isError && (
+                      <span className="text-sm text-danger">{reopen.error.message}</span>
+                    )}
+                    <Button
+                      type="button"
+                      disabled={reopen.isPending}
+                      onClick={() => reopen.mutate()}
+                    >
+                      Reopen
+                    </Button>
+                  </div>
+                ) : space.kind === 'consultation' && roles.length > 0 ? (
+                  <GuidanceInput
+                    spaceId={space.id}
+                    botId={roles[0].botId}
+                    botName={roles[0].name}
+                    paused={space.paused !== ''}
+                    running={running}
+                  />
+                ) : (
+                  <Composer
+                    spaceId={space.id}
+                    conversation={space.kind === 'conversation'}
+                    addable={canAddBot(space)}
+                    running={running}
+                    paused={blocksUser(space.paused)}
+                    reason={space.paused}
+                    roles={roles}
+                    faces={faces}
+                    working={working}
+                    workingBotId={workingBotId}
+                  />
+                )}
+              </HistoryInput>
             </div>
           </div>
         </section>
@@ -406,19 +426,20 @@ export function SpaceView({
                   reason={space.paused}
                   working={working}
                   workingBotId={workingBotId}
-                  closed={closed}
+                  closed={closed || readOnly}
                   onClose={closeSide}
                 />
               )}
               {chain && (
                 <CoordinationPanel
+                  readOnly={readOnly}
                   key={chain.id}
                   spaceId={space.id}
                   chain={chain}
                   live={liveDirect}
                   faces={faces}
                   running={running}
-                  paused={space.paused !== ''}
+                  paused={readOnly || space.paused !== ''}
                   reason={space.paused}
                   onOpenSource={(id) => {
                     const source = messages.data?.find((m) => m.id === id);
@@ -454,6 +475,7 @@ export function SpaceView({
                 </div>
               </div>
               <TeamPanel
+                readOnly={readOnly}
                 spaceId={space.id}
                 workItemId={space.workItemId}
                 roles={roles}

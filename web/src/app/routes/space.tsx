@@ -48,7 +48,10 @@ export function SpacePage() {
     space.data !== undefined && (space.data.workItemId !== null || !!project),
   );
 
-  if (space.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (space.isPending || spaceProjects.isPending)
+    return <p className="text-sm text-muted">Loading...</p>;
+  if (spaceProjects.isError)
+    return <p className="text-sm text-danger">{spaceProjects.error.message}</p>;
   if (space.isError) return <p className="text-sm text-danger">{space.error.message}</p>;
 
   const workItemId = space.data.workItemId;
@@ -56,6 +59,8 @@ export function SpacePage() {
   const hasBrowser = typeof window !== 'undefined' && window.reef != null;
   const props: ViewProps = {
     space: space.data,
+    readOnly:
+      spaceProjects.data.length > 0 && spaceProjects.data.every((p) => p.deletingAt !== null),
     workItems: workItems.data ?? [],
     projects: projects.data ?? [],
     status: workItem && statusLabel(workItem.status),
@@ -64,7 +69,7 @@ export function SpacePage() {
     ) : (
       [
         space.data.kind === 'free' ? 'free Space' : space.data.kind,
-        ...(spaceProjects.data ?? []).map((p) => p.name),
+        ...(spaceProjects.data ?? []).map((p) => `${p.name}${p.deletingAt ? ' (deleted)' : ''}`),
       ].join(' · ')
     ),
     drafts: <SkillDraftCards spaceId={id} />,
