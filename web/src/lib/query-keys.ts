@@ -10,6 +10,7 @@ export const skillLibraryKey = [...skillsRootKey, 'library'];
 export const skillDraftsKey = [...skillsRootKey, 'drafts'];
 export const workItemPrKey = (workItemId: number) => ['work-item-pr', workItemId];
 export const providersKey = ['providers'];
+export const repoConnectionsKey = ['repo-connections'];
 export const connectionsKey = ['connections'];
 export const availableConnectionsKey = (projectId?: number) => [
   ...connectionsKey,

@@ -131,7 +131,7 @@ logged in and on `PATH`.
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
-  page (`/projects/{id}`) with its work items grouped by status in board order and its free Spaces, and a right rail with Purpose and Base branch (each saves when the field loses focus, no Save button) and the project memory (3 newest, Show all, one add row). A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the owner submits; one section per repository with branch, commit, base, workspace folder and checks, the PR of the item's branch and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the owner, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
+  page (`/projects/{id}`) with its work items grouped by status in board order and its free Spaces, and a right rail with Purpose and Base branch (each saves when the field loses focus, no Save button), Repository (the connection and `owner/repo` path, prefilled from `GET /projects/{id}/remote`, saved with Bind; a disconnected connection shows its reason) and the project memory (3 newest, Show all, one add row). A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the owner submits; one section per repository with branch, commit, base, workspace folder and checks, the PR of the item's branch and each screenshot as an image); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal (`No proof submitted` when there is none), a note for the owner, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, owner and project are in the URL. Dragging a card from Queued to Backlog is `PATCH /work-items/{id}`; a Backlog card is queued by its Approve form (`POST /work-items/{id}/approve`), not by dragging; dropping a queued card on another queued card is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
 - Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in two groups, Needs you and
   FYI, with a count each. Every item is one compact row: the Bot's face, the Space name, a plain
@@ -157,7 +157,7 @@ logged in and on `PATH`.
   Resume chat opens the newest open chat (`GET /bots/{id}/conversations?resumable=1&limit=1`);
   New chat does `POST /spaces` with `botId`, `kind` `conversation` and the current project's id, if
   any, and opens the new chat. Opening the page starts nothing.
-- Settings (`/settings`): a left sub-nav in three groups, You (Profile, Appearance, Notifications), This Mac (Terminal, Updates; desktop only) and Agents (Providers, Connections, Skills), with a count beside Providers, Connections and Skills. One section shows at a time, picked with `?section=` (the first when it is missing); below 768 px the nav is a list and a section opens on its own with a Settings back link. Each section has a title and a one-line lede.
+- Settings (`/settings`): a left sub-nav in four groups, You (Profile, Appearance, Notifications), This Mac (Terminal, Updates; desktop only), Agents (Providers, Connections, Skills) and Work (Repositories: GitHub and GitLab, each Connect or Re-check with its state and reason), with a count beside Providers, Connections and Skills. One section shows at a time, picked with `?section=` (the first when it is missing); below 768 px the nav is a list and a section opens on its own with a Settings back link. Each section has a title and a one-line lede.
   Profile saves as you make it (the name on leaving the field, a chip at once, `PUT /profile`): your name, occupation and working preferences (chips). Appearance: theme (dark, light or Match macOS, kept in `localStorage`). Notifications: the Mac notification permission. Providers: the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams.
   Connections: the library of connections (add, Edit, Delete; each row shows its kind, command or URL and how many Bots use it); a Bot picks them in its panel. Skills: one searchable list with the filters All, Library, Claude Code and Codex (the last two read from disk for the current project) and a detail pane with the description, source, files, the Bots that use it and Edit (written in Reef) or Update (imported); Import (a folder or a Git link) and New skill (an editor with SKILL.md and supporting files) sit above the list, and the Bots' skill Drafts with Save and Reject sit below it (the same draft card shows in the Space that proposed it).
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
@@ -246,6 +246,8 @@ Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described
 | `purpose` | string | what the Project is for, in a line; default `""` |
 | `icon` | string | an icon name from the picker set, drawn on the Project's tile; default `""`, which shows the first letter of the name, as does a name outside the set (migration 110 [`110_project_icon.sql`](../store/migrations/110_project_icon.sql); migration 111 [`111_project_icon_names.sql`](../store/migrations/111_project_icon_names.sql) clears an icon outside the set) |
 | `colour` | string | the tile colour as `#rrggbb`; default `""`, which picks one of the window's eight preset colours by id. The window offers only those eight |
+| `repoConnectionId` | number or null | the [repository connection](#repo_connection) the Project delivers through; `null` until bound (migration 115 [`115_repo_connection.sql`](../store/migrations/115_repo_connection.sql)). `PUT /projects/{id}` never changes it |
+| `remotePath` | string | the repository on that connection's host, `owner/repo` (GitLab: `group/subgroup/repo`); `""` until bound |
 | `createdAt` | string | |
 
 ### profile
@@ -602,6 +604,22 @@ A later report or login replaces the row for its backend. The state is a note, n
 
 Settings offers a catalog of official remote MCP servers (GitLab, GitHub, Slack and others). It is bundled in the web app: the names, logos and URLs ship with it, and nothing is fetched from a vendor at run time. Adding one is a normal `POST /connections` with the catalog's `url`, followed by Sign in.
 
+### repo_connection
+
+A repository provider login: GitHub or GitLab as the `gh` or `glab` CLI holds it. It is separate from `connection` (MCP servers a Bot is offered) and from `provider` (claude and codex installs); nothing here needs a Bot to hold an MCP server. The CLI keeps the credential in its own login (the macOS keychain). Reef stores no token and no CLI output: a failure shows one of a few fixed reasons.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `provider` | string | `github` or `gitlab` |
+| `host` | string | `github.com` for `github`, `gitlab.com` for `gitlab`; no other host is accepted. One row per provider and host |
+| `account` | string | the login the last successful check found, `""` after a failed one |
+| `state` | string | `connected` or `disconnected` |
+| `reason` | string | why it is disconnected, `""` when connected: `gh is not on PATH`, ``not logged in: run `gh auth login --hostname github.com` ``, `login rejected: the token is expired or revoked`, `access denied: the account is suspended or blocked`, `login check failed`, or `gh did not answer in 30s` (`glab` for GitLab) |
+| `checkedAt` | string | when the state was last checked |
+
+A check runs `gh api --hostname HOST user` or `glab api --hostname HOST user` (30 s limit): an authenticated call, so an expired or suspended login shows as `disconnected`, which `auth status` would not show. Only `login` (gh) or `username` (glab) is read from the answer. A check happens when the user connects or asks for a re-check, not on a timer.
+
 ### provider
 
 A claude or codex install the user added, next to the ones found on `PATH`. The ones on `PATH`
@@ -713,6 +731,11 @@ tool calls.
 | `DELETE /projects/{id}` | | 204; its own Work items are deleted. Every workspace directory of the Project and its own items, and checkpoint refs taken there, are removed; branches are kept. A Space with no Work item stays without this Project. A foreign Work item that targets this Project is kept; if it has an active Space, that Space is paused and the item moves to `needs_you` with a note. Its target and workspace rows stay as history: the target name reads `deleted project N`, and the workspace row has state `removed` with note `project <name> was deleted`, although its directory is removed. | 404, 409 a workspace has uncommitted changes or a targeted item is running (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
+| `GET /projects/{id}/remote` | | 200 `{provider, host, path, connectionId}`: the repository the Project's `origin` URL names (`https://`, `ssh://` and `user@host:path` forms; a credential in the URL is dropped), and the id of the connection on that host, `null` when none is connected yet. Nothing is stored | 400 no `origin`, a host other than github.com or gitlab.com, or a path that is not `owner/repo` (`group/.../repo` on GitLab); 404 |
+| `PUT /projects/{id}/remote` | `connectionId`, `path` | 200 the Project bound to that connection and `path` (a trailing `.git` or `/` is dropped). `path` need not match `origin`: the user may override. The path is checked for shape only; no call is made to the host | 400 `path` not valid for the connection's provider; 404 the Project or the connection |
+| `GET /repo-connections` | | 200 the repository connections by id, each as in [repo_connection](#repo_connection). Reads what was last stored; no CLI runs | |
+| `POST /repo-connections` | `provider` (`github` or `gitlab`), optional `host` (only that provider's own) | 200 the connection after a check, created or updated. A failed check is still 200, with `state` `disconnected` and a `reason`; the user logs in with the CLI, then checks again | 400 an unknown provider, or a host other than github.com for `github` or gitlab.com for `gitlab` |
+| `POST /repo-connections/{id}/check` | no body needed | 200 the connection after a new check | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
 | `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /work-items` | `?project=ID`, `?parent=ID`, `?status=S`, `?type=T` | 200, with each item's `acceptanceLines` | 400 bad id, status or type |

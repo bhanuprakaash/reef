@@ -17,6 +17,7 @@ import { COLUMNS } from '@/modules/work-items/utils/board-drop';
 import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectIconPicker } from '@/modules/projects/components/project-icon-picker';
+import { ProjectRemoteForm } from '@/modules/projects/components/project-remote-form';
 import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
 import { ProjectPurposeForm } from '@/modules/projects/components/project-purpose-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
@@ -187,6 +188,7 @@ export function ProjectPage() {
         <aside className="flex w-full flex-none flex-col gap-6 border-t border-hairline pt-6 md:w-80 md:border-t-0 md:border-l md:pt-0 md:pl-7">
           <ProjectPurposeForm project={project} />
           <ProjectBaseBranchForm project={project} />
+          <ProjectRemoteForm project={project} />
           <ProjectMemoryForm projectId={id} />
         </aside>
       </div>
