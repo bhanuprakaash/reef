@@ -248,6 +248,8 @@ Migrations 41 (bot and team member), 42 (Work item) and 54 (proof) are described
 | `colour` | string | the tile colour as `#rrggbb`; default `""`, which picks one of the window's eight preset colours by id. The window offers only those eight |
 | `repoConnectionId` | number or null | the [repository connection](#repo_connection) the Project delivers through; `null` until bound (migration 115 [`115_repo_connection.sql`](../store/migrations/115_repo_connection.sql)). `PUT /projects/{id}` never changes it |
 | `remotePath` | string | the repository on that connection's host, `owner/repo` (GitLab: `group/subgroup/repo`); `""` until bound |
+| `deletingAt` | string or null | when deleting the Project began; from then on nothing is admitted against it. `null` while it is active (migration 116 [`116_project_deleted.sql`](../store/migrations/116_project_deleted.sql)) |
+| `deletedAt` | string or null | when deleting finished. The row, its repository folder and its workspaces stay; `GET /projects/{id}` reads it, `GET /projects`, the Project directory and a path lookup leave it out |
 | `createdAt` | string | |
 
 ### profile
@@ -283,7 +285,7 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `projectId` | number | required on create; never changes. Deleting the Project deletes its own Work items; a foreign item that targets it is kept, and its active Space is paused so the item moves to `needs_you` (see `DELETE /projects/{id}`) |
+| `projectId` | number | required on create; never changes. Deleting the Project keeps its Work items readable; an item that still targets it, its own or another Project's, has its active Space paused so the item moves to `needs_you`, and a queued one goes back to `backlog` (see `DELETE /projects/{id}`) |
 | `parentId` | number? | `null` for a top-level item. Must be a top-level item of the same project, else `invalid: work item 2 is a sub-item and cannot have sub-items`; never changes. Deleting the parent deletes its sub-items |
 | `type` | string | `feature` (default), `bug`, `incident`, `investigation`, `task` or `improvement`, else `invalid`. A `PUT` without `type` keeps the old one |
 | `title` | string | required |
@@ -295,7 +297,7 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `participantBotIds` | array | ids of the Bots that take part, the owner first (the owner is always one); `[]` with no owner. They become the members of the item's Space when it starts. A sub-item reads its parent's |
 | `queuePosition` | number? | `null` when not queued |
 | `sentBack` | bool | `true` while the user's send-back note is waiting for the lead: the item came back from review and goes first in the queue |
-| `targets` | array | the repositories the top-level item may change, each `{projectId, projectName, proposedBy, authorizedBy, createdAt}`, the item's own Project first. After a target Project is deleted, its row remains and `projectName` reads `deleted project N`. `proposedBy` is the Bot that proposed the repository, `""` for the user's own; `authorizedBy` is `user` once the user approved or added it and `""` while it is only proposed. One Project is one repository. A Space's association with a Project (`space_project`) is not a target and gives no write permission. A sub-item reads its parent's |
+| `targets` | array | the repositories the top-level item may change, each `{projectId, projectName, proposedBy, authorizedBy, createdAt}`, the item's own Project first. After a target Project is deleted, its row remains and keeps the Project's name. `proposedBy` is the Bot that proposed the repository, `""` for the user's own; `authorizedBy` is `user` once the user approved or added it and `""` while it is only proposed. One Project is one repository. A Space's association with a Project (`space_project`) is not a target and gives no write permission. A sub-item reads its parent's |
 | `tokenBudget` | number | default 1,000,000; a `PUT` with 0 keeps the old one |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the item is open. Set when a top-level item is dropped; never set by a client |
@@ -307,7 +309,7 @@ A `PUT` replaces every editable field: `title`, `description`, `type`, `status`,
 
 A top-level item joins the queue only by approval, `POST /work-items/{id}/approve`, which needs an owner (`400` otherwise); the user's `PATCH` from `backlog` to `queued` is `400` ("approve it to queue it"). Joining the queue puts the item last in the queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. Nothing limits how many items run at once: a queued item that is approved and has an owner moves to `in_progress` by itself, at once on a queue and at boot for a queued item left behind. The approval or status-change response returns the claimed item as `in_progress`; opening its Space, making workspaces and starting its first turn run in the background. The server then opens an active Space for a started item that has none, led by the owner with every participant a member, and sends the lead one message: `Work item N: <title>`, `Description:` and `Brief:`, each `none` when empty, one line each; the acceptance lines are in the lead's first prompt (see [memory.md](memory.md#the-context-prompt)). An inbox `started` FYI says the item started (see [Inbox](#inbox)). A sent-back item keeps its Space and gets no new prompt. A started item whose active Space was made by hand (`reef token`, or `POST /spaces` with the item) and has no message yet gets that one message in it, once. A first turn that cannot run leaves a `reef` note saying so and pauses the Space, which puts the item in `needs_you`; `POST /spaces/{id}/continue` clears the pause and starts the lead.
 
-Admission is Reef's, in queue order, and keyed by the repositories, not by a Crew or a Bot: items on independent trees (also two items of one owner) run at the same time. Before the first turn the server makes the item's workspaces. An item with no ready workspace (every target paused: no valid base branch, a deleted Project) is not started: its Space gets a `reef` note naming each repository's cause and is paused (`no repository of this Work item is ready`), and the scan goes on to the next item. A started item gets one Space and one first prompt: the claim is the move to `in_progress` in one transaction, the Space is unique per active item, and the first prompt is sent only while the Space has no turn and no message but `reef`'s. After a restart, a started item with no Space gets it once and one with a Space but no first turn gets it once; a paused Space is left as it is. See [Restart recovery](#restart-recovery) for a cut turn.
+Admission is Reef's, in queue order, and keyed by the repositories, not by a Crew or a Bot: items on independent trees (also two items of one owner) run at the same time. Before the first turn the server makes the item's workspaces. An item with no ready workspace (every target paused: no valid base branch) is not started: its Space gets a `reef` note naming each repository's cause and is paused (`no repository of this Work item is ready`), and the scan goes on to the next item. An item with a target Project being deleted or deleted is not started either: the queue refuses the move (`409`), and an item already started is paused with a note and no workspace is made. A started item gets one Space and one first prompt: the claim is the move to `in_progress` in one transaction, the Space is unique per active item, and the first prompt is sent only while the Space has no turn and no message but `reef`'s. After a restart, a started item with no Space gets it once and one with a Space but no first turn gets it once; a paused Space is left as it is. See [Restart recovery](#restart-recovery) for a cut turn.
 
 The owner's `submit_for_review` runs in the `reef mcp` process, which the server cannot hear, so the server learns of a submit when the chain of turns of the submitting Space ends. It then opens the Space of any item the queue started meanwhile, the same way as after a `PATCH`, and runs a wrap-up turn for the lead (the same turn as `POST /spaces/{id}/wrap`), once per submit. A wrap-up that cannot start leaves a `reef` note in the Space: `Submitted for review, but the wrap-up did not start: <why>. Send /wrap to run it.` A submit that happens while the server is down, or a quit before the wrap-up started, starts its wrap-up at the next boot: the wrap-up runs for each item in review whose Space is open and has not had one.
 
@@ -320,7 +322,7 @@ What the owner submitted a top-level item with (`submit_for_review`, see [memory
 | `spaceId` | number | the Space the owner submitted from; the wrap-up runs there |
 | `acceptanceLines` | array | the item's lines as they are now, with `checked` and `note` as the submit set them |
 | `commands` | array | `{"command", "output"}` each, as submitted, that name no repository; `[]` when none |
-| `repositories` | array | one per workspace of the item at submit, in workspace order: `{"workspaceId", "projectId", "projectName", "branch", "head", "baseRef", "dir", "dirty", "checks"}`. `projectName` is `deleted project N` if that Project was later deleted. `checks` are the submitted commands whose `project` is that Project's name. No PR or MR field: opening one is the provider slice; the window shows `Not opened yet` |
+| `repositories` | array | one per workspace of the item at submit, in workspace order: `{"workspaceId", "projectId", "projectName", "branch", "head", "baseRef", "dir", "dirty", "checks"}`. `projectName` stays the Project's name after it is deleted. `checks` are the submitted commands whose `project` is that Project's name. No PR or MR field: opening one is the provider slice; the window shows `Not opened yet` |
 | `screenshots` | array | absolute paths of files under the data folder; `[]` when none |
 | `submittedAt` | string | RFC 3339 |
 
@@ -387,7 +389,7 @@ neither a working directory nor permission to change a repository, and filters n
 - `POST /spaces` with `projectId` associates the new Space with it at once; with no `projectId` and no
   work item the Space starts with none. A Space of a work item is associated with the item's project.
 - `GET /spaces?project=ID` lists the Spaces associated with the project, so a Space with two projects
-  is listed under both. `GET /spaces/{id}/projects` lists a Space's projects. `PUT` and `DELETE
+  is listed under both. `GET /spaces/{id}/projects` lists a Space's active projects: one being deleted or deleted is left out, its association row stays. `PUT` and `DELETE
   /spaces/{id}/projects/{projectId}` add and remove one (a Space of a work item is 400: it stays in its
   work item's project); each change that does something writes a note by `reef` in the Space's history, `You associated Project X with this conversation.` or `... removed Project X from this conversation.` (a Bot's change through the MCP tools carries its `botId`). The Space's messages, turns and sessions do not change when its projects do.
 - Moving a conversation to a new Space (`@name`) copies its projects to the new Space.
@@ -715,8 +717,7 @@ inbox item deletes it.
 
 `{id}` is a number. Lists come back as `[]` when empty, ordered by id (oldest first).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
-body. Deleting a row deletes what hangs off it by foreign key: a project takes its
-work items, Spaces; a work item takes its briefs, notes, decisions and Spaces;
+body. Deleting a row deletes what hangs off it by foreign key: a work item takes its briefs, notes, decisions and Spaces;
 a Space takes its messages, turns, tokens, proposals and approvals; a turn takes its
 tool calls.
 
@@ -728,7 +729,7 @@ tool calls.
 | `POST /projects` | `name`, `path`, `purpose` (optional, plain words), `icon` and `colour` (optional) | 201 | 400 missing field, a `path` that is not an absolute path to an existing folder, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `purpose` (optional; empty clears it), `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch), `icon` and `colour` (optional; empty clears them) | 200 | 400 (same `path` rule, a `baseBranch` that is not a branch name, an `icon` that is not a picker icon name, or a `colour` that is not one of the eight picker colours), 404 |
-| `DELETE /projects/{id}` | | 204; its own Work items are deleted. Every workspace directory of the Project and its own items, and checkpoint refs taken there, are removed; branches are kept. A Space with no Work item stays without this Project. A foreign Work item that targets this Project is kept; if it has an active Space, that Space is paused and the item moves to `needs_you` with a note. Its target and workspace rows stay as history: the target name reads `deleted project N`, and the workspace row has state `removed` with note `project <name> was deleted`, although its directory is removed. | 404, 409 a workspace has uncommitted changes or a targeted item is running (nothing is removed) |
+| `DELETE /projects/{id}` | | 204. Records `deletingAt` first, so no work is admitted against the Project: a queued item cannot start, a turn in a Space that runs against it is 409 `runs against deleted project <name>`, and adding it as a target, creating an item in it or opening a quick-fix workspace in it is refused. Then it stops the agents of the Spaces of every item that targets it (its own or another Project's) and of every Space holding a workspace in it, pauses the active Space of each such item with a note, which puts the item in Needs you, sends a queued item with no Space back to `backlog` (its approval is withdrawn) and retires the Project's `project:<id>` memory (the memory of its items, Bots and mixed conversations is untouched). Last it records `deletedAt`. The repository folder, worktrees, workspace rows, unfinished changes, checkpoint refs, branches, Work items, Spaces and messages all stay. Each step can run again, so a second `DELETE` finishes a cut one, and so does the next start of `reef serve`: it finishes every Project with `deletingAt` and no `deletedAt` before it starts the queue. The GitHub poll skips an item whose own Project is deleted. A paused item goes on only after `DELETE /work-items/{id}/targets/{projectId}` takes the deleted Project off it | 404 |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /projects/{id}/remote` | | 200 `{provider, host, path, connectionId}`: the repository the Project's `origin` URL names (`https://`, `ssh://` and `user@host:path` forms; a credential in the URL is dropped), and the id of the connection on that host, `null` when none is connected yet. Nothing is stored | 400 no `origin`, a host other than github.com or gitlab.com, or a path that is not `owner/repo` (`group/.../repo` on GitLab); 404 |
@@ -756,7 +757,7 @@ tool calls.
 | `GET /work-items/{id}/notes/{role}` | | 200. Unused since decision 91 | 404 no work item, or no notes for the role |
 | `PUT /work-items/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no work item |
 | `DELETE /work-items/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no work item, or no notes for the role |
-| `DELETE /work-items/{id}/targets/{projectId}` | the user takes a repository off a top-level item in `backlog` | 204 | 400 the item's own Project, a Project that is not a target, a sub-item; 404; 409 the item is not in `backlog`, or the Project has a workspace |
+| `DELETE /work-items/{id}/targets/{projectId}` | the user takes a repository off a top-level item in `backlog`, or off an item in any status when the Project is deleted (its workspace rows stay as history) | 204 | 400 the item's own Project, a Project that is not a target, a sub-item; 404; 409 the item is not in `backlog`, or the Project has a workspace |
 | `GET /work-items/{id}/workspaces` | | 200 the [workspace](#workspaces) rows of the item's targets, oldest first, `[]` before any is made (a sub-item answers with its parent's). Never makes one | 404 |
 | `POST /work-items/{id}/workspaces` | no body needed | 200 the rows of every target after making each missing workspace: `[{"id", "projectId", "workItemId", "spaceId", "name", "dir", "branch", "base", "baseRef", "baseSource": "origin"\|"local", "state": "creating"\|"ready"\|"paused", "note", "createdAt", "updatedAt"}]`. A ready workspace is left alone; a `creating` or `paused` one is tried again in the same row and folder | 404; 409 a folder taken by another workspace; 500 a git failure not about the repository, after the other targets were made (that row stays `creating` with the error as `note`) |
 | `GET /work-items/{id}/diff` | query `scope=current` for the changes against each workspace's HEAD only | 200 the changes of every ready workspace against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; a path starts with its workspace's folder (`<project id>-<project name>/`), so each repository is a section of its own; `[]` when the work item has no workspace yet | 404 |
@@ -1005,16 +1006,9 @@ a message wakes them.
   Right after the rows go, the memory items of the work item's `work_item:<id>` scope are
   closed: pending candidates are rejected and accepted items retired, so nothing of it is left
   in `reef memory pending`. Retired and rejected items are kept and still read.
-- `DELETE /projects/{id}` does the same for every work item of the project and every workspace
-  of the project in any work item or quick fix, and deletes the checkpoint refs taken in its
-  repository and those of the turns of every Space of the project. A Space with no work item is
-  not deleted: it only loses the association, and keeps its other projects. It checks every
-  workspace first: one with uncommitted
-  changes is 409, and nothing is removed. Then it removes all workspaces,
-  deletes the project rows, and last deletes the refs, in the same order and with the same
-  failure rule as a work item delete. Branches are kept. Its memory items are closed the same
-  way, in the project's `project:<id>` scope and in the `work_item:<id>` scope of each of its
-  work items.
+- `DELETE /projects/{id}` deletes nothing on disk. See its row in the REST table: it blocks admission,
+  stops the turns that run against the Project, pauses the items that still need it, retires
+  its memory and marks it deleted.
 - The lead stays alive between turns, until `POST /spaces/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session. A background task a specialist started ends with its agent, and its

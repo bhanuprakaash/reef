@@ -158,11 +158,7 @@ func TestProofKeepsRepositoryWhenProjectIsDeleted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	targetWorkspace.State, targetWorkspace.Note = WorkspaceRemoved, "project library was deleted"
-	if err := s.SetWorkspace(ctx, targetWorkspace); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.DeleteProject(ctx, target.ID); err != nil {
+	if _, err := s.MarkProjectDeleted(ctx, target.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -174,15 +170,15 @@ func TestProofKeepsRepositoryWhenProjectIsDeleted(t *testing.T) {
 		t.Fatalf("proof repositories = %+v, want home and deleted target", got.Repositories)
 	}
 	deleted := got.Repositories[1]
-	if deleted.ProjectID != target.ID || deleted.ProjectName != "deleted project 2" ||
+	if deleted.ProjectID != target.ID || deleted.ProjectName != "library" ||
 		deleted.WorkspaceID != targetWorkspace.ID || deleted.Dir != targetWorkspace.Dir {
-		t.Errorf("deleted project proof = %+v, want retained row labeled deleted project 2", deleted)
+		t.Errorf("deleted project proof = %+v, want the retained row of library", deleted)
 	}
 	workItem, err := s.WorkItem(ctx, item.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(workItem.Targets) != 2 || workItem.Targets[1].ProjectName != "deleted project 2" {
-		t.Errorf("targets after project deletion = %+v, want tombstone target", workItem.Targets)
+	if len(workItem.Targets) != 2 || workItem.Targets[1].ProjectName != "library" {
+		t.Errorf("targets after project deletion = %+v, want the library target kept", workItem.Targets)
 	}
 }

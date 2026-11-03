@@ -9,6 +9,8 @@ export type Project = {
   createdAt: string;
   repoConnectionId: number | null;
   remotePath: string;
+  deletingAt: string | null;
+  deletedAt: string | null;
 };
 
 export type RepoProvider = 'github' | 'gitlab';

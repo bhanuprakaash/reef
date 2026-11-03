@@ -1,10 +1,10 @@
 package server
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,7 +12,6 @@ import (
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/memory"
-	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -157,141 +156,87 @@ func (s *server) putProjectMemory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// deleteProject deletes the project, the worktrees of its work items and the checkpoint refs of
-// the turns of all its Spaces, quick sessions included. A worktree with uncommitted changes
-// is 409 and nothing is removed; so is a Space whose only project this is with a turn running
-// elsewhere, or open in reef chat. A Space with no work item stays, readable, with its other
-// projects, if any. Branches are kept. A running turn is stopped first, as for a work item delete. A
-// project folder that is gone is not git cleaned up: worktree folders, if any, are just
-// removed.
+const _projectDeletedReason = "project deleted: "
+
+func projectDeletedNote(name string) string {
+	return fmt.Sprintf("Project %s was deleted. Its repository, workspaces and unfinished changes stay as they are. "+
+		"Remove it from this Work item's repositories, then continue the Space.", name)
+}
+
+// deleteProject deletes the project in steps, each safe to run again. It first records that
+// deletion began, so no work is admitted against the Project from then on, then stops the
+// turns that run against it, pauses the Work items that still need it, retires its own memory
+// and last records it deleted. The repository folder, worktrees, workspace rows, checkpoint refs,
+// branches and every conversation stay. A crash between the steps is finished at the next start.
 func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	p, err := s.st.Project(r.Context(), id)
-	if err != nil {
+	if _, err := s.st.MarkProjectDeleting(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{OnlyProjectID: &id})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer lift()
-	if err := s.spacesInUse(r.Context(), store.SpaceFilter{OnlyProjectID: &id}); err != nil {
-		writeError(w, err)
-		return
-	}
-	held, unlock, err := s.holdTargetingItems(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer unlock()
-	fs, err := s.st.WorkItems(r.Context(), store.WorkItemFilter{ProjectID: &id})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	refs, err := s.checkpointRefs(r.Context(), store.SpaceFilter{ProjectID: &id})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	own, err := s.st.ProjectCheckpointRefs(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	refs[id] = append(refs[id], own...)
-	ws, err := s.st.ProjectWorkspaces(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	for _, f := range fs {
-		more, err := s.st.WorkItemWorkspaces(r.Context(), f.ID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		ws = append(ws, more...)
-	}
-	slices.SortFunc(ws, func(a, b store.Workspace) int { return cmp.Compare(a.ID, b.ID) })
-	ws = slices.CompactFunc(ws, func(a, b store.Workspace) bool { return a.ID == b.ID })
-	if err := s.removeWorkspaces(r.Context(), ws); err != nil {
-		writeError(w, err)
-		return
-	}
-	for _, f := range fs {
-		if err := os.RemoveAll(space.WorkRoot(s.dataDir, f.TreeKey())); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	for _, x := range ws {
-		x.State, x.Note = store.WorkspaceRemoved, "project "+p.Name+" was deleted"
-		if err := s.st.SetWorkspace(r.Context(), x); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	if err := s.st.DeleteProject(r.Context(), id); err != nil {
-		writeError(w, err)
-		return
-	}
-	if err := s.pauseTargetingItems(r.Context(), held, p.Name); err != nil {
-		writeError(w, err)
-		return
-	}
-	scopes := []memory.Ref{{Kind: memory.ScopeProject, ID: strconv.FormatInt(id, 10)}}
-	for _, f := range fs {
-		scopes = append(scopes, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(f.ID, 10)})
-	}
-	for _, scope := range scopes {
-		if err := s.ms.RetireScope(r.Context(), scope); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	own = refs[id]
-	delete(refs, id)
-	if !projectGone(p.Path) {
-		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, own); err != nil {
-			writeError(w, err)
-			return
-		}
-	}
-	if err := s.deleteRefs(context.WithoutCancel(r.Context()), refs); err != nil {
+	if err := s.finishProjectDelete(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// holdTargetingItems stops every Space of the other Projects' assignments that have a target in
-// project id, and takes the writer lock of each assignment's folder until the returned func is
-// called, so no write lands while the workspace is removed. An assignment with a turn running
-// that cannot be stopped is 409. Items homed in the Project are deleted with it, not held.
-func (s *server) holdTargetingItems(ctx context.Context, id int64) ([]store.WorkItem, func(), error) {
-	targeting, err := s.st.ItemsTargeting(ctx, id)
+// resumeProjectDeletes finishes each deletion a restart cut off. A Project that cannot be
+// finished stays deleting, so nothing is admitted against it, and is tried again at the next
+// start or delete.
+func (s *server) resumeProjectDeletes() {
+	ps, err := s.st.DeletingProjects(s.ctx)
 	if err != nil {
-		return nil, nil, err
+		log.Printf("list deleting projects: %v", err)
+		return
 	}
-	var held []store.WorkItem
-	var spaces []int64
-	for _, f := range targeting {
-		if f.ProjectID == id {
-			continue
+	for _, p := range ps {
+		if err := s.finishProjectDelete(s.ctx, p.ID); err != nil {
+			log.Printf("finish deleting project %d: %v", p.ID, err)
 		}
-		held = append(held, f)
+	}
+}
+
+func (s *server) finishProjectDelete(ctx context.Context, id int64) error {
+	p, err := s.st.Project(ctx, id)
+	if err != nil {
+		return err
+	}
+	items, err := s.st.ItemsTargeting(ctx, id)
+	if err != nil {
+		return err
+	}
+	spaces, err := s.projectSpaces(ctx, id, items)
+	if err != nil {
+		return err
+	}
+	lift := s.stopForDelete(spaces...)
+	defer lift()
+	for _, f := range items {
+		if err := s.holdItem(ctx, f, p.Name); err != nil {
+			return err
+		}
+	}
+	if err := s.ms.RetireScope(ctx, memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(id, 10)}); err != nil {
+		return err
+	}
+	_, err = s.st.MarkProjectDeleted(ctx, id)
+	return err
+}
+
+// projectSpaces lists the Spaces whose turns run against project id: the Spaces of the items and
+// their sub-items, and the Spaces holding a workspace in it.
+func (s *server) projectSpaces(ctx context.Context, id int64, items []store.WorkItem) ([]int64, error) {
+	var ids []int64
+	for _, f := range items {
 		tree := []int64{f.ID}
 		subs, err := s.st.WorkItems(ctx, store.WorkItemFilter{ParentID: &f.ID})
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		for _, sub := range subs {
 			tree = append(tree, sub.ID)
@@ -299,53 +244,47 @@ func (s *server) holdTargetingItems(ctx context.Context, id int64) ([]store.Work
 		for _, wid := range tree {
 			cs, err := s.st.Spaces(ctx, store.SpaceFilter{WorkItemID: &wid})
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			for _, c := range cs {
-				spaces = append(spaces, c.ID)
+				ids = append(ids, c.ID)
 			}
 		}
 	}
-	lift := s.stopForDelete(spaces...)
-	unlocks := []func(){lift}
-	release := func() {
-		for _, u := range unlocks {
-			u()
+	ws, err := s.st.ProjectWorkspaces(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range ws {
+		if w.SpaceID != nil {
+			ids = append(ids, *w.SpaceID)
 		}
 	}
-	for _, f := range held {
-		root := space.WorkRoot(s.dataDir, f.TreeKey())
-		unlock, ok := s.trees.TryLock(root)
-		if !ok {
-			release()
-			return nil, nil, fmt.Errorf("%s has a turn running: %w", root, store.ErrConflict)
-		}
-		unlocks = append(unlocks, unlock)
-	}
-	return held, release, nil
+	slices.Sort(ids)
+	return slices.Compact(ids), nil
 }
 
-// pauseTargetingItems tells the open Spaces of the held items that the Project is gone and pauses
-// them, which puts each item in Needs you. The target and workspace rows stay as the record.
-func (s *server) pauseTargetingItems(ctx context.Context, held []store.WorkItem, name string) error {
-	for _, f := range held {
-		sp, err := s.st.WorkItemActiveSpace(ctx, f.ID)
-		if errors.Is(err, store.ErrNotFound) {
-			continue
-		}
-		if err != nil {
+// holdItem keeps item f from going on without the deleted Project, until the user adjusts its
+// repositories: its open Space is paused with a note, which puts the item in Needs you, and a
+// queued item with no Space goes back to the backlog, which withdraws its approval. Its target
+// and workspace rows stay as the record.
+func (s *server) holdItem(ctx context.Context, f store.WorkItem, name string) error {
+	reason := _projectDeletedReason + name
+	sp, err := s.st.WorkItemActiveSpace(ctx, f.ID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		if f.Status == "queued" {
+			_, err = s.st.MoveWorkItem(ctx, f.ID, "backlog", store.ByUser)
 			return err
 		}
-		note := fmt.Sprintf("Project %s was deleted. Its workspace is removed; its branch stays in the repository. "+
-			"Decide how this Work item goes on, then continue the Space.", name)
-		if sp.Paused != "" {
-			_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: note})
-		} else {
-			err = s.pauseWithNote(ctx, sp.ID, "project "+name+" was deleted", note)
-		}
-		if err != nil {
-			return err
-		}
+		return nil
+	case err != nil:
+		return err
+	case sp.Paused == reason:
+		return nil
+	case sp.Paused != "":
+		_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: projectDeletedNote(name)})
+		return err
 	}
-	return nil
+	return s.pauseWithNote(ctx, sp.ID, reason, projectDeletedNote(name))
 }

@@ -39,7 +39,8 @@ func projectSlug(p store.Project) string {
 
 // EnsureWorkspaces makes the workspace of every target of item, one per repository, and returns
 // their rows. Each row is recorded as `creating` before git runs, so a cut creation is found
-// again and finished in the same folder, keeping its edits. A target whose base branch or
+// again and finished in the same folder, keeping its edits. A target Project being deleted or
+// deleted gets none. A target whose base branch or
 // repository cannot be found is `paused` with a note, and the others go on. A base that could
 // only be taken from the local branch is `ready` with a note saying origin was not refreshed.
 // Notes are also posted in the item's active Space. A failure that is not about the repository
@@ -57,6 +58,9 @@ func EnsureWorkspaces(ctx context.Context, st *store.Store, trees *Trees, dataDi
 		p, err := st.Project(ctx, t.ProjectID)
 		if err != nil {
 			return nil, err
+		}
+		if !p.Active() {
+			continue
 		}
 		w, err := st.EnsureWorkspace(ctx, store.Workspace{
 			ProjectID: p.ID, WorkItemID: &topID, Dir: WorkspaceDir(dataDir, item.TreeKey(), p),
@@ -141,13 +145,7 @@ func readyWorkspaces(ctx context.Context, st *store.Store, key string) ([]store.
 	if err != nil {
 		return nil, err
 	}
-	var ready []store.Workspace
-	for _, w := range all {
-		if w.State == store.WorkspaceReady {
-			ready = append(ready, w)
-		}
-	}
-	return ready, nil
+	return activeReady(ctx, st, all)
 }
 
 // readyFixWorkspaces lists the quick-fix workspaces of conversation spaceID that can be worked in.
@@ -156,9 +154,22 @@ func readyFixWorkspaces(ctx context.Context, st *store.Store, spaceID int64) ([]
 	if err != nil {
 		return nil, err
 	}
+	return activeReady(ctx, st, all)
+}
+
+// activeReady keeps the workspaces that can be worked in and whose Project is not being deleted or
+// deleted: the row of a deleted Project stays as a record, but no agent writes there.
+func activeReady(ctx context.Context, st *store.Store, all []store.Workspace) ([]store.Workspace, error) {
 	var ready []store.Workspace
 	for _, w := range all {
-		if w.State == store.WorkspaceReady {
+		if w.State != store.WorkspaceReady {
+			continue
+		}
+		p, err := st.Project(ctx, w.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		if p.Active() {
 			ready = append(ready, w)
 		}
 	}

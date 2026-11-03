@@ -197,6 +197,9 @@ func (s *server) pollWorkItemGitHub(ctx context.Context, ghPath string, f store.
 	if err != nil {
 		return err
 	}
+	if !p.Active() {
+		return nil
+	}
 	ws, err := s.itemWorkspaces(ctx, f)
 	if err != nil {
 		return err

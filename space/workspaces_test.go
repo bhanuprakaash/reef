@@ -61,6 +61,38 @@ func TestEnsureWorkspaces_ProposedTargetGetsNoWorkspaceAndIsNotListed(t *testing
 	}
 }
 
+func TestEnsureWorkspaces_DeletedTargetGetsNoWorkspaceAndIsNotWritable(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	infra, err := st.CreateProject(ctx, store.Project{Name: "infra", Path: newGitRepo(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddWorkItemTarget(ctx, f.ID, infra.ID, store.ByUser); err != nil {
+		t.Fatal(err)
+	}
+	f, err = st.WorkItem(ctx, f.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if ws, err := EnsureWorkspaces(ctx, st, NewTrees(t.TempDir()), dir, f); err != nil || len(ws) != 2 {
+		t.Fatalf("workspaces = %+v, %v, want both", ws, err)
+	}
+
+	if _, err := st.MarkProjectDeleted(ctx, infra.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	ready, err := readyWorkspaces(ctx, st, "1")
+	if err != nil || len(ready) != 1 || ready[0].ProjectID != f.ProjectID {
+		t.Errorf("writable workspaces = %+v, %v, want only the home project's", ready, err)
+	}
+	if _, err := os.Stat(filepath.Join(WorkRoot(dir, "1"), "2-infra")); err != nil {
+		t.Errorf("folder of the deleted target: %v, want kept", err)
+	}
+}
+
 func TestEnsureWorkspaces_OneFailingTargetNamesItselfAndDoesNotStopTheOther(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

@@ -36,9 +36,21 @@ type Project struct {
 	// SetProjectRemote sets them, UpdateProject leaves them alone.
 	RepoConnectionID *int64 `json:"repoConnectionId"`
 	RemotePath       string `json:"remotePath"`
+
+	// DeletingAt is when deleting the Project began, DeletedAt when it finished. From DeletingAt
+	// on, no work is admitted against it; the row stays, readable by id, as history.
+	DeletingAt *time.Time `json:"deletingAt"`
+	DeletedAt  *time.Time `json:"deletedAt"`
 }
 
-const _projectCols = "id, name, path, base_branch, purpose, icon, colour, created_at, repo_connection_id, remote_path"
+// Active reports whether work may be admitted against the Project.
+func (p Project) Active() bool { return p.DeletingAt == nil && p.DeletedAt == nil }
+
+const (
+	_projectCols = "id, name, path, base_branch, purpose, icon, colour, created_at, repo_connection_id, remote_path, " +
+		"deleting_at, deleted_at"
+	_activeProject = "deleting_at IS NULL AND deleted_at IS NULL"
+)
 
 // CreateProject adds p; name and path are required.
 func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
@@ -71,12 +83,12 @@ func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 	return p, err
 }
 
-// ProjectByPath returns the project whose path is path or, failing that, the
+// ProjectByPath returns the active project whose path is path or, failing that, the
 // nearest parent folder of path that is a project path, or ErrNotFound.
 func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error) {
 	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
 		row := s.db.QueryRowContext(ctx,
-			"SELECT "+_projectCols+" FROM project WHERE path = ? ORDER BY id LIMIT 1",
+			"SELECT "+_projectCols+" FROM project WHERE path = ? AND "+_activeProject+" ORDER BY id LIMIT 1",
 			dir)
 		p, err := scanProject(row)
 		if err == nil {
@@ -91,10 +103,11 @@ func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error)
 	}
 }
 
-// Projects lists every project by id.
+// Projects lists the projects work may be admitted against, by id; one being deleted or deleted
+// is left out and is read with Project.
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_projectCols+" FROM project ORDER BY id")
+		"SELECT "+_projectCols+" FROM project WHERE "+_activeProject+" ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -122,21 +135,106 @@ func (s *Store) UpdateProject(ctx context.Context, p Project) (Project, error) {
 	return s.Project(ctx, p.ID)
 }
 
-// DeleteProject removes the project and, by cascade, its work items, Spaces
-// and tasks.
-func (s *Store) DeleteProject(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM project WHERE id = ?", id)
+// MarkProjectDeleting records that deleting the project began, and returns it. From then on no
+// work is admitted against it. A project already deleting or deleted keeps its first times.
+func (s *Store) MarkProjectDeleting(ctx context.Context, id int64) (Project, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return s.markProject(ctx, id, "deleting_at = COALESCE(deleting_at, ?)", now)
+}
+
+// MarkProjectDeleted records that the project is deleted, and returns it. Its row, repository
+// folder and workspaces stay.
+func (s *Store) MarkProjectDeleted(ctx context.Context, id int64) (Project, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return s.markProject(ctx, id,
+		"deleting_at = COALESCE(deleting_at, ?), deleted_at = COALESCE(deleted_at, ?)", now, now)
+}
+
+func (s *Store) markProject(ctx context.Context, id int64, set string, args ...any) (Project, error) {
+	res, err := s.db.ExecContext(ctx, "UPDATE project SET "+set+" WHERE id = ?", append(args, id)...)
 	if err != nil {
-		return fmt.Errorf("delete project: %w", err)
+		return Project{}, fmt.Errorf("mark project deleted: %w", err)
 	}
-	n, err := res.RowsAffected()
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return Project{}, fmt.Errorf("project %d: %w", id, ErrNotFound)
+	}
+	return s.Project(ctx, id)
+}
+
+// DeletingProjects lists the projects whose deletion began and did not finish, by id.
+func (s *Store) DeletingProjects(ctx context.Context) ([]Project, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT "+_projectCols+" FROM project WHERE deleting_at IS NOT NULL AND deleted_at IS NULL ORDER BY id")
 	if err != nil {
-		return fmt.Errorf("delete project: %w", err)
+		return nil, fmt.Errorf("list deleting projects: %w", err)
 	}
-	if n == 0 {
-		return fmt.Errorf("project %d: %w", id, ErrNotFound)
+	return scanAll(rows, scanProject)
+}
+
+// _authorizedTarget selects, on a work_item_target table named t, a repository the user or an
+// approval gave, not one a Bot only proposed.
+const _authorizedTarget = "t.authorized_by != '' AND t.authorized_by NOT LIKE 'proposed by%'"
+
+// _inactiveProject selects, on a project table named p, a project being deleted or deleted.
+const _inactiveProject = "(p.deleting_at IS NOT NULL OR p.deleted_at IS NOT NULL)"
+
+// requireActive is ErrInvalid when project id exists and is being deleted or deleted; an unknown
+// id is left for the caller's own write to refuse.
+func requireActive(ctx context.Context, q reader, id int64) error {
+	var inactive bool
+	err := q.QueryRowContext(ctx, "SELECT "+_inactiveProject+" FROM project p WHERE p.id = ?", id).Scan(&inactive)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read project %d: %w", id, err)
+	}
+	if inactive {
+		return fmt.Errorf("%w: project %d is deleted", ErrInvalid, id)
 	}
 	return nil
+}
+
+// inactiveTarget returns the name of the first repository the top-level item of item id may
+// change that is being deleted or deleted, "" when there is none.
+func inactiveTarget(ctx context.Context, q reader, id int64) (string, error) {
+	var name string
+	err := q.QueryRowContext(ctx,
+		"SELECT p.name FROM work_item_target t JOIN project p ON p.id = t.project_id "+
+			"WHERE t.work_item_id = COALESCE((SELECT parent_id FROM work_item WHERE id = ?1), ?1) "+
+			"AND "+_authorizedTarget+" AND "+_inactiveProject+" ORDER BY t.rowid LIMIT 1", id).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read targets of work item %d: %w", id, err)
+	}
+	return name, nil
+}
+
+// ItemInactiveTarget returns the name of the first repository work item id may change that is
+// being deleted or deleted, "" when there is none.
+func (s *Store) ItemInactiveTarget(ctx context.Context, id int64) (string, error) {
+	return inactiveTarget(ctx, s.db, id)
+}
+
+// SpaceInactiveProject returns the name of the first repository being deleted or deleted that the
+// work item of Space id may change, "" when there is none or the Space has no work item.
+func (s *Store) SpaceInactiveProject(ctx context.Context, id int64) (string, error) {
+	var name string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT p.name FROM project p WHERE "+_inactiveProject+" AND ("+
+			"p.id IN (SELECT t.project_id FROM space s JOIN work_item_target t ON t.work_item_id = "+
+			"COALESCE((SELECT parent_id FROM work_item WHERE id = s.work_item_id), s.work_item_id) "+
+			"WHERE s.id = ?1 AND "+_authorizedTarget+")) "+
+			"ORDER BY p.id LIMIT 1", id).Scan(&name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read projects of Space %d: %w", id, err)
+	}
+	return name, nil
 }
 
 // ProjectMemory is the conventions and architecture notes shared by every work item and
@@ -194,9 +292,23 @@ func scanProject(r interface{ Scan(...any) error }) (Project, error) {
 	var p Project
 	var created string
 	var connID sql.NullInt64
+	var deleting, deleted sql.NullString
 	if err := r.Scan(&p.ID, &p.Name, &p.Path, &p.BaseBranch, &p.Purpose, &p.Icon, &p.Colour, &created,
-		&connID, &p.RemotePath); err != nil {
+		&connID, &p.RemotePath, &deleting, &deleted); err != nil {
 		return Project{}, err
+	}
+	for _, f := range []struct {
+		from sql.NullString
+		to   **time.Time
+	}{{deleting, &p.DeletingAt}, {deleted, &p.DeletedAt}} {
+		if !f.from.Valid {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, f.from.String)
+		if err != nil {
+			return Project{}, fmt.Errorf("project %d: bad deletion time: %w", p.ID, err)
+		}
+		*f.to = &t
 	}
 	if connID.Valid {
 		p.RepoConnectionID = &connID.Int64

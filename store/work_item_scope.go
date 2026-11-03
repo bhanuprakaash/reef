@@ -192,6 +192,9 @@ func (s *Store) AddWorkItemTarget(
 	if authorizedBy == "" {
 		return Target{}, fmt.Errorf("%w: a target needs who authorized it", ErrInvalid)
 	}
+	if err := requireActive(ctx, tx, projectID); err != nil {
+		return Target{}, err
+	}
 	var name string
 	if err := tx.QueryRowContext(ctx, "SELECT name FROM project WHERE id = ?", projectID).Scan(&name); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -226,8 +229,10 @@ func (s *Store) AddWorkItemTarget(
 }
 
 // RemoveWorkItemTarget takes the repository of the Project off the top-level item id. Only a
-// backlog item loses a target (ErrConflict otherwise, and for a Project with a workspace); its
-// home Project and a Project that is not a target are ErrInvalid.
+// backlog item loses a target (ErrConflict otherwise, and for a Project with a workspace), unless
+// the Project is being deleted or deleted: its workspace rows stay as history, and an item
+// paused for it goes on without it. Its home Project and a Project that is not a target are
+// ErrInvalid.
 func (s *Store) RemoveWorkItemTarget(ctx context.Context, id, projectID int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -238,12 +243,13 @@ func (s *Store) RemoveWorkItemTarget(ctx context.Context, id, projectID int64) e
 	if err != nil {
 		return err
 	}
+	gone := requireActive(ctx, tx, projectID) != nil
 	switch {
 	case w.ParentID != nil:
 		return fmt.Errorf("%w: work item %d is a sub-item, it shares its parent's targets", ErrInvalid, id)
 	case w.ProjectID == projectID:
 		return fmt.Errorf("%w: project %d is the home of work item %d", ErrInvalid, projectID, id)
-	case w.Status != _backlog:
+	case w.Status != _backlog && !gone:
 		return fmt.Errorf("%w: work item %d is %s, only a backlog item loses a repository", ErrConflict, id, w.Status)
 	}
 	var workspaces int
@@ -252,7 +258,7 @@ func (s *Store) RemoveWorkItemTarget(ctx context.Context, id, projectID int64) e
 		Scan(&workspaces); err != nil {
 		return fmt.Errorf("read workspaces of work item %d: %w", id, err)
 	}
-	if workspaces > 0 {
+	if workspaces > 0 && !gone {
 		return fmt.Errorf("%w: work item %d has a workspace in project %d", ErrConflict, id, projectID)
 	}
 	res, err := tx.ExecContext(ctx,
