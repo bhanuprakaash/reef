@@ -37,6 +37,8 @@ type Session struct {
 	trees    *Trees
 	// renewTokens is the context size that has the Bot's next turn start a new backend context.
 	renewTokens int64
+	// onPermission sees every permission prompt a Bot's turn stores or resolves.
+	onPermission func(store.PermissionPrompt)
 }
 
 type member struct {
@@ -69,6 +71,8 @@ type runInput struct {
 const (
 	TokenEnv    = "REEF_TOKEN"
 	WrapCommand = "/wrap"
+
+	_newMessageReason = "a new message came; the user did not answer the prompt"
 
 	_wrapPrompt = "Wrap up this Space. Call the get_brief tool first. Then call the " +
 		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
@@ -135,6 +139,10 @@ func Open(
 	if err := failStaleTurns(ctx, st, spaceID); err != nil {
 		return nil, err
 	}
+	err = st.ExpireWaitingPrompts(ctx, func(id int64) bool { return id != spaceID }, store.PromptRestartReason)
+	if err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -151,6 +159,16 @@ func (s *Session) Start(ctx context.Context) error {
 // before the first turn.
 func (s *Session) SetOnNote(f func()) {
 	s.onNote = f
+}
+
+// SetOnPermission sets a hook that sees every permission prompt stored or resolved. With it set, a
+// tool call of a claude Bot that needs permission waits for an Answer instead of being refused,
+// and its turn returns ErrWaiting. Set it before the first turn.
+func (s *Session) SetOnPermission(f func(store.PermissionPrompt)) {
+	s.onPermission = f
+	for _, m := range s.members {
+		m.run.OnPermission = f
+	}
 }
 
 // SetOnPrompt sets a hook that sees every prompt before it is sent to an agent.
@@ -280,19 +298,31 @@ func (s *Session) readScopes(ctx context.Context, r store.Role, scopes store.Sco
 }
 
 func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
+	if err := s.denyParked(ctx, role, in); err != nil {
+		return err
+	}
 	m, err := s.member(ctx, role, in)
 	if err != nil {
 		return err
 	}
 	err = s.run(ctx, m, in)
+	s.release(m)
+	return err
+}
+
+// release closes the agent of a specialist whose turn has ended. The lead's stays open, and so does
+// that of a turn that waits for a permission answer.
+func (s *Session) release(m *member) {
 	if *m.run.botID == s.leadID {
-		return err
+		return
+	}
+	if _, waiting := m.run.Waiting(); waiting {
+		return
 	}
 	delete(s.members, *m.run.botID)
-	if cerr := m.close(s.st); cerr != nil {
-		log.Printf("close %s of Space %d: %v", role, s.ch.ID, cerr)
+	if err := m.close(s.st); err != nil {
+		log.Printf("close %s of Space %d: %v", m.run.role, s.ch.ID, err)
 	}
-	return err
 }
 
 // RunDirectAs runs a role for a direct message, keeping the request/response boundary in
@@ -307,6 +337,9 @@ func (s *Session) RunDirectAs(ctx context.Context, role, text string, dm store.D
 
 func (s *Session) runDirect(ctx context.Context, role string, in runInput) error {
 	dm := in.direct
+	if err := s.denyParked(ctx, role, in); err != nil {
+		return err
+	}
 	m, err := s.member(ctx, role, in)
 	if err != nil {
 		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, dm.ToBotID, role, ""); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
@@ -318,12 +351,7 @@ func (s *Session) runDirect(ctx context.Context, role string, in runInput) error
 		return fmt.Errorf("%w: direct recipient does not match Bot", store.ErrInvalid)
 	}
 	err = s.run(ctx, m, in)
-	if *m.run.botID != s.leadID {
-		delete(s.members, *m.run.botID)
-		if closeErr := m.close(s.st); closeErr != nil {
-			log.Printf("close %s of Space %d: %v", m.run.role, s.ch.ID, closeErr)
-		}
-	}
+	s.release(m)
 	return err
 }
 
@@ -401,6 +429,85 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
 	}
 	return m.run.Run(ctx, text, parent, in.onEvent)
+}
+
+// Answer answers the permission prompt promptID with a and reads on the turn of Bot botID that
+// waits on it, to its end or its next prompt, which returns space.ErrWaiting again. A prompt
+// that expired, which a is the denial of, has the turn deny its later prompts at once. A Bot
+// with no turn waiting on the prompt gets ErrNotParked.
+func (s *Session) Answer(
+	ctx context.Context, botID, promptID int64, a agent.Answer, onEvent func(agent.Event),
+) error {
+	m, ok := s.members[botID]
+	if !ok {
+		return fmt.Errorf("prompt %d: %w", promptID, ErrNotParked)
+	}
+	p, err := s.st.PermissionPrompt(context.WithoutCancel(ctx), promptID)
+	if err != nil {
+		return err
+	}
+	return s.resume(ctx, m, func() error {
+		return m.run.Answer(ctx, promptID, a, p.Status == store.PromptExpired, onEvent)
+	})
+}
+
+// resume runs the turn parked in m, holding m's tree like run, and keeps the agent open while the
+// turn waits again. A ctx cancelled while it waits for the tree stops the turn.
+func (s *Session) resume(ctx context.Context, m *member, answer func() error) (err error) {
+	if _, ok := m.run.Waiting(); !ok {
+		return answer()
+	}
+	if *m.run.botID == s.leadID {
+		defer m.run.Watch()
+	}
+	defer func() {
+		if !errors.Is(err, ErrWaiting) {
+			s.release(m)
+		}
+	}()
+	if !m.write {
+		defer s.trees.Read(m.dir)()
+		return answer()
+	}
+	unlock, err := s.trees.Lock(ctx, m.dir)
+	if err != nil {
+		return errors.Join(err, m.run.stopParked())
+	}
+	defer unlock()
+	return answer()
+}
+
+// denyParked ends the turn that waits on a prompt of the Bot a new turn is for: the prompt is
+// denied, the user's answer being the new turn, and the old turn is read to its end, denying its
+// later prompts at once.
+func (s *Session) denyParked(ctx context.Context, role string, in runInput) error {
+	var m *member
+	for id, cand := range s.members {
+		_, waiting := cand.run.Waiting()
+		if waiting && (in.botID != nil && *in.botID == id || in.botID == nil && cand.run.role == role) {
+			m = cand
+		}
+	}
+	if m == nil {
+		return nil
+	}
+	p, _ := m.run.Waiting()
+	a := agent.Answer{Reason: _newMessageReason}
+	_, err := s.st.ResolvePermissionPrompt(
+		context.WithoutCancel(ctx), p.ID, store.PromptWaiting, store.PromptDenied, store.AnswerDeny, a.Reason, false)
+	if err != nil && !errors.Is(err, store.ErrConflict) {
+		return err
+	}
+	if err == nil && s.onPermission != nil {
+		p.Status, p.Answer, p.Reason = store.PromptDenied, store.AnswerDeny, a.Reason
+		s.onPermission(p)
+	}
+	err = s.resume(ctx, m, func() error { return m.run.Answer(ctx, p.ID, a, true, in.onEvent) })
+	if err != nil && ctx.Err() == nil {
+		log.Printf("end the turn of %s in Space %d that waited on a prompt: %v", m.run.role, s.ch.ID, err)
+		return nil
+	}
+	return err
 }
 
 // botSession is the active BotSession of the Bot in the Space: the settings it adopted. A Bot with
@@ -585,6 +692,12 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	if skillsPrompt(bs.Skills) != "" {
 		cfg.AddDirs = []string{BotSkillsDir(s.dataDir, bs.ID)}
 	}
+	if r.Backend == "claude" && !in.fork {
+		cfg.AskPermissions = s.onPermission != nil
+		if cfg.AddDirs, err = s.readableDirs(wctx, cfg.AddDirs, cwd); err != nil {
+			return nil, err
+		}
+	}
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && key != "" {
 		var c store.Space
@@ -658,6 +771,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		m.run.refreshNote = refreshNote(r)
 	}
 	m.run.OnPrompt = s.onPrompt
+	m.run.OnPermission = s.onPermission
 	m.run.Memory = s.ms
 	if m.write {
 		m.run.Workspaces = func(ctx context.Context) ([]store.Workspace, error) {
@@ -692,6 +806,27 @@ func (s *Session) Drop(botID int64) error {
 		return m.close(s.st)
 	}
 	return nil
+}
+
+// readableDirs adds to dirs the folders a Bot reads without a prompt: the Space's own folder and
+// the repository of each Project attached to the Space.
+func (s *Session) readableDirs(ctx context.Context, dirs []string, cwd string) ([]string, error) {
+	if chat := ChatDir(s.dataDir, s.ch.ID); chat != cwd {
+		if err := os.MkdirAll(chat, 0o700); err != nil {
+			return nil, err
+		}
+		dirs = append(dirs, chat)
+	}
+	projects, err := s.st.SpaceProjects(ctx, s.ch.ID)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range projects {
+		if p.Path != cwd && !slices.Contains(dirs, p.Path) {
+			dirs = append(dirs, p.Path)
+		}
+	}
+	return dirs, nil
 }
 
 func refreshNote(r store.Role) string {
@@ -907,10 +1042,12 @@ func (s *Session) directExchanges(ctx context.Context) (string, error) {
 }
 
 func (m *member) close(st *store.Store) error {
+	var errs []error
 	if m.run != nil {
 		m.run.endWatch()
+		errs = append(errs, m.run.stopParked())
 	}
-	errs := []error{m.ag.Interrupt()}
+	errs = append(errs, m.ag.Interrupt())
 	if m.token != "" {
 		if err := st.DeleteToken(context.Background(), m.token); !errors.Is(err, store.ErrNotFound) {
 			errs = append(errs, err)

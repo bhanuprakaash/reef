@@ -49,6 +49,10 @@ type server struct {
 	deleting map[int64]int
 	// reviews holds the cancel of each Bot's running memory review.
 	reviews map[int64]context.CancelFunc
+	// promptTimers holds the timer of each permission prompt that waits for an answer, and
+	// promptWait is how long it waits.
+	promptTimers map[int64]*time.Timer
+	promptWait   time.Duration
 
 	approveMu sync.Mutex
 	// admitMu makes one scan of the started items at a time, so an item gets its Space and its
@@ -95,6 +99,14 @@ func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeHTTP(w, r) }
 
+// SetPromptWait sets how long a permission prompt waits for an answer before it is denied, ten minutes
+// by default. Call it before serving.
+func (h *Handler) SetPromptWait(d time.Duration) {
+	h.s.mu.Lock()
+	defer h.s.mu.Unlock()
+	h.s.promptWait = d
+}
+
 // Close waits for running turns to be stored. A send after it gets 503.
 func (h *Handler) Close() { h.s.close() }
 
@@ -108,6 +120,7 @@ func newHandler(
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{}, starting: map[int64]bool{},
 		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{}, now: time.Now,
+		promptTimers: map[int64]*time.Timer{}, promptWait: _defaultPromptWait,
 		login: backendLogin,
 	}
 	for _, opt := range opts {
@@ -136,6 +149,7 @@ func newHandler(
 	s.connectionRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)
+	s.promptRoutes(mux)
 	s.exchangeRoutes(mux)
 	s.memberRoutes(mux)
 	s.turnOpRoutes(mux)

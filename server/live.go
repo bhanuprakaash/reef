@@ -52,9 +52,11 @@ type session interface {
 	RunDirectBot(ctx context.Context, botID int64, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
+	Answer(ctx context.Context, botID, promptID int64, a agent.Answer, onEvent func(agent.Event)) error
 	Refresh(ctx context.Context, botID int64) error
 	Drop(botID int64) error
 	SetOnNote(f func())
+	SetOnPermission(f func(store.PermissionPrompt))
 	Close() error
 }
 
@@ -550,7 +552,9 @@ func (s *server) runOne(
 				err = s.finishMove(ctx, id, w)
 			}
 		default:
-			if w.direct != nil {
+			if w.answer != nil {
+				err = sess.Answer(ctx, *w.botID, w.answer.promptID, w.answer.a, onEvent)
+			} else if w.direct != nil {
 				err = sess.RunDirectBot(ctx, *w.botID, w.text, *w.direct, onEvent)
 			} else if len(w.scopes) > 0 {
 				err = sess.WakeBot(ctx, *w.botID, w.text, w.scopes, w.parent, w.wakeMessage(), onEvent)
@@ -559,7 +563,11 @@ func (s *server) runOne(
 			}
 		}
 	}
-	if errors.Is(err, store.ErrNotWaiting) {
+	if errors.Is(err, space.ErrWaiting) {
+		end = turnState{Role: w.role, BotID: w.botID, Status: "waiting", DirectMessageID: w.direct.IDRef()}
+		return end, true, false
+	}
+	if errors.Is(err, store.ErrNotWaiting) || errors.Is(err, space.ErrNotParked) {
 		end = turnState{Role: w.role, BotID: w.botID, Status: "done", Note: err.Error(), skipped: true}
 		return end, true, false
 	}
@@ -1143,6 +1151,7 @@ func (s *server) close() {
 	s.closed = true
 	s.mu.Unlock()
 	s.cancel()
+	s.stopPromptTimers()
 	s.wg.Wait()
 	s.holdQueued()
 	close(s.quit)
@@ -1310,6 +1319,9 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 	kept := len(c.l.held)
 	closing := c.s.ctx.Err() != nil
 	for _, w := range c.l.queued {
+		if w.answer != nil {
+			continue
+		}
 		if w.hold != 0 {
 			holds = append(holds, w.hold)
 			continue
@@ -1325,6 +1337,9 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 	}
 	c.l.queued = nil
 	for _, w := range left {
+		if w.answer != nil {
+			continue
+		}
 		if w.hold != 0 {
 			holds = append(holds, w.hold)
 			continue
@@ -1373,6 +1388,7 @@ func (c *chain) session() (session, error) {
 			return nil, err
 		}
 		sess.SetOnNote(func() { c.s.notify(c.id, "note") })
+		sess.SetOnPermission(c.s.promptChanged)
 		c.l.mu.Lock()
 		c.l.sess = sess
 		c.l.mu.Unlock()
@@ -1521,11 +1537,11 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.mu.Unlock()
 		if !ok || c.ctx.Err() != nil {
 			s.failSent(context.WithoutCancel(c.ctx), c.id, w.botID, afterDirect, started, c.ctx.Err() != nil)
-		} else if w.botID != nil && !end.skipped {
+		} else if w.botID != nil && !end.skipped && end.Status != "waiting" {
 			s.reviewMemory(c.id, *w.botID)
 		}
 		if ok && !end.skipped {
-			if d := w.direct; d != nil && d.ReplyToID == nil && d.OriginSpaceID != nil && *d.OriginSpaceID != c.id {
+			if d := w.direct; end.Status != "waiting" && d != nil && d.ReplyToID == nil && d.OriginSpaceID != nil && *d.OriginSpaceID != c.id {
 				s.wakeAsker(context.WithoutCancel(c.ctx), d.ID, *d.OriginSpaceID)
 			}
 			if kind == _message && c.ctx.Err() == nil {
@@ -1585,7 +1601,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		}
 		l.publishLocked("turn", end)
 		if stall != nil && c.ctx.Err() == nil {
-			l.held, l.retry = queue, again
+			l.held, l.retry = dropAnswers(queue), again
 			s.pauseLocked(c.ctx, c.id, l, stall.Error())
 			finish(nil)
 			return
@@ -1600,7 +1616,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.mu.Unlock()
 		kind = _message
 		ch, err := s.st.Space(c.ctx, c.id)
-		if err == nil {
+		if err == nil && queue[0].answer == nil {
 			_, err = s.checkSpace(c.ctx, l, kind, ch)
 		}
 		if err == nil {
@@ -1621,6 +1637,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		if err != nil {
 			if c.ctx.Err() == nil {
 				log.Printf("wake %s in Space %d: %v", queue[0].role, c.id, err)
+				queue = dropAnswers(queue)
 				l.held = queue
 				if !errors.Is(err, store.ErrConflict) {
 					s.pauseLocked(c.ctx, c.id, l, err.Error())
@@ -1673,6 +1690,9 @@ func (l *live) awaitStart(ctx context.Context) error {
 // may run: a wake over the cap may not. A message from the user resets the count, and so does
 // a turn that calls a tool other than Reef's own.
 func (l *live) countHop(w wake) bool {
+	if w.answer != nil {
+		return true
+	}
 	if w.from == _userAuthor {
 		l.hops = 0
 		return true

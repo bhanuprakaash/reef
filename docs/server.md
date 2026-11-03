@@ -21,12 +21,14 @@ This starts with a fresh database and leaves the existing data directory untouch
 ## Run
 
 ```
-reef serve [--addr 127.0.0.1:7700] [--data DIR]
+reef serve [--addr 127.0.0.1:7700] [--data DIR] [--prompt-wait 10m]
 ```
 
 - `--data` is the data folder. It holds `reef.db` and `reef.lock`, and is created if
   missing. The default is `~/Library/Application Support/Reef`. Use `--data` for tests or a
   second instance.
+- `--prompt-wait` is how long a [permission prompt](#permission-prompts) waits for the user before
+  it is denied. The default is 10 minutes; a short wait is for tests.
 - One server owns a data folder. `reef serve` locks `reef.lock` for as long as it runs; the
   lock is in `cmd/reef`, not in the store. A second `reef serve` on the same `--data` exits
   with `data folder ... is in use by another reef`, before it touches the data, whatever its
@@ -482,6 +484,25 @@ delete; deleting the turn deletes its tool calls.
 | `input` | string | cut to 4 KB |
 | `result` | string | default `""` until the call's result arrives, then cut to 4 KB |
 | `parentId` | number? | the `Agent` call a claude subagent's call nests under, set from the event's `parentToolId`; absent for a top-level call, and for a call whose parent was not seen (shown flat) |
+
+### permission_prompt
+
+A tool call of a claude Bot that needs the user's permission. It is stored when the call is
+held and stays after it is answered; `GET /spaces/{id}/prompts` lists the ones that wait or expired.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `spaceId`, `botId`, `turnId` | number | the Bot and the turn that wait |
+| `tool` | string | `Bash`, `Read`, `Edit`, ... |
+| `input` | object | the call's arguments as the agent sent them, such as `{"command":"gzip -l /x"}` |
+| `rule` | string | the allow rule the backend suggests for the call, such as `Bash(gzip -l /x)`; `""` when it suggests none |
+| `path` | string | the path claude names as outside the Bot's folders (`blocked_path`); claude sends none for `Read`, so it is often `""`: the call's `input` holds the file |
+| `status` | string | `waiting`, `allowed`, `denied` or `expired` |
+| `answer` | string | `""` while waiting, then `once`, `always` or `deny`; a prompt that expired or was ended by a new message or Stop also stores `deny` |
+| `reason` | string | why it was denied: `denied by the user`, `no answer from the user`, `stopped`, `reef restarted` or the new-message text |
+| `granted` | bool | set when the user allowed a prompt after it expired: the Bot's next prompt for the same `rule` in the Space is allowed once without asking |
+| `createdAt`, `answeredAt` | string, string? | |
 
 ### decision
 
@@ -1007,6 +1028,39 @@ a message wakes them.
   again. `GET /turns?retryable=1` lists the same turns, which is what the window shows
   as failed turns with a Retry button. The retry counts as a message of the user for the hop cap.
 
+### Permission prompts
+
+A claude Bot runs with its role's allowed tools. A call outside them used to be refused, so the Bot
+gave up. Now the call is held and the user decides. A Bot reads its Space's own folder
+(`chats/<id>`) and the repository of every Project attached to the Space without a prompt (both are
+passed to claude as extra folders); any other path, and any command outside the Bot's tools,
+prompts. codex has no prompts: it runs in its sandbox. A wrap-up turn and a memory review never prompt.
+
+- A held call stores a `permission_prompt` and parks the Bot's turn: the agent waits, the turn stays
+  `running` in the store and its `turn` event is `{"role":"dba","botId":4,"status":"waiting"}`.
+  The Space is not blocked: the chain goes on with the other Bots' wakes. One turn runs at a time, so
+  the parked turn is read on, as a wake, when the user answers.
+- `GET /spaces/{id}/prompts` lists the prompts that are `waiting` or `expired`, oldest first, as
+  [`permission_prompt`](#permission_prompt) rows (200, `[]` when none; 404 unknown Space).
+- `POST /prompts/{id}/answer` takes `{"answer":"once"|"always"|"deny"}` and returns 200 with the
+  prompt. On a `waiting` prompt, `once` and `always` allow the call and `deny` returns `denied by the
+  user` to the agent as the tool result, and the same turn goes on to its end or its next prompt.
+  `always` also adds the prompt's `rule` to the Bot's tools and to its active BotSession's tools in the
+  Space, and the agent keeps the rule for the rest of its session (400 when the prompt has no rule). A
+  prompt that is not `waiting` or `expired` is 409; an unknown answer is 400.
+- A prompt nobody answers within `--prompt-wait` becomes `expired`: the agent gets the denial `no
+  answer from the user`, the turn goes on and ends, and later prompts of that turn are denied at once,
+  stored `expired` too. An `expired` prompt stays in the Space. `once` or `always` on it sets it
+  `allowed` and `granted`, and wakes the Bot with user guidance that names the call and says to try it
+  again (an exchange like [guiding a Bot](#guiding-a-bot)); the Bot's next prompt for the same rule is
+  allowed once without asking. `deny` on it sets it `denied`.
+- A new message that wakes the Bot, or a wake from another Bot, denies its waiting prompt first
+  (`a new message came; the user did not answer the prompt`), reads that turn to its end with later
+  prompts denied at once, then runs the new turn. `POST /spaces/{id}/stop`, a failed turn that closes the
+  Space's agents and a server stop deny it as `stopped` and end its turn `failed`, `interrupted`.
+  A prompt that waited when the server died is `expired` with `reef restarted` at the next start.
+- Every change of a prompt is sent as a `prompt` event (see [Events](#events)): the whole row.
+
 ### Routing
 
 When a turn ends, the server reads the messages stored since the last one it read and routes
@@ -1289,7 +1343,7 @@ current name and is not tried again. Spaces that existed before the column keep 
 ### Events
 
 `GET /spaces/{id}/events` is a Server-Sent Events stream. It works for a Space that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Eight kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
@@ -1298,7 +1352,12 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kin
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
   connects and no turn runs. A turn woken by a direct message carries `"directMessageId":N`, the id of that direct message, in each of its frames; the Space shows such a turn
   as working only, without its text or tool calls; the open Coordination panel of its exchange shows its text and tool rows live while it runs, and only the stored direct messages once it ends.
+  A turn that waits on a [permission prompt](#permission-prompts) sends `{"role":"dba","botId":4,"status":"waiting"}`, which
+  is not its end; the answer sends `running` for it again, then `done` or `failed`.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
+- `prompt`: a [permission prompt](#permission_prompt) as JSON, whole, when it is stored waiting and
+  each time it changes (answered, expired, denied by a new message or a stop), so a subscriber re-reads
+  `GET /spaces/{id}/prompts`.
 - `pause`: `{"reason":"..."}` when a cap pauses the Space: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub

@@ -183,9 +183,14 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	if !strings.HasPrefix(ag.cfg.Instructions, "You are a Bot working in Reef. ") {
 		t.Errorf("instructions = %q, want the shared prompt first", ag.cfg.Instructions)
 	}
+	projects, err := st.SpaceProjects(ctx, ch.ID)
+	if err != nil || len(projects) != 1 {
+		t.Fatalf("SpaceProjects = %v, %v, want one", projects, err)
+	}
 	want := agent.Config{
 		Cwd: dir + "/worktrees/item-1", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
 		Instructions: ag.cfg.Instructions,
+		AddDirs:      []string{dir + "/chats/1", projects[0].Path},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},

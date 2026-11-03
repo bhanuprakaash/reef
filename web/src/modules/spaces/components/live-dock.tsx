@@ -12,9 +12,12 @@ import { failedRetryTarget, recentTools, toolCount } from '@/modules/spaces/util
 
 type Entry = { turn: LiveTurn; role: string; look?: Look };
 
+type Waiting = { botId: number; role: string; look?: Look };
+
 type Props = {
   spaceId: number;
   entries: Entry[];
+  waiting?: Waiting[];
   paused: boolean;
   onOpenTurn: () => void;
 };
@@ -168,7 +171,26 @@ function Steps({
   );
 }
 
-export function LiveDock({ spaceId, entries, paused, onOpenTurn }: Props) {
+function WaitingPills({ waiting }: { waiting: Waiting[] }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {waiting.map((w) => (
+        <div
+          key={w.botId}
+          className="flex h-[42px] max-md:h-11 min-w-0 max-w-full items-center gap-2.5 rounded-pill bg-card pl-2 pr-[18px] text-[13.5px]"
+        >
+          <span className="shrink-0 [--creature-ring:transparent]">
+            <Creature look={w.look} size={30} state="needs-you" />
+          </span>
+          <span className="shrink-0 font-medium capitalize">{w.role}</span>
+          <span className="min-w-0 truncate text-muted">waiting on you</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function LiveDock({ spaceId, entries, waiting = [], paused, onOpenTurn }: Props) {
   const live = entries.filter((e) => e.turn.status === 'running' || e.turn.status === 'failed');
   const running = useRunningTurns();
   const startedAt = (entry: Entry) =>
@@ -203,7 +225,8 @@ export function LiveDock({ spaceId, entries, paused, onOpenTurn }: Props) {
     return () => clearInterval(id);
   }, [tide, reduceMotion, picked]);
 
-  if (live.length === 0) return null;
+  if (live.length === 0 && waiting.length === 0) return null;
+  if (live.length === 0) return <WaitingPills waiting={waiting} />;
 
   const active = live[(picked ?? tick) % live.length];
 
@@ -286,6 +309,11 @@ export function LiveDock({ spaceId, entries, paused, onOpenTurn }: Props) {
               </div>
             ),
           )}
+        </div>
+      )}
+      {waiting.length > 0 && (
+        <div className="mt-2">
+          <WaitingPills waiting={waiting} />
         </div>
       )}
     </div>

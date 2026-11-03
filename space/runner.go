@@ -19,7 +19,12 @@ const (
 	_userAuthor = "user"
 	// _postTool is how both backends name the reef MCP tool that posts to the Space.
 	_postTool = "mcp__reef__post_to_space"
+
+	_stoppedReason = "stopped"
 )
+
+// ErrNotParked is returned by Answer when no turn waits on the prompt.
+var ErrNotParked = errors.New("no turn waits on the prompt")
 
 // Runner records one role's exchanges with a started agent in one Space: the
 // user messages, the agent's replies and a turn for each exchange.
@@ -53,6 +58,8 @@ type Runner struct {
 	Memory *memory.Store
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
+	// OnPermission, when set, sees every permission prompt the Runner stores or resolves.
+	OnPermission func(store.PermissionPrompt)
 	// Connections are the ids of the Bot's connections that sign in, by server name. The
 	// backend's report on one of them is stored as its sign-in state.
 	Connections map[string]int64
@@ -85,7 +92,30 @@ type Runner struct {
 	idleUsage   agent.Usage
 	idleSession agent.Event
 	idleErr     string
+
+	// loop is the turn parked on a permission prompt, until Answer or stopParked.
+	loop *turnLoop
 }
+
+// turnLoop is the state of one turn's event loop, kept while the turn waits for a prompt.
+type turnLoop struct {
+	turn        store.Turn
+	parent      *int64
+	direct      *store.DirectMessage
+	reply       strings.Builder
+	toolRows    map[string]int64
+	postCalls   map[string]bool
+	posted      bool
+	postedAt    int
+	workedAfter bool
+	// prompt is the waiting prompt; denyRest, when set, denies every later prompt of the turn.
+	prompt   *store.PermissionPrompt
+	denyRest string
+}
+
+// ErrWaiting is returned by Run and Answer when the turn waits for an answer to a permission
+// prompt: it is still running, and the agent waits for Answer.
+var ErrWaiting = errors.New("turn is waiting for a permission answer")
 
 type replyState uint8
 
@@ -178,10 +208,20 @@ func (r *Runner) Run(
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
 
-	var reply strings.Builder
-	toolRows := map[string]int64{}
-	postCalls := map[string]bool{}
-	posted, postedAt, workedAfter := false, 0, false
+	l := &turnLoop{
+		turn: turn, parent: parent, direct: r.direct,
+		toolRows: map[string]int64{}, postCalls: map[string]bool{},
+	}
+	return r.read(ctx, wctx, l, onEvent)
+}
+
+// read reads the events of l's turn until it ends, or until a tool call waits for permission.
+func (r *Runner) read(
+	ctx, wctx context.Context, l *turnLoop, onEvent func(agent.Event),
+) error {
+	turn, parent, reply := l.turn, l.parent, &l.reply
+	toolRows, postCalls := l.toolRows, l.postCalls
+	posted, postedAt, workedAfter := l.posted, l.postedAt, l.workedAfter
 	for {
 		select {
 		case <-ctx.Done():
@@ -238,6 +278,16 @@ func (r *Runner) Run(
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 					}
 				}
+			case agent.KindPermission:
+				waiting, err := r.permission(wctx, l, turn.ID, ev)
+				if err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+				}
+				if waiting {
+					l.turn, l.posted, l.postedAt, l.workedAfter = turn, posted, postedAt, workedAfter
+					r.loop = l
+					return ErrWaiting
+				}
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
@@ -282,11 +332,116 @@ func (r *Runner) Run(
 	}
 }
 
+// permission handles a tool call that waits for permission. It reports true when the turn must
+// wait for the user: the prompt is stored waiting and OnPermission has seen it. A turn that had
+// a prompt expire denies the rest at once, and a Bot the user allowed after one expired gets that
+// allow once.
+func (r *Runner) permission(
+	ctx context.Context, l *turnLoop, turnID int64, ev agent.Event,
+) (bool, error) {
+	asker, ok := r.ag.(agent.Asker)
+	if !ok {
+		return false, errors.New("agent cannot answer permission prompts")
+	}
+	p := store.PermissionPrompt{
+		SpaceID: r.spaceID, BotID: *r.botID, TurnID: turnID, RequestID: ev.RequestID,
+		Tool: ev.ToolName, Input: ev.Input, Rule: ev.Rule, Path: ev.Text,
+	}
+	if l.denyRest != "" {
+		p.Status, p.Answer, p.Reason = store.PromptExpired, store.AnswerDeny, l.denyRest
+		if _, err := r.keepPrompt(ctx, p); err != nil {
+			return false, err
+		}
+		return false, asker.Answer(ev.RequestID, agent.Answer{Reason: l.denyRest})
+	}
+	if ev.Rule != "" {
+		granted, err := r.st.TakeGrantedPrompt(ctx, r.spaceID, *r.botID, ev.Rule)
+		if err != nil {
+			return false, err
+		}
+		if granted {
+			return false, asker.Answer(ev.RequestID, agent.Answer{Allow: true})
+		}
+	}
+	p, err := r.keepPrompt(ctx, p)
+	l.prompt = &p
+	return true, err
+}
+
+func (r *Runner) keepPrompt(
+	ctx context.Context, p store.PermissionPrompt,
+) (store.PermissionPrompt, error) {
+	p, err := r.st.CreatePermissionPrompt(ctx, p)
+	if err == nil && r.OnPermission != nil {
+		r.OnPermission(p)
+	}
+	return p, err
+}
+
+// Waiting returns the prompt the turn waits on, if a turn does.
+func (r *Runner) Waiting() (store.PermissionPrompt, bool) {
+	if r.loop == nil || r.loop.prompt == nil {
+		return store.PermissionPrompt{}, false
+	}
+	return *r.loop.prompt, true
+}
+
+// Answer answers prompt promptID, which the parked turn waits on, with a, and reads the turn on
+// to its end or its next prompt, which returns ErrWaiting again. With denyRest the turn denies
+// its later prompts at once, with the reason of a.
+func (r *Runner) Answer(
+	ctx context.Context, promptID int64, a agent.Answer, denyRest bool, onEvent func(agent.Event),
+) error {
+	l := r.loop
+	if l == nil || l.prompt == nil || l.prompt.ID != promptID {
+		return fmt.Errorf("prompt %d: %w", promptID, ErrNotParked)
+	}
+	r.loop, r.direct = nil, l.direct
+	defer func() { r.direct = nil }()
+	r.endWatch()
+	wctx := context.WithoutCancel(ctx)
+	requestID := l.prompt.RequestID
+	l.prompt = nil
+	if denyRest {
+		l.denyRest = a.Reason
+	}
+	if err := r.ag.(agent.Asker).Answer(requestID, a); err != nil {
+		return r.abort(wctx, l.turn, err, err.Error(), l.reply.String(), l.parent)
+	}
+	return r.read(ctx, wctx, l, onEvent)
+}
+
+// stopParked ends the turn parked on a prompt: the prompt is denied with reason "stopped" and the
+// turn is stored interrupted.
+func (r *Runner) stopParked() error {
+	l := r.loop
+	if l == nil {
+		return nil
+	}
+	r.loop, r.direct = nil, l.direct
+	defer func() { r.direct = nil }()
+	ctx := context.Background()
+	if l.prompt != nil {
+		p, err := r.st.ResolvePermissionPrompt(ctx, l.prompt.ID,
+			store.PromptWaiting, store.PromptDenied, store.AnswerDeny, _stoppedReason, false)
+		if err == nil && r.OnPermission != nil {
+			r.OnPermission(p)
+		}
+		if err != nil && !errors.Is(err, store.ErrConflict) {
+			log.Printf("deny prompt %d of %s in Space %d: %v", l.prompt.ID, r.role, r.spaceID, err)
+		}
+	}
+	return r.abort(ctx, l.turn, nil, "interrupted", l.reply.String(), l.parent)
+}
+
 // Watch reads the agent's events while no turn runs and posts the answer of each background
 // task as the role's message, so one that ends between turns is not held for the next. Run
 // ends the watch before it sends, so a turn is the only reader of Events while it runs.
 func (r *Runner) Watch() {
 	r.endWatch()
+	if r.loop != nil {
+		return
+	}
 	stop, done := make(chan struct{}), make(chan struct{})
 	r.watching, r.watched = stop, done
 	go func() {

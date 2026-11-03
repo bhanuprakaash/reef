@@ -42,6 +42,24 @@ type Config struct {
 	AddDirs         []string             // extra folders the backend may read; codex ignores it
 	Env             []string             // extra "KEY=value" on top of os.Environ
 	Fork            bool                 // Resume continues in a copy of the session, which gets a new id; claude only
+	// AskPermissions has a tool call that needs permission wait for an Answer to its
+	// KindPermission event instead of being refused; codex ignores it.
+	AskPermissions bool
+}
+
+// Asker is an Agent whose tool calls can wait for permission: claude is one, codex is not.
+type Asker interface {
+	// Answer answers the KindPermission event with requestID. The turn waits until it is answered.
+	Answer(requestID string, a Answer) error
+}
+
+// Answer is the reply to a KindPermission event.
+type Answer struct {
+	Allow bool
+	// Rule, with Allow, is also allowed for the rest of the session.
+	Rule string
+	// Reason, on a deny, is the tool result the agent gets.
+	Reason string
 }
 
 // MCPServer is a stdio server (Command) or an HTTP server (URL, with optional Headers and OAuth).
@@ -79,6 +97,10 @@ const (
 	// KindCompacted says the backend has shortened the session's history. The agent no longer
 	// holds everything it was sent, so what the caller sent it once it must send again.
 	KindCompacted Kind = "compacted"
+	// KindPermission is a tool call that waits for permission (Config.AskPermissions): ToolID,
+	// ToolName and Input name the call, RequestID is what Answer takes, Rule is the allow rule
+	// the backend suggests for it and Text the path it reaches outside its folders, if any.
+	KindPermission Kind = "permission"
 	// KindMCP reports whether the backend could use the MCP server MCPServer: Text is MCPConnected
 	// or MCPNeedsAuth. Other states are not reported.
 	KindMCP Kind = "mcp"
@@ -110,6 +132,8 @@ type Event struct {
 	// so far, subagents and side calls included, not the turn's usage. The caller takes off what
 	// earlier turns used. KindUsage events still carry the turn's own messages as they end.
 	SessionUsage *Usage `json:"sessionUsage,omitempty"`
+	RequestID    string `json:"requestId,omitempty"` // KindPermission
+	Rule         string `json:"rule,omitempty"`      // KindPermission
 }
 
 // Usage is the token count of a turn.

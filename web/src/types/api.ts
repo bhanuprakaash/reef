@@ -235,6 +235,20 @@ export type Turn = {
   startedAt: string;
 };
 
+export type Prompt = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  turnId: number;
+  tool: string;
+  input: { command?: string; file_path?: string; path?: string };
+  rule: string;
+  path: string;
+  status: 'waiting' | 'expired';
+  reason: string;
+  createdAt: string;
+};
+
 export type Role = {
   botId: number;
   name: string;

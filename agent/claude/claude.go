@@ -22,7 +22,10 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-var _ agent.Agent = (*Agent)(nil)
+var (
+	_ agent.Agent = (*Agent)(nil)
+	_ agent.Asker = (*Agent)(nil)
+)
 
 // _serverName is the set claude keeps unchanged in a tool name; anything else would
 // break the comma-joined --allowedTools value or never match.
@@ -49,6 +52,10 @@ type Agent struct {
 	mu      sync.Mutex // guards started, stopped and the fields start sets
 	started bool
 	stopped bool
+
+	inMu    sync.Mutex                 // one line at a time on stdin: Send and Answer
+	pendMu  sync.Mutex                 // guards pending
+	pending map[string]json.RawMessage // input of each permission request not answered yet, by request id
 }
 
 type (
@@ -107,6 +114,18 @@ type (
 		Message struct {
 			Content blocks `json:"content"`
 		} `json:"message"`
+		RequestID string `json:"request_id"` // control_request
+		Request   struct {
+			Subtype               string          `json:"subtype"`
+			ToolName              string          `json:"tool_name"`
+			Input                 json.RawMessage `json:"input"`
+			ToolUseID             string          `json:"tool_use_id"`
+			BlockedPath           string          `json:"blocked_path"`
+			PermissionSuggestions []struct {
+				Type  string           `json:"type"`
+				Rules []permissionRule `json:"rules"`
+			} `json:"permission_suggestions"`
+		} `json:"request"`
 		ParentToolUseID string     `json:"parent_tool_use_id"`
 		IsReplay        bool       `json:"isReplay"`
 		IsError         bool       `json:"is_error"`
@@ -117,6 +136,35 @@ type (
 		Origin          struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
+	}
+
+	// permissionRule is one allow rule: Bash(cat /x) is ToolName Bash, RuleContent "cat /x".
+	permissionRule struct {
+		ToolName    string `json:"toolName"`
+		RuleContent string `json:"ruleContent,omitempty"`
+	}
+
+	permissionUpdate struct {
+		Type        string           `json:"type"`
+		Rules       []permissionRule `json:"rules"`
+		Behavior    string           `json:"behavior"`
+		Destination string           `json:"destination"`
+	}
+
+	permissionReply struct {
+		Behavior           string             `json:"behavior"`
+		UpdatedInput       json.RawMessage    `json:"updatedInput,omitempty"`
+		UpdatedPermissions []permissionUpdate `json:"updatedPermissions,omitempty"`
+		Message            string             `json:"message,omitempty"`
+	}
+
+	controlResponse struct {
+		Type     string `json:"type"`
+		Response struct {
+			Subtype   string          `json:"subtype"`
+			RequestID string          `json:"request_id"`
+			Response  permissionReply `json:"response"`
+		} `json:"response"`
 	}
 
 	blocks []block
@@ -138,6 +186,8 @@ func New() *Agent {
 		events: make(chan agent.Event),
 		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
+
+		pending: make(map[string]json.RawMessage),
 	}
 }
 
@@ -167,7 +217,7 @@ func (a *Agent) Send(ctx context.Context, prompt string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := a.stdin.Write(append(msg, '\n')); err != nil {
+	if err := a.writeLine(msg); err != nil {
 		err = fmt.Errorf("write prompt: %w", err)
 		if why := a.exitReason(ctx); why != "" {
 			err = fmt.Errorf("%w: %s", err, why)
@@ -175,6 +225,53 @@ func (a *Agent) Send(ctx context.Context, prompt string) error {
 		return err
 	}
 	return nil
+}
+
+// Answer writes the control_response of the permission request with requestID. An allow with a
+// Rule also adds the rule for the rest of the session. A deny gives the tool call ans.Reason as
+// its result and does not interrupt the turn.
+func (a *Agent) Answer(requestID string, ans agent.Answer) error {
+	if a.stdin == nil {
+		return errors.New("claude not started")
+	}
+	a.pendMu.Lock()
+	input, ok := a.pending[requestID]
+	delete(a.pending, requestID)
+	a.pendMu.Unlock()
+	if !ok {
+		return fmt.Errorf("no permission request %s", requestID)
+	}
+	var resp controlResponse
+	resp.Type = "control_response"
+	resp.Response.Subtype = "success"
+	resp.Response.RequestID = requestID
+	reply := &resp.Response.Response
+	if ans.Allow {
+		reply.Behavior, reply.UpdatedInput = "allow", input
+		if ans.Rule != "" {
+			reply.UpdatedPermissions = []permissionUpdate{{
+				Type: "addRules", Rules: []permissionRule{parseRule(ans.Rule)},
+				Behavior: "allow", Destination: "session",
+			}}
+		}
+	} else {
+		reply.Behavior, reply.Message = "deny", ans.Reason
+	}
+	line, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	if err := a.writeLine(line); err != nil {
+		return fmt.Errorf("write answer: %w", err)
+	}
+	return nil
+}
+
+func (a *Agent) writeLine(line []byte) error {
+	a.inMu.Lock()
+	defer a.inMu.Unlock()
+	_, err := a.stdin.Write(append(line, '\n'))
+	return err
 }
 
 // exitReason is the text of the error event claude left when it exited before it read the
@@ -279,6 +376,9 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if len(cfg.DisallowedTools) > 0 {
 		args = append(args, "--disallowedTools", strings.Join(cfg.DisallowedTools, ","))
 	}
+	if cfg.AskPermissions {
+		args = append(args, "--permission-prompt-tool", "stdio")
+	}
 	args = append(args, extra...)
 
 	bin := cfg.Bin
@@ -324,6 +424,11 @@ func (a *Agent) read(stdout io.Reader) {
 	for {
 		line, err := r.ReadBytes('\n')
 		for _, ev := range parse(line, &st) {
+			if ev.Kind == agent.KindPermission {
+				a.pendMu.Lock()
+				a.pending[ev.RequestID] = ev.Input
+				a.pendMu.Unlock()
+			}
 			if !a.emit(ev) {
 				_ = a.cmd.Wait()
 				return
@@ -513,6 +618,23 @@ func parseLine(line []byte, st *state) []agent.Event {
 			return nil
 		}
 		return evs
+	case "control_request":
+		if l.Request.Subtype != "can_use_tool" {
+			return nil
+		}
+		var rule string
+		for _, sug := range l.Request.PermissionSuggestions {
+			if sug.Type == "addRules" && len(sug.Rules) > 0 {
+				rule = sug.Rules[0].String()
+				break
+			}
+		}
+		evs := st.held
+		st.held = nil
+		return append(evs, agent.Event{
+			Kind: agent.KindPermission, RequestID: l.RequestID, ToolID: l.Request.ToolUseID,
+			ToolName: l.Request.ToolName, Input: l.Request.Input, Rule: rule, Text: l.Request.BlockedPath,
+		})
 	case "result":
 		evs := st.held
 		answer := strings.TrimSpace(st.answer)
@@ -536,6 +658,23 @@ func parseLine(line []byte, st *state) []agent.Event {
 		})
 	}
 	return nil
+}
+
+// String is the rule as Tool(ruleContent), or Tool when it has no content.
+func (r permissionRule) String() string {
+	if r.RuleContent == "" {
+		return r.ToolName
+	}
+	return r.ToolName + "(" + r.RuleContent + ")"
+}
+
+// parseRule is String's inverse.
+func parseRule(s string) permissionRule {
+	name, content, ok := strings.Cut(s, "(")
+	if !ok {
+		return permissionRule{ToolName: s}
+	}
+	return permissionRule{ToolName: name, RuleContent: strings.TrimSuffix(content, ")")}
 }
 
 // UnmarshalJSON reads a list of blocks. The content of a replayed prompt is a plain

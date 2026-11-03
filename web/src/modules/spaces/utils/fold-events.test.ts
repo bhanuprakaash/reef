@@ -206,4 +206,12 @@ describe('foldEvent', () => {
     expect(got.status).toBe('done');
     expect(got.error).toBeUndefined();
   });
+
+  it('clears the Bot that waits on a prompt and keeps another Bot running', () => {
+    const running: StreamEvent = { type: 'turn', status: 'running', botId: 1 };
+    const waiting = (botId: number): StreamEvent => ({ type: 'turn', status: 'waiting', botId });
+
+    expect(fold([running, waiting(1)])).toEqual(emptyTurn);
+    expect(fold([running, waiting(2)]).status).toBe('running');
+  });
 });

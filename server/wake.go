@@ -37,6 +37,8 @@ type wake struct {
 	// moveTo is the id of the Bot a move turn adds: text asks the lead for the summary it
 	// starts from, and messageID is the user's message that asked.
 	moveTo int64
+	// answer, when set, makes the wake the answer to a permission prompt of a turn that waits for it.
+	answer *promptAnswer
 }
 
 // wakeMessage is the public message that woke w, nil for a direct wake.
@@ -106,6 +108,9 @@ func guidanceFirst(ws []wake) []wake {
 }
 
 func guidanceRank(w wake) int {
+	if w.answer != nil {
+		return -1
+	}
 	if w.fromBotID == nil || (w.direct != nil && w.direct.IsUserGuidance()) {
 		return 0
 	}

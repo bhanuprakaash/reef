@@ -39,6 +39,9 @@ type cliArgs struct {
 	resume    string
 	// fork, with resume, continues in a copy of the session that has a new id.
 	fork bool
+	// askPermissions is --permission-prompt-tool stdio: a tool call that needs permission waits
+	// for an answer on stdin instead of being refused.
+	askPermissions bool
 }
 
 func parseArgs(args []string) cliArgs {
@@ -58,6 +61,11 @@ func parseArgs(args []string) cliArgs {
 			}
 		case "--fork-session":
 			c.fork = true
+		case "--permission-prompt-tool":
+			if i+1 < len(args) {
+				i++
+				c.askPermissions = args[i] == "stdio"
+			}
 		case "--permission-mode", "--allowedTools", "--disallowedTools":
 			i++ // value is unused by the fake
 		}

@@ -53,6 +53,12 @@ type fakeSession struct {
 	say    func()
 	onNote func()
 
+	// onPermission is the hook of the Space's prompts. parked is the prompt each Bot's turn waits on, and
+	// answers the answers given. They are guarded by mu.
+	onPermission func(store.PermissionPrompt)
+	parked       map[int64]int64
+	answers      []agent.Answer
+
 	// dropped is the Bots whose agent was closed, and refreshFail the Bots whose Refresh fails.
 	// They are guarded by mu.
 	dropped     []int64
@@ -123,6 +129,9 @@ func (f *fakeSession) RunAs(
 	if strings.HasSuffix(text, "fail") {
 		return errors.New("boom")
 	}
+	if strings.HasSuffix(text, "park") {
+		return f.park(ctx, role)
+	}
 	if !strings.HasSuffix(text, "block") {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		return nil
@@ -136,6 +145,59 @@ func (f *fakeSession) RunAs(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+// park stores a prompt for role's Bash call and leaves its turn waiting on it.
+func (f *fakeSession) park(ctx context.Context, role string) error {
+	bots, err := f.st.Bots(ctx)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(bots, func(b store.Bot) bool { return b.Name == role })
+	if i < 0 {
+		return fmt.Errorf("no Bot named %s", role)
+	}
+	p, err := f.st.CreatePermissionPrompt(ctx, store.PermissionPrompt{
+		SpaceID: f.spaceID.Load(), BotID: bots[i].ID, RequestID: "req", Tool: "Bash",
+		Input: json.RawMessage(`{"command":"gzip -l /x"}`), Rule: "Bash(gzip -l /x)",
+	})
+	if err != nil {
+		return err
+	}
+	f.mu.Lock()
+	if f.parked == nil {
+		f.parked = map[int64]int64{}
+	}
+	f.parked[bots[i].ID] = p.ID
+	hook := f.onPermission
+	f.mu.Unlock()
+	if hook != nil {
+		hook(p)
+	}
+	return space.ErrWaiting
+}
+
+func (f *fakeSession) Answer(
+	_ context.Context, botID, promptID int64, a agent.Answer, onEvent func(agent.Event),
+) error {
+	f.mu.Lock()
+	waiting := f.parked[botID] == promptID
+	if waiting {
+		delete(f.parked, botID)
+		f.answers = append(f.answers, a)
+	}
+	f.mu.Unlock()
+	if !waiting {
+		return space.ErrNotParked
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "answered"})
+	return nil
+}
+
+func (f *fakeSession) SetOnPermission(fn func(store.PermissionPrompt)) {
+	f.mu.Lock()
+	f.onPermission = fn
+	f.mu.Unlock()
 }
 
 func (f *fakeSession) WakeAs(
