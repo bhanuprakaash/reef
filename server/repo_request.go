@@ -129,6 +129,9 @@ func openRequest(ctx context.Context, st *store.Store, id int64, title, descript
 	if base == "" {
 		base = p.BaseBranch
 	}
+	if base == "" {
+		base = strings.TrimPrefix(w.BaseRef, "refs/remotes/origin/")
+	}
 	if base == "" || w.Branch == "" {
 		return store.RepoRequest{}, fmt.Errorf("%w: workspace branch and base are required", store.ErrInvalid)
 	}
