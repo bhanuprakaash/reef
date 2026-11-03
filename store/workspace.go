@@ -21,30 +21,35 @@ const (
 // its top-level Work item; a quick fix has WorkItemID nil, and is kept by the SpaceID of the
 // conversation that holds it under its Name.
 type Workspace struct {
-	ID         int64     `json:"id"`
-	ProjectID  int64     `json:"projectId"`
-	WorkItemID *int64    `json:"workItemId"`
-	SpaceID    *int64    `json:"spaceId"`
-	Name       string    `json:"name"`
-	Dir        string    `json:"dir"`
-	Branch     string    `json:"branch"`
-	Base       string    `json:"base"`
-	BaseRef    string    `json:"baseRef"`
-	BaseSource string    `json:"baseSource"`
-	State      string    `json:"state"`
-	Note       string    `json:"note"`
-	CreatedAt  time.Time `json:"createdAt"`
-	UpdatedAt  time.Time `json:"updatedAt"`
+	ID         int64  `json:"id"`
+	ProjectID  int64  `json:"projectId"`
+	WorkItemID *int64 `json:"workItemId"`
+	SpaceID    *int64 `json:"spaceId"`
+	Name       string `json:"name"`
+	Dir        string `json:"dir"`
+	Branch     string `json:"branch"`
+	Base       string `json:"base"`
+	BaseRef    string `json:"baseRef"`
+	BaseSource string `json:"baseSource"`
+	State      string `json:"state"`
+	Note       string `json:"note"`
+	// SnapshotRef is the ref in the project's repository that keeps the unfinished changes saved
+	// before the tree was removed; CleanupError is why the last cleanup did not finish, which a
+	// later read retries.
+	SnapshotRef  string    `json:"snapshotRef"`
+	CleanupError string    `json:"cleanupError"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 const _workspaceCols = "id, project_id, work_item_id, space_id, name, dir, branch, base, base_ref, " +
-	"base_source, state, note, created_at, updated_at"
+	"base_source, state, note, snapshot_ref, cleanup_error, created_at, updated_at"
 
 func scanWorkspace(r interface{ Scan(...any) error }) (Workspace, error) {
 	var w Workspace
 	var created, updated string
 	err := r.Scan(&w.ID, &w.ProjectID, &w.WorkItemID, &w.SpaceID, &w.Name, &w.Dir, &w.Branch, &w.Base,
-		&w.BaseRef, &w.BaseSource, &w.State, &w.Note, &created, &updated)
+		&w.BaseRef, &w.BaseSource, &w.State, &w.Note, &w.SnapshotRef, &w.CleanupError, &created, &updated)
 	if err != nil {
 		return w, err
 	}
@@ -105,6 +110,37 @@ func (s *Store) SetWorkspace(ctx context.Context, w Workspace) error {
 		return fmt.Errorf("workspace %d: %w", w.ID, ErrNotFound)
 	}
 	return nil
+}
+
+// RecordWorkspaceCleanup stores how removing workspace id went: the snapshot ref when there is
+// one (an empty snapshot keeps the one stored), why it did not finish (empty when it did), and
+// whether the tree is now removed.
+func (s *Store) RecordWorkspaceCleanup(ctx context.Context, id int64, snapshot, failure string, removed bool) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE workspace SET snapshot_ref = CASE WHEN ? = '' THEN snapshot_ref ELSE ? END, cleanup_error = ?, "+
+			"state = CASE WHEN ? THEN 'removed' ELSE state END, updated_at = ? WHERE id = ?",
+		snapshot, snapshot, failure, removed, time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("record workspace %d cleanup: %w", id, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("workspace %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// MergedWorkspaces lists the workspaces still on disk whose requests are all merged, other than
+// those of a Project that is being or has been deleted.
+func (s *Store) MergedWorkspaces(ctx context.Context) ([]Workspace, error) {
+	rows, err := s.db.QueryContext(ctx, "SELECT "+_workspaceCols+" FROM workspace w WHERE state != ? "+
+		"AND EXISTS (SELECT 1 FROM repo_request r WHERE r.workspace_id = w.id) "+
+		"AND NOT EXISTS (SELECT 1 FROM repo_request r WHERE r.workspace_id = w.id AND r.state != ?) "+
+		"AND project_id IN (SELECT id FROM project WHERE deleting_at IS NULL AND deleted_at IS NULL) ORDER BY id",
+		WorkspaceRemoved, RequestMerged)
+	if err != nil {
+		return nil, fmt.Errorf("list merged workspaces: %w", err)
+	}
+	return scanAll(rows, scanWorkspace)
 }
 
 // WorkItemWorkspaces lists the workspaces of the top-level item id, in the order they were

@@ -120,8 +120,9 @@ func (s *server) listSpaceWorkspaces(w http.ResponseWriter, r *http.Request) {
 }
 
 // abandonSpaceWorkspace gives up a quick fix: its tree is removed and its branch is kept, so
-// committed work stays in the repository. A tree with uncommitted changes is 409 and stays, as
-// does one a running turn of the conversation may be writing in.
+// committed work stays in the repository, and uncommitted changes are saved first (see
+// cleanWorkspace). A turn of the conversation running is 409 and the tree stays, as it does
+// when the changes could not be saved.
 func (s *server) abandonSpaceWorkspace(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -143,23 +144,9 @@ func (s *server) abandonSpaceWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: Space %d has no workspace %d", store.ErrNotFound, id, wid))
 		return
 	}
-	wk := ws[i]
-	if wk.State != store.WorkspaceRemoved {
-		unlock, ok := s.trees.TryLock(space.ChatDir(s.dataDir, id))
-		if !ok {
-			writeError(w, fmt.Errorf("%w: a turn is running in this conversation; abandon the fix when it ends", store.ErrConflict))
-			return
-		}
-		defer unlock()
-		if err := s.removeWorkspaces(r.Context(), []store.Workspace{wk}); err != nil {
-			writeError(w, err)
-			return
-		}
-		wk.State = store.WorkspaceRemoved
-		if err := s.st.SetWorkspace(r.Context(), wk); err != nil {
-			writeError(w, err)
-			return
-		}
+	if err := s.cleanWorkspace(r.Context(), ws[i]); err != nil {
+		writeError(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

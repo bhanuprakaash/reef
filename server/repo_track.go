@@ -66,6 +66,7 @@ func (s *server) trackRepoRequests(ctx context.Context) {
 			log.Printf("track request %d: %v", r.ID, err)
 		}
 	}
+	s.cleanMergedWorkspaces(ctx)
 }
 
 // trackRepoRequest stores the provider's answer for r, or why there is none, which the next

@@ -1,0 +1,2 @@
+ALTER TABLE workspace ADD COLUMN snapshot_ref TEXT NOT NULL DEFAULT '';
+ALTER TABLE workspace ADD COLUMN cleanup_error TEXT NOT NULL DEFAULT '';

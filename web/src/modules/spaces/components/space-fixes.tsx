@@ -3,6 +3,7 @@ import {
   useSpaceWorkspaces,
 } from '@/modules/spaces/api/space-workspaces';
 import { Button } from '@/components/button';
+import { CleanupStatus } from '@/modules/spaces/components/cleanup-status';
 import { RequestList } from '@/modules/spaces/components/request-list';
 
 export function SpaceFixes({ spaceId }: { spaceId: number }) {
@@ -40,6 +41,7 @@ export function SpaceFixes({ spaceId }: { spaceId: number }) {
               {w.head !== '' && ` at ${w.head}`}
             </p>
             {w.note !== '' && <p className="text-[13px] text-muted">{w.note}</p>}
+            <CleanupStatus w={w} />
             <RequestList path={`/spaces/${spaceId}/requests`} workspaceId={w.id} />
           </li>
         ))}

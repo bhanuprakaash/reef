@@ -50,11 +50,9 @@ func TestSpaceWorkspaces_ListAndAbandonKeepTheBranch(t *testing.T) {
 	}
 
 	abandon := fmt.Sprintf("%s/%d/abandon", url, w.ID)
-	if status, body := do(t, http.MethodPost, abandon, ""); status != 409 {
-		t.Errorf("abandon with uncommitted changes = %d %s, want 409", status, body)
-	}
 	gitIn(t, w.Dir, "add", ".")
 	gitIn(t, w.Dir, "commit", "-m", "fix")
+	writeIn(t, w.Dir, "late.txt", "y")
 	if status, body := do(t, http.MethodPost, abandon, ""); status != 204 {
 		t.Fatalf("abandon = %d %s, want 204", status, body)
 	}
@@ -64,7 +62,11 @@ func TestSpaceWorkspaces_ListAndAbandonKeepTheBranch(t *testing.T) {
 	if got := gitIn(t, repo, "log", "-1", "--format=%s", w.Branch); got != "fix" {
 		t.Errorf("branch %s tip = %q, want the committed fix kept", w.Branch, got)
 	}
-	if got := list()[0]; got.State != "removed" {
-		t.Errorf("state = %s, want removed", got.State)
+	got = list()[0]
+	if got.State != "removed" || got.SnapshotRef == "" {
+		t.Errorf("fix = %s %q, want removed with its snapshot ref", got.State, got.SnapshotRef)
+	}
+	if out := gitIn(t, repo, "show", got.SnapshotRef+":late.txt"); out != "y" {
+		t.Errorf("snapshot late.txt = %q, want the uncommitted file kept", out)
 	}
 }
