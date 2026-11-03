@@ -16,10 +16,11 @@ import (
 var _requestMu sync.Mutex
 
 type requestInput struct {
-	WorkspaceID int64  `json:"workspaceId,omitempty" jsonschema:"workspace id from open_workspace; omit for a Work item and give projectId"`
-	ProjectID   int64  `json:"projectId,omitempty" jsonschema:"Project id for a Work item workspace"`
-	Title       string `json:"title" jsonschema:"pull request or merge request title"`
-	Description string `json:"description" jsonschema:"pull request or merge request description"`
+	WorkspaceID int64    `json:"workspaceId,omitempty" jsonschema:"workspace id from open_workspace; omit for a Work item and give projectId"`
+	ProjectID   int64    `json:"projectId,omitempty" jsonschema:"Project id for a Work item workspace"`
+	Title       string   `json:"title" jsonschema:"pull request or merge request title"`
+	Description string   `json:"description" jsonschema:"pull request or merge request description"`
+	DependsOn   *[]int64 `json:"dependsOn,omitempty" jsonschema:"ids of other requests of this same fix that must merge before this one, as returned by earlier calls; replaces the earlier list, [] clears it, omitted keeps it"`
 }
 
 func (c repoCLI) OpenRequest(ctx context.Context, remote repoRemote, dir, head, base, title, description string) (store.RepoRequest, error) {
@@ -154,10 +155,10 @@ func openGitHubRequest(run func(string, ...string) ([]byte, error), remote repoR
 	return store.RepoRequest{}, fmt.Errorf("%w: GitHub did not return the created pull request; retry", store.ErrConflict)
 }
 
-func openRequest(ctx context.Context, st *store.Store, id int64, title, description string) (store.RepoRequest, error) {
+func openRequest(ctx context.Context, st *store.Store, id int64, in requestInput) (store.RepoRequest, error) {
 	_requestMu.Lock()
 	defer _requestMu.Unlock()
-	if strings.TrimSpace(title) == "" {
+	if strings.TrimSpace(in.Title) == "" {
 		return store.RepoRequest{}, fmt.Errorf("%w: title is required", store.ErrInvalid)
 	}
 	w, err := st.Workspace(ctx, id)
@@ -191,12 +192,20 @@ func openRequest(ctx context.Context, st *store.Store, id int64, title, descript
 	if base == "" || w.Branch == "" {
 		return store.RepoRequest{}, fmt.Errorf("%w: workspace branch and base are required", store.ErrInvalid)
 	}
-	r, err := repoProviderFor(c.Provider).OpenRequest(ctx, repoRemote{Provider: c.Provider, Host: c.Host, Path: p.RemotePath}, w.Dir, w.Branch, base, title, description)
+	r, err := repoProviderFor(c.Provider).OpenRequest(ctx, repoRemote{Provider: c.Provider, Host: c.Host, Path: p.RemotePath}, w.Dir, w.Branch, base, in.Title, in.Description)
 	if err != nil {
 		return store.RepoRequest{}, err
 	}
 	r.WorkspaceID, r.WorkItemID, r.SpaceID = w.ID, w.WorkItemID, w.SpaceID
-	return st.PutRepoRequest(ctx, r)
+	r, err = st.PutRepoRequest(ctx, r)
+	if err != nil || in.DependsOn == nil {
+		return r, err
+	}
+	ordered, err := st.SetRepoRequestDependsOn(ctx, r.ID, *in.DependsOn)
+	if err != nil {
+		return store.RepoRequest{}, fmt.Errorf("%w (the request is open: %s)", err, r.URL)
+	}
+	return ordered, nil
 }
 func (s *server) openRepoRequest(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -209,7 +218,7 @@ func (s *server) openRepoRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	result, err := openRequest(r.Context(), s.st, id, in.Title, in.Description)
+	result, err := openRequest(r.Context(), s.st, id, in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -301,6 +310,6 @@ func (m *mcpServer) openRepoRequest(ctx context.Context, _ *mcp.CallToolRequest,
 	if !allowed {
 		return nil, store.RepoRequest{}, fmt.Errorf("%w: workspace does not belong to this Space", store.ErrConflict)
 	}
-	result, err := openRequest(ctx, m.st, w.ID, in.Title, in.Description)
+	result, err := openRequest(ctx, m.st, w.ID, in)
 	return nil, result, err
 }

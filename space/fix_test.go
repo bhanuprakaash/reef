@@ -60,13 +60,25 @@ func TestSession_ConversationWriteTurnCheckpointsItsFixes(t *testing.T) {
 		t.Errorf("checkpoint wip.txt = %q, %v; want draft", out, err)
 	}
 
+	if _, err := st.PutRepoRequest(ctx, store.RepoRequest{Provider: "gitlab", Host: "gitlab.com", Path: "g/shop", Number: 7,
+		URL: "https://gitlab.com/g/shop/-/merge_requests/7", State: "opened", Head: w.Branch, Base: "main",
+		WorkspaceID: w.ID, SpaceID: &ch.ID}); err != nil {
+		t.Fatal(err)
+	}
 	var b strings.Builder
 	if err := fixLines(ctx, st, &b, ch.ID); err != nil {
 		t.Fatal(err)
 	}
-	if got := b.String(); !strings.Contains(got, "- login in shop: login-shop/ on branch fix/1-login (ready)") ||
-		!strings.Contains(got, "ask the user") {
-		t.Errorf("context lines = %q; want the open fix and the ask rule", got)
+	got := b.String()
+	for _, want := range []string{
+		"- login in shop: login-shop/ on branch fix/1-login (ready), workspace 1",
+		"  - request 1: https://gitlab.com/g/shop/-/merge_requests/7 (opened)",
+		"ask the user",
+		"open_repo_request",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("context lines = %q; want %q", got, want)
+		}
 	}
 }
 
