@@ -1,6 +1,8 @@
 import { Link } from 'react-router';
+import { CleanupStatus } from '@/modules/spaces/components/cleanup-status';
 import { RequestList } from '@/modules/spaces/components/request-list';
 import { useProof } from '@/modules/work-items/api/get-proof';
+import { useWorkspaces } from '@/modules/work-items/api/get-workspaces';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 import type { ProofCommand, ProofRepository } from '@/types/api';
@@ -80,6 +82,7 @@ function Commands({ commands }: { commands: ProofCommand[] }) {
 }
 
 function Repository({ r, workItemId }: { r: ProofRepository; workItemId: number }) {
+  const workspace = useWorkspaces(workItemId).data?.find((w) => w.id === r.workspaceId);
   return (
     <section className="space-y-2 rounded-field border border-line p-3">
       <h3 className="text-sm font-medium">{r.projectName}</h3>
@@ -104,6 +107,7 @@ function Repository({ r, workItemId }: { r: ProofRepository; workItemId: number 
           />
         </dd>
       </dl>
+      <CleanupStatus w={workspace} />
       <Commands commands={r.checks} />
     </section>
   );

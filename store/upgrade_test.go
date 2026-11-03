@@ -34,8 +34,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 119 {
-		t.Errorf("user_version = %d, want 119", version)
+	if version != 120 {
+		t.Errorf("user_version = %d, want 120", version)
 	}
 
 	at := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.UTC)
@@ -109,8 +109,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 119 {
-		t.Errorf("user_version = %d, want 119", version)
+	if version != 120 {
+		t.Errorf("user_version = %d, want 120", version)
 	}
 	var approvals int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM approval").Scan(&approvals); err != nil {
@@ -256,6 +256,8 @@ func TestOpen_UpgradeClearsEmojiProjectIcons(t *testing.T) {
 		"ALTER TABLE project DROP COLUMN remote_path",
 		"ALTER TABLE project DROP COLUMN deleting_at",
 		"ALTER TABLE project DROP COLUMN deleted_at",
+		"ALTER TABLE workspace DROP COLUMN snapshot_ref",
+		"ALTER TABLE workspace DROP COLUMN cleanup_error",
 		"PRAGMA user_version = 110",
 	} {
 		if _, err := s.db.Exec(stmt); err != nil {

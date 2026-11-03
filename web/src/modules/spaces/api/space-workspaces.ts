@@ -11,6 +11,8 @@ export type SpaceWorkspace = {
   baseSource: string;
   state: 'creating' | 'ready' | 'paused' | 'removed';
   note: string;
+  snapshotRef: string;
+  cleanupError: string;
   head: string;
   dirty: boolean;
 };

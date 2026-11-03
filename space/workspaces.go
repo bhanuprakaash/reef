@@ -103,7 +103,7 @@ func targetLines(ctx context.Context, st *store.Store, b *strings.Builder, f sto
 	}
 	var ws []store.Workspace
 	for _, w := range all {
-		if slices.ContainsFunc(f.Targets, func(t store.Target) bool { return t.ProjectID == w.ProjectID && authorized(t) }) {
+		if w.State != store.WorkspaceRemoved && slices.ContainsFunc(f.Targets, func(t store.Target) bool { return t.ProjectID == w.ProjectID && authorized(t) }) {
 			ws = append(ws, w)
 		}
 	}
@@ -182,6 +182,9 @@ func ensureWorkspace(
 	ctx context.Context, st *store.Store, trees *Trees, p store.Project, w store.Workspace,
 	note func(ctx context.Context, body string) error,
 ) error {
+	if w.State == store.WorkspaceRemoved {
+		return nil
+	}
 	if _, err := os.Stat(filepath.Join(w.Dir, ".git")); err == nil && w.State == store.WorkspaceReady {
 		return nil
 	}
@@ -192,6 +195,9 @@ func ensureWorkspace(
 	defer unlock()
 	if w, err = st.Workspace(ctx, w.ID); err != nil {
 		return err
+	}
+	if w.State == store.WorkspaceRemoved {
+		return nil
 	}
 	if _, err := os.Stat(filepath.Join(w.Dir, ".git")); err == nil && w.State == store.WorkspaceReady {
 		return nil

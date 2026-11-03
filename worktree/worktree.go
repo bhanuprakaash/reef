@@ -213,6 +213,27 @@ func Remove(ctx context.Context, repo, dir string) error {
 	return err
 }
 
+// RemoveForce removes the worktree at dir of repo even with uncommitted changes, and keeps its
+// branch. Callers save what they need first. A dir that is no worktree is not an error.
+func RemoveForce(ctx context.Context, repo, dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return nil
+	}
+	_, err := git(context.WithoutCancel(ctx), repo, "worktree", "remove", "--force", dir)
+	return err
+}
+
+// Unsaved reports whether removing the worktree at dir would lose something no branch or tag
+// keeps: uncommitted changes, or a HEAD that no local branch, remote branch or tag contains.
+func Unsaved(ctx context.Context, dir string) (bool, error) {
+	if dirty, err := Dirty(ctx, dir); dirty || err != nil {
+		return dirty, err
+	}
+	out, err := git(ctx, dir, "for-each-ref", "--contains", "HEAD", "--count=1",
+		"--format=%(refname)", "refs/heads", "refs/remotes", "refs/tags")
+	return out == "", err
+}
+
 // DeleteRefs deletes refs in repo. A ref that does not exist is not an error.
 func DeleteRefs(ctx context.Context, repo string, refs []string) error {
 	for _, ref := range refs {
