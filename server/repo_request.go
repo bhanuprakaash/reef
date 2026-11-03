@@ -18,14 +18,11 @@ var _requestMu sync.Mutex
 type requestInput struct {
 	WorkspaceID int64  `json:"workspaceId,omitempty" jsonschema:"workspace id from open_workspace; omit for a Work item and give projectId"`
 	ProjectID   int64  `json:"projectId,omitempty" jsonschema:"Project id for a Work item workspace"`
-	Title       string `json:"title" jsonschema:"merge request title"`
-	Description string `json:"description" jsonschema:"merge request description"`
+	Title       string `json:"title" jsonschema:"pull request or merge request title"`
+	Description string `json:"description" jsonschema:"pull request or merge request description"`
 }
 
 func (c repoCLI) OpenRequest(ctx context.Context, remote repoRemote, dir, head, base, title, description string) (store.RepoRequest, error) {
-	if c.bin != "glab" {
-		return store.RepoRequest{}, fmt.Errorf("%w: GitHub requests are not supported yet", store.ErrInvalid)
-	}
 	cctx, cancel := context.WithTimeout(ctx, _ghTimeout)
 	defer cancel()
 	run := func(bin string, args ...string) ([]byte, error) {
@@ -46,6 +43,13 @@ func (c repoCLI) OpenRequest(ctx context.Context, remote repoRemote, dir, head, 
 	if _, err := run("git", "push", "-u", "origin", head); err != nil {
 		return store.RepoRequest{}, fmt.Errorf("%w: could not push workspace branch; check the connection and retry", store.ErrConflict)
 	}
+	if c.bin == "gh" {
+		return openGitHubRequest(run, remote, head, base, title, description)
+	}
+	return openGitLabRequest(run, remote, head, base, title, description)
+}
+
+func openGitLabRequest(run func(string, ...string) ([]byte, error), remote repoRemote, head, base, title, description string) (store.RepoRequest, error) {
 	repo := "https://" + remote.Host + "/" + remote.Path
 	type mr struct {
 		IID           int64  `json:"iid"`
@@ -96,6 +100,58 @@ func (c repoCLI) OpenRequest(ctx context.Context, remote repoRemote, dir, head, 
 		return r, nil
 	}
 	return store.RepoRequest{}, fmt.Errorf("%w: GitLab did not return the created merge request; retry", store.ErrConflict)
+}
+
+func openGitHubRequest(run func(string, ...string) ([]byte, error), remote repoRemote, head, base, title, description string) (store.RepoRequest, error) {
+	repo := remote.Host + "/" + remote.Path
+	type pr struct {
+		Number          int64  `json:"number"`
+		URL             string `json:"url"`
+		State           string `json:"state"`
+		Head            string `json:"headRefName"`
+		Base            string `json:"baseRefName"`
+		CrossRepository bool   `json:"isCrossRepository"`
+	}
+	list := func() ([]pr, error) {
+		out, err := run("gh", "pr", "list", "--repo", repo, "--head", head, "--state", "open", "--json", "number,url,state,headRefName,baseRefName,isCrossRepository")
+		if err != nil {
+			return nil, fmt.Errorf("%w: GitHub pull request lookup failed; check the connection and retry", store.ErrConflict)
+		}
+		var prs []pr
+		if json.Unmarshal(out, &prs) != nil {
+			return nil, fmt.Errorf("%w: GitHub returned an invalid pull request list", store.ErrConflict)
+		}
+		return prs, nil
+	}
+	find := func(prs []pr) (store.RepoRequest, bool) {
+		for _, p := range prs {
+			if p.Number > 0 && p.URL != "" && p.State == "OPEN" && p.Head == head && p.Base == base && !p.CrossRepository {
+				return store.RepoRequest{Provider: remote.Provider, Host: remote.Host, Path: remote.Path, Number: p.Number, URL: p.URL, State: "opened", Head: head, Base: base}, true
+			}
+		}
+		return store.RepoRequest{}, false
+	}
+	prs, err := list()
+	if err != nil {
+		return store.RepoRequest{}, err
+	}
+	if r, ok := find(prs); ok {
+		return r, nil
+	}
+	if len(prs) != 0 {
+		return store.RepoRequest{}, fmt.Errorf("%w: an open pull request for this branch has a different source repository or target", store.ErrConflict)
+	}
+	if _, err := run("gh", "pr", "create", "--repo", repo, "--head", head, "--base", base, "--title", title, "--body", description); err != nil {
+		return store.RepoRequest{}, fmt.Errorf("%w: GitHub could not create the pull request; check the connection and retry", store.ErrConflict)
+	}
+	prs, err = list()
+	if err != nil {
+		return store.RepoRequest{}, err
+	}
+	if r, ok := find(prs); ok {
+		return r, nil
+	}
+	return store.RepoRequest{}, fmt.Errorf("%w: GitHub did not return the created pull request; retry", store.ErrConflict)
 }
 
 func openRequest(ctx context.Context, st *store.Store, id int64, title, description string) (store.RepoRequest, error) {
