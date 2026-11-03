@@ -1682,6 +1682,6 @@ log shows `marked 1 running turns failed: server restarted`, `GET /turns/2` is `
 
 ### Repository requests
 
-`POST /workspaces/{id}/request` accepts `title` and `description`, pushes the ready workspace's branch to its bound GitLab repository and opens or links an open merge request. The workspace base takes precedence over the Project base. The origin push URL must match the bound repository. GitHub request creation is not supported yet. Errors give a safe reason and can be retried; opening a request never merges it.
+`POST /workspaces/{id}/request` accepts `title` and `description`, pushes the ready workspace's branch to its bound GitHub or GitLab repository and opens or links an open pull request or merge request. The workspace base takes precedence over the Project base. The origin push URL must match the bound repository. Errors give a safe reason and can be retried; opening a request never merges it.
 
 `GET /workspaces/{id}/requests` and `GET /work-items/{id}/requests` list persisted repository-qualified requests, including their originating workspace and Work item or quick-fix Space.
