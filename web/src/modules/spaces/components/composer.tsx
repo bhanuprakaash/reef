@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
 import { useSendMessage } from '@/modules/spaces/api/send-message';
 import { useStopSpace } from '@/modules/spaces/api/stop-space';
 import { useMessages } from '@/lib/api/get-messages';
@@ -8,7 +8,9 @@ import { stepHistory } from '@/modules/spaces/utils/history-step';
 import { splitMentions } from '@/utils/split-mentions';
 import { useQuery } from '@tanstack/react-query';
 import { spacesQuery } from '@/lib/api/get-spaces';
-import { findMention, insertMention } from '@/modules/spaces/utils/mention';
+import { botsQuery } from '@/lib/api/get-bots';
+import { useAddBot } from '@/modules/spaces/api/add-bot';
+import { findMention, insertMention, mentionOptions } from '@/modules/spaces/utils/mention';
 import { findSpaceRef, insertSpaceRef } from '@/modules/spaces/utils/space-ref';
 import { insertFiles, withPaths } from '@/modules/spaces/utils/file-path';
 import { ClipboardChip } from '@/modules/spaces/components/clipboard-chip';
@@ -20,6 +22,7 @@ import { Menu } from '@/components/menu';
 type Props = {
   spaceId: number;
   conversation?: boolean;
+  addable?: boolean;
   running: boolean;
   paused: boolean;
   parent?: number;
@@ -56,6 +59,7 @@ const icon = {
 export function Composer({
   spaceId,
   conversation,
+  addable,
   running,
   paused,
   parent,
@@ -74,16 +78,22 @@ export function Composer({
   const [dragging, setDragging] = useState(false);
   const [clip, setClip] = useState<string | null>(null);
   const [nameOnly, setNameOnly] = useState(false);
+  const [pending, setPending] = useState<{ botId: number; name: string } | null>(null);
   const field = useRef<HTMLTextAreaElement>(null);
   const mirror = useRef<HTMLDivElement>(null);
   const picked = useRef<number | null>(null);
+  const adding = useRef(false);
   const send = useSendMessage(spaceId, parent);
   const stop = useStopSpace(spaceId);
+  const add = useAddBot(spaceId);
 
   const mention = closed || paused ? null : findMention(text, caret);
+  const bots = useQuery({ ...botsQuery, enabled: addable === true && mention !== null });
   const matches = mention
-    ? (roles ?? []).filter((r) => r.name.toLowerCase().startsWith(mention.query.toLowerCase()))
+    ? mentionOptions(roles ?? [], addable ? (bots.data ?? []) : [], mention.query)
     : [];
+  const firstOther = matches.findIndex((o) => !o.member);
+  const card = mention ? pending : null;
   const ref = closed || paused ? null : findSpaceRef(text, caret);
   const spaces = useQuery({ ...spacesQuery(), enabled: ref !== null });
   const refMatches = ref
@@ -95,7 +105,7 @@ export function Composer({
         )
         .slice(0, 8)
     : [];
-  const open = (mention !== null && matches.length > 0) || refMatches.length > 0;
+  const open = card === null && ((mention !== null && matches.length > 0) || refMatches.length > 0);
   const highlighted = Math.min(active, (mention ? matches.length : refMatches.length) - 1);
 
   const history = (messages.data ?? [])
@@ -159,6 +169,33 @@ export function Composer({
     setText(next.text);
     setCaret(next.caret);
     picked.current = next.caret;
+  }
+
+  function pickOption(option: { botId: number; name: string; member: boolean }) {
+    if (option.member) pick(option.name);
+    else {
+      add.reset();
+      setPending({ botId: option.botId, name: option.name });
+    }
+  }
+
+  function confirmAdd() {
+    if (!card || adding.current) return;
+    adding.current = true;
+    add.mutate(card.botId, {
+      onSuccess: () => {
+        if (!conversation) pick(card.name);
+        setPending(null);
+      },
+      onSettled: () => {
+        adding.current = false;
+      },
+    });
+  }
+
+  function dismissCard() {
+    setPending(null);
+    add.reset();
   }
 
   function pickSpace(space: { id: number; name: string }) {
@@ -225,32 +262,64 @@ export function Composer({
           ))}
         </Menu>
       )}
-      {mention !== null && matches.length > 0 && (
+      {card === null && mention !== null && matches.length > 0 && (
         <Menu
           role="listbox"
           aria-label="Mention"
           className="absolute bottom-full left-4 z-10 mb-2 w-[260px]"
         >
           {matches.map((role, i) => (
-            <div
-              key={role.botId}
-              role="option"
-              aria-selected={i === highlighted}
-              tabIndex={-1}
-              className={`flex h-[38px] cursor-pointer items-center gap-2.5 rounded-lg px-2 ${i === highlighted ? 'bg-hover' : ''}`}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                pick(role.name);
-              }}
-            >
-              <Creature look={faceOf(faces, role.botId)} size={22} state={state(role.botId)} />
-              {role.name}
-              <span className="ml-auto text-xs text-muted">
-                {state(role.botId).replace('-', ' ')}
-              </span>
-            </div>
+            <Fragment key={role.botId}>
+              {i === firstOther && (
+                <div role="separator" className="px-2 pb-1 pt-2 text-xs text-muted">
+                  {conversation ? 'Not in this chat' : 'Not in this Space'}
+                </div>
+              )}
+              <div
+                role="option"
+                aria-selected={i === highlighted}
+                tabIndex={-1}
+                className={`flex h-[38px] cursor-pointer items-center gap-2.5 rounded-lg px-2 ${i === highlighted ? 'bg-hover' : ''} ${role.member ? '' : 'opacity-60'}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickOption(role);
+                }}
+              >
+                <Creature
+                  look={faceOf(faces, role.botId)}
+                  size={22}
+                  state={role.member ? state(role.botId) : 'idle'}
+                />
+                {role.name}
+                <span className="ml-auto text-xs text-muted">
+                  {role.member ? state(role.botId).replace('-', ' ') : 'Add'}
+                </span>
+              </div>
+            </Fragment>
           ))}
         </Menu>
+      )}
+      {card !== null && (
+        <div
+          role="group"
+          aria-label="Add Bot"
+          className="absolute bottom-full left-4 z-10 mb-2 w-[320px] space-y-2.5 rounded-menu border border-line bg-card p-3 shadow-menu"
+        >
+          <p className="text-sm">
+            {conversation
+              ? `Add ${card.name}? This chat moves into a new Space with both Bots.`
+              : `Add ${card.name} to this Space?`}
+          </p>
+          {add.isError && <p className="text-sm text-danger">{add.error.message}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" onClick={dismissCard}>
+              Dismiss
+            </Button>
+            <Button type="button" variant="primary" disabled={add.isPending} onClick={confirmAdd}>
+              Add
+            </Button>
+          </div>
+        </div>
       )}
       {clip && !paused && (
         <div className="px-1.5">
@@ -315,6 +384,7 @@ export function Composer({
               setCaret(e.target.selectionStart);
               setActive(0);
               setClosed(false);
+              setPending(null);
             }}
             onScroll={(e) => {
               if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop;
@@ -327,6 +397,18 @@ export function Composer({
             }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
+              if (card) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmAdd();
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  dismissCard();
+                  return;
+                }
+              }
               if (open) {
                 if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                   e.preventDefault();
@@ -337,7 +419,7 @@ export function Composer({
                 }
                 if (e.key === 'Enter' || e.key === 'Tab') {
                   e.preventDefault();
-                  if (mention) pick(matches[highlighted].name);
+                  if (mention) pickOption(matches[highlighted]);
                   else pickSpace(refMatches[highlighted]);
                   return;
                 }

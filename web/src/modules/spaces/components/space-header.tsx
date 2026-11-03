@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
+import { canAddBot } from '@/modules/spaces/components/add-bot-form';
 import { PullRequestIcon } from '@/modules/spaces/components/pull-request-icon';
 import type { PullRequest } from '@/modules/spaces/utils/pull-request';
 import type { Role, SpaceDetail } from '@/types/api';
@@ -202,7 +203,7 @@ export function SpaceHeader({
   const workItem = space.workItemId !== null;
   const canWrap = workItem && space.closedAt === null;
   const canAttach = !workItem && space.kind === 'free';
-  const canAdd = space.kind === 'free' || (space.kind === 'conversation' && space.movedTo === null);
+  const canAdd = canAddBot(space);
   const pick = (action: () => void) => () => {
     setMoreOpen(false);
     action();

@@ -14,7 +14,7 @@ import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
-import { AddBotForm } from '@/modules/spaces/components/add-bot-form';
+import { AddBotForm, canAddBot } from '@/modules/spaces/components/add-bot-form';
 import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
@@ -349,6 +349,7 @@ export function SpaceView({
                 <Composer
                   spaceId={space.id}
                   conversation={space.kind === 'conversation'}
+                  addable={canAddBot(space)}
                   running={running}
                   paused={blocksUser(space.paused)}
                   reason={space.paused}

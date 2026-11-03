@@ -4,6 +4,9 @@ import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { GroupAvatar } from '@/components/creature';
 import type { Space } from '@/types/api';
 
+export const canAddBot = (space: Space) =>
+  space.kind === 'free' || (space.kind === 'conversation' && space.movedTo === null);
+
 export function AddBotForm({ space, onClose }: { space: Space; onClose: () => void }) {
   const bots = useBots();
   const members = useSpaceMembers(space.id);

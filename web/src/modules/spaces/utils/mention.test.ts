@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findMention, insertMention } from './mention';
+import { findMention, insertMention, mentionOptions } from './mention';
 
 describe('findMention', () => {
   it('finds the @word before the caret', () => {
@@ -23,5 +23,48 @@ describe('insertMention', () => {
       text: 'check @architect ',
       caret: 17,
     });
+  });
+});
+
+describe('mentionOptions', () => {
+  const members = [
+    { botId: 1, name: 'tester' },
+    { botId: 2, name: 'architect' },
+  ];
+  const bots = [
+    { id: 1, name: 'tester' },
+    { id: 2, name: 'architect' },
+    { id: 3, name: 'reviewer' },
+    { id: 4, name: 'writer' },
+  ];
+
+  it('lists members only for a bare @', () => {
+    expect(mentionOptions(members, bots, '')).toEqual([
+      { botId: 1, name: 'tester', member: true },
+      { botId: 2, name: 'architect', member: true },
+    ]);
+  });
+
+  it('adds non-members after the members once the prefix matches no member', () => {
+    expect(mentionOptions(members, bots, 'r')).toEqual([
+      { botId: 3, name: 'reviewer', member: false },
+    ]);
+    expect(mentionOptions(members, [...bots, { id: 5, name: 'ref' }], 're')).toEqual([
+      { botId: 3, name: 'reviewer', member: false },
+      { botId: 5, name: 'ref', member: false },
+    ]);
+  });
+
+  it('drops every non-member once the prefix matches a member', () => {
+    expect(mentionOptions(members, bots, 'te')).toEqual([
+      { botId: 1, name: 'tester', member: true },
+    ]);
+  });
+
+  it('matches case-insensitively and lists no one for an unknown prefix', () => {
+    expect(mentionOptions(members, bots, 'W')).toEqual([
+      { botId: 4, name: 'writer', member: false },
+    ]);
+    expect(mentionOptions(members, bots, 'zz')).toEqual([]);
   });
 });
