@@ -131,6 +131,15 @@ func TestParse(t *testing.T) {
 			}},
 		},
 		{
+			name: "file edit gets its tool name as the rule",
+			give: `{"type":"control_request","request_id":"e4cd80ab","request":{"subtype":"can_use_tool","tool_name":"Edit","display_name":"Edit","input":{"file_path":"/x/a.txt","old_string":"old-word","new_string":"new-word","replace_all":false},"description":"a.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_01Edit"}}`,
+			want: []agent.Event{{
+				Kind: agent.KindPermission, RequestID: "e4cd80ab", ToolID: "toolu_01Edit", ToolName: "Edit",
+				Input: json.RawMessage(`{"file_path":"/x/a.txt","old_string":"old-word","new_string":"new-word","replace_all":false}`),
+				Rule:  "Edit",
+			}},
+		},
+		{
 			name: "permission rule without content",
 			give: `{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"WebFetch","input":{},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"WebFetch"}],"behavior":"allow","destination":"session"}],"tool_use_id":"toolu_03"}}`,
 			want: []agent.Event{{

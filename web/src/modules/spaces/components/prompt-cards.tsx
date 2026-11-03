@@ -43,7 +43,7 @@ export function PromptCards({ spaceId, roles }: { spaceId: number; roles: Role[]
                   </p>
                 )}
               </div>
-              {allow.map(([value, label]) => (
+              {(p.rule ? allow : allow.slice(0, 1)).map(([value, label]) => (
                 <Button
                   key={value}
                   variant="primary"

@@ -84,6 +84,15 @@ describe('PromptCards', () => {
     expect(markup).not.toContain('Deny');
   });
 
+  it('offers no Allow always when the prompt has no rule', () => {
+    usePrompts.mockReturnValue({ data: [{ ...prompt, rule: '' }] });
+
+    const markup = render();
+
+    expect(markup).toContain('Allow once');
+    expect(markup).not.toContain('Allow always');
+  });
+
   it('shows nothing without prompts', () => {
     usePrompts.mockReturnValue({ data: [] });
 
