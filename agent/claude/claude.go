@@ -31,6 +31,10 @@ var (
 // break the comma-joined --allowedTools value or never match.
 var _serverName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// _editTools get no addRules suggestion from claude, only setMode acceptEdits; their rule is
+// the tool's name.
+var _editTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
 const (
 	// SIGTERM lets claude stop the tool processes it started; they are not in its group.
 	_termGrace = time.Second
@@ -628,6 +632,9 @@ func parseLine(line []byte, st *state) []agent.Event {
 				rule = sug.Rules[0].String()
 				break
 			}
+		}
+		if rule == "" && slices.Contains(_editTools, l.Request.ToolName) {
+			rule = l.Request.ToolName
 		}
 		evs := st.held
 		st.held = nil
