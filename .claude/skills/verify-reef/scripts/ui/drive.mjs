@@ -4664,7 +4664,7 @@ async function spaceHeader() {
     await page.keyboard.press('Escape');
     return found;
   };
-  const actions = async () => [...(await menuItems('More', ['Open Work item', 'Attach to Work item'])), ...(await menuItems('Bots', ['Add Bot']))].join(', ');
+  const actions = async () => [...(await menuItems('More', ['Open Work item', 'Attach to Work item', 'Close Space'])), ...(await menuItems('Bots', ['Add Bot']))].join(', ');
   const headerText = async () => (await header.innerText()).replace(/\s+/g, ' ');
   const memberNames = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => m.name);
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -4709,7 +4709,18 @@ async function spaceHeader() {
   check((await header.getByRole('button', { name: 'Wrap up', exact: true }).count()) === 0, 'a free Space has no Wrap up');
   await page.waitForTimeout(500);
   await shot('space');
-  check((await actions()) === 'Attach to Work item, Add Bot', 'a free Space has Attach to Work item and Add Bot, no Open Work item', await actions());
+  check((await actions()) === 'Attach to Work item, Close Space, Add Bot', 'a free Space has Attach to Work item, Close Space and Add Bot, no Open Work item', await actions());
+  const closing = await call('POST', '/spaces', { projectId: pid, name: `closing-${suffix}` });
+  const closeTurns = sql(`select count(*) from turn where space_id=${closing.id}`);
+  await open(closing.id, `closing-${suffix}`);
+  await header.getByRole('button', { name: 'More', exact: true }).click();
+  await header.getByRole('menuitem', { name: 'Close Space', exact: true }).click();
+  await main.getByRole('button', { name: 'Reopen' }).waitFor();
+  check(sql(`select closed_at is not null from space where id=${closing.id}`) === '1', 'Close Space closes a free Space with no brief, proof or approval asked: closed_at is set', sql(`select closed_at from space where id=${closing.id}`));
+  check(sql(`select count(*) from turn where space_id=${closing.id}`) === closeTurns && sql(`select count(*) from proposal where space_id=${closing.id}`) === '0', 'closing starts no turn and makes no proposal');
+  check((await menuItems('More', ['Close Space'])).length === 0, 'a closed free Space no longer offers Close Space');
+  await shot('free-closed');
+  await open(freeSpace.id, `free-space-${suffix}`);
   await header.getByRole('button', { name: 'Bots', exact: true }).click();
   await header.getByRole('menuitem', { name: 'Add Bot', exact: true }).click();
   const addDialog = page.getByRole('dialog', { name: 'Add a Bot' });

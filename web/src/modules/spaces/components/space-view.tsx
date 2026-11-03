@@ -10,6 +10,7 @@ import { usePrompts } from '@/modules/spaces/api/get-prompts';
 import { useMessages } from '@/lib/api/get-messages';
 import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
+import { useCloseSpace } from '@/modules/spaces/api/close-space';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
@@ -94,6 +95,7 @@ export function SpaceView({
   const wrap = useWrapSpace(space.id);
   const proposal = useProposal(space.id);
   const reopen = useReopenSpace(space.id);
+  const close = useCloseSpace(space.id);
   const newChat = useStartConversation();
   const navigate = useNavigate();
   const closed = space.closedAt !== null;
@@ -191,6 +193,8 @@ export function SpaceView({
         onWrap={() => wrap.mutate()}
         attachDisabled={running}
         onAttach={() => setAttaching(true)}
+        closeDisabled={running || close.isPending}
+        onClose={() => close.mutate()}
         onAddBot={() => setAdding(true)}
         onNewChat={() =>
           newChat.mutate(

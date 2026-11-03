@@ -29,6 +29,8 @@ type Props = {
   onWrap: () => void;
   attachDisabled: boolean;
   onAttach: () => void;
+  closeDisabled: boolean;
+  onClose: () => void;
   onAddBot: () => void;
   onNewChat: () => void;
   newChatDisabled: boolean;
@@ -192,6 +194,8 @@ export function SpaceHeader({
   onWrap,
   attachDisabled,
   onAttach,
+  closeDisabled,
+  onClose,
   onAddBot,
   onNewChat,
   newChatDisabled,
@@ -203,6 +207,7 @@ export function SpaceHeader({
   const workItem = space.workItemId !== null;
   const canWrap = workItem && space.closedAt === null;
   const canAttach = !workItem && space.kind === 'free';
+  const canClose = canAttach && space.closedAt === null;
   const canAdd = canAddBot(space);
   const pick = (action: () => void) => () => {
     setMoreOpen(false);
@@ -372,6 +377,14 @@ export function SpaceHeader({
                     <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
                   </Icon>
                   Attach to Work item
+                </MenuItem>
+              )}
+              {canClose && (
+                <MenuItem disabled={closeDisabled} onClick={pick(onClose)}>
+                  <Icon>
+                    <path d="M5 12.5l4.5 4.5L19 7.5" />
+                  </Icon>
+                  Close Space
                 </MenuItem>
               )}
               {workItem && (

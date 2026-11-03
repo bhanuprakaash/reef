@@ -373,7 +373,7 @@ scope `bot`. Their routes still read and write them.
 | `tokensUsed` | number | only in `GET /spaces/{id}`: the tokens counted against `tokenBudget` (see [Caps](#caps)) |
 | `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Bot. Set on create; deleting the Crew clears it to `""`. The Space keeps its own member list (`space_member`: Bot ids and the lead flag), so editing the Team later does not change a running Space. A Space has no `backend` or `permissionMode`: every turn runs on its Bot's profile |
 | `createdAt` | string | |
-| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is dropped, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
+| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved, when its work item is dropped and by `POST /spaces/{id}/close` for a free Space, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 | `movedTo` | number? | `null` unless the Space is a conversation that [moved](#spaces-live) to the Space with the id. A moved conversation takes no turn (409) |
 
 ### Space projects
@@ -790,6 +790,7 @@ tool calls.
 | `POST /exchanges/{id}/retry` | no body needed | 200 as `GET`; moves a `failed` or `stopped` exchange back to `waiting` and delivers it again | 404, 409 not `failed` or `stopped` (two retries at once: one wins), or has a `done` response |
 | `POST /exchanges/{id}/cancel` | no body needed | 200 as `GET`; a `waiting` exchange becomes `cancelled` | 404, 409 not `waiting` |
 | `GET /search` | `?workItem=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the work item's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `work item`, missing `q` |
+| `POST /spaces/{id}/close` | no body needed | 204; closes a Space with no work item and stops its agent, with no brief, proof or approval asked. History, memory items, pending proposals and the Space's workspaces stay as they are (closing is not abandoning a quick fix); direct requests waiting in it become `stopped`, and a closed Space is never woken, retried or delivered to (409 on send). Closing a closed Space is 204 | 400 the Space has a work item (close the item); 404; 409 a turn running |
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
