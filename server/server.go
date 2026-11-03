@@ -146,6 +146,7 @@ func newHandler(
 	s.botRoutes(mux)
 	s.navigateRoutes(mux)
 	s.providerRoutes(mux)
+	s.repoRoutes(mux)
 	s.connectionRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)

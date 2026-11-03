@@ -13,6 +13,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { useConnections } from '@/modules/teams/api/connections';
 import { ConnectionLibrary } from '@/modules/teams/components/connection-library';
 import { SkillLibrary } from '@/modules/teams/components/skill-library';
+import { RepoConnectionList } from '@/modules/repo-connections/components/repo-connection-list';
 import { ProviderList } from '@/modules/providers/components/provider-list';
 import { usePutProfile } from '@/lib/api/put-profile';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
@@ -326,6 +327,12 @@ const sections: {
     group: 'Agents',
     lede: 'Reef’s library, plus the Claude Code and Codex skills Reef finds on disk. Importing never runs scripts. Neither gives a skill to a Bot.',
   },
+  {
+    id: 'repositories',
+    title: 'Repositories',
+    group: 'Work',
+    lede: 'GitHub and GitLab, through the gh and glab logins on this Mac. Log in with the CLI, then connect here; Reef keeps the account name, never the token.',
+  },
 ];
 
 export function SettingsPage() {
@@ -347,6 +354,7 @@ export function SettingsPage() {
     terminal: <TerminalSection />,
     updates: <UpdateSection />,
     providers: <ProviderList />,
+    repositories: <RepoConnectionList />,
     connections: <ConnectionLibrary projectId={project?.id} />,
     skills: <SkillLibrary disk={skills.data ?? []} />,
   };

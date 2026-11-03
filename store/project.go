@@ -31,7 +31,14 @@ type Project struct {
 	Icon       string    `json:"icon"`
 	Colour     string    `json:"colour"`
 	CreatedAt  time.Time `json:"createdAt"`
+
+	// RepoConnectionID and RemotePath bind the Project to a repository on a provider host;
+	// SetProjectRemote sets them, UpdateProject leaves them alone.
+	RepoConnectionID *int64 `json:"repoConnectionId"`
+	RemotePath       string `json:"remotePath"`
 }
+
+const _projectCols = "id, name, path, base_branch, purpose, icon, colour, created_at, repo_connection_id, remote_path"
 
 // CreateProject adds p; name and path are required.
 func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
@@ -56,7 +63,7 @@ func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 // Project returns the project with the id, or ErrNotFound.
 func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, name, path, base_branch, purpose, icon, colour, created_at FROM project WHERE id = ?", id)
+		"SELECT "+_projectCols+" FROM project WHERE id = ?", id)
 	p, err := scanProject(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Project{}, fmt.Errorf("project %d: %w", id, ErrNotFound)
@@ -69,7 +76,7 @@ func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error) {
 	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
 		row := s.db.QueryRowContext(ctx,
-			"SELECT id, name, path, base_branch, purpose, icon, colour, created_at FROM project WHERE path = ? ORDER BY id LIMIT 1",
+			"SELECT "+_projectCols+" FROM project WHERE path = ? ORDER BY id LIMIT 1",
 			dir)
 		p, err := scanProject(row)
 		if err == nil {
@@ -87,7 +94,7 @@ func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error)
 // Projects lists every project by id.
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, name, path, base_branch, purpose, icon, colour, created_at FROM project ORDER BY id")
+		"SELECT "+_projectCols+" FROM project ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
@@ -186,8 +193,13 @@ func (p Project) validate() error {
 func scanProject(r interface{ Scan(...any) error }) (Project, error) {
 	var p Project
 	var created string
-	if err := r.Scan(&p.ID, &p.Name, &p.Path, &p.BaseBranch, &p.Purpose, &p.Icon, &p.Colour, &created); err != nil {
+	var connID sql.NullInt64
+	if err := r.Scan(&p.ID, &p.Name, &p.Path, &p.BaseBranch, &p.Purpose, &p.Icon, &p.Colour, &created,
+		&connID, &p.RemotePath); err != nil {
 		return Project{}, err
+	}
+	if connID.Valid {
+		p.RepoConnectionID = &connID.Int64
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {

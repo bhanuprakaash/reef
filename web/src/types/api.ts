@@ -7,6 +7,27 @@ export type Project = {
   icon: string;
   colour: string;
   createdAt: string;
+  repoConnectionId: number | null;
+  remotePath: string;
+};
+
+export type RepoProvider = 'github' | 'gitlab';
+
+export type RepoConnection = {
+  id: number;
+  provider: RepoProvider;
+  host: string;
+  account: string;
+  state: 'connected' | 'disconnected';
+  reason: string;
+  checkedAt: string;
+};
+
+export type DetectedRemote = {
+  provider: RepoProvider;
+  host: string;
+  path: string;
+  connectionId: number | null;
 };
 
 export type Profile = {

@@ -13,6 +13,8 @@ const project: Project = {
   icon: '',
   colour: '',
   createdAt: '',
+  repoConnectionId: null,
+  remotePath: '',
 };
 
 afterEach(() => vi.unstubAllGlobals());
