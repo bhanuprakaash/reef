@@ -702,10 +702,34 @@ func (m *mcpServer) postToSpace(
 	if err := ch.Writable(); err != nil {
 		return nil, store.Message{}, err
 	}
+	parent, err := m.postParent(ctx, in.Parent)
+	if err != nil {
+		return nil, store.Message{}, err
+	}
 	msg, err := m.st.CreateMessage(ctx, store.Message{
-		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, ParentID: in.Parent, Author: name, Body: in.Body,
+		SpaceID: m.tok.SpaceID, BotID: m.tok.BotID, ParentID: parent, Author: name, Body: in.Body,
 	})
 	return nil, msg, err
+}
+
+// postParent: a turn a direct message woke has no thread in its header, so its post goes where
+// the chain's public source message was answered, whatever parent the Bot names.
+func (m *mcpServer) postParent(ctx context.Context, named *int64) (*int64, error) {
+	running, err := m.st.Turns(ctx, store.TurnFilter{SpaceID: &m.tok.SpaceID, Status: "running"})
+	if err != nil {
+		return nil, err
+	}
+	for _, t := range running {
+		if t.DirectMessageID == nil || t.BotID == nil || m.tok.BotID == nil || *t.BotID != *m.tok.BotID {
+			continue
+		}
+		woken, err := m.st.DirectMessage(ctx, *t.DirectMessageID)
+		if err != nil || woken.SourceMessageID == nil {
+			return named, err
+		}
+		return m.st.MessageParent(ctx, *woken.SourceMessageID)
+	}
+	return named, nil
 }
 
 func (m *mcpServer) sendToRole(

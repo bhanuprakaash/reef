@@ -268,7 +268,9 @@ Code and `reef chat` have no router, so a post there is only stored.
 role wakes with the sender, Space, direct message, chain and `source: direct request` in its
 prompt. Its ordinary reply is stored directly for the sender and wakes the sender with
 `source: direct response`. That turn's ordinary reply is not stored or routed; continuing
-requires another `send_to_role`. Direct messages never appear in `read_thread` or the public
+requires another `send_to_role`. A `post_to_space` from a turn a direct message woke ignores its
+`parent`: the post goes in the thread of the public message that started the chain, top level
+when that message is top-level (decision 27). Direct messages never appear in `read_thread` or the public
 Space message list. Partial output from a failed direct turn is kept privately with status
 `failed` and does not wake the sender. A retry appends the one `done` response, which wakes the
 sender once; SQLite permits only one `done` response per request.

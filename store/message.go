@@ -172,6 +172,18 @@ func (s *Store) MessagesByBot(ctx context.Context, spaceID, botID int64, since t
 	return messages, nil
 }
 
+func (s *Store) MessageParent(ctx context.Context, id int64) (*int64, error) {
+	var parent *int64
+	err := s.db.QueryRowContext(ctx, "SELECT parent_id FROM message WHERE id = ?", id).Scan(&parent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("message %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("message parent: %w", err)
+	}
+	return parent, nil
+}
+
 func (s *Store) ThreadOwnerBotID(ctx context.Context, id int64) (*int64, error) {
 	var botID *int64
 	err := s.db.QueryRowContext(ctx, "SELECT r.bot_id FROM message m JOIN message r ON r.id = COALESCE(m.parent_id, m.id) WHERE m.id = ?", id).Scan(&botID)
