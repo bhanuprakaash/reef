@@ -74,7 +74,17 @@ func TestOpenWorkspace_QuickFixesOfAConversation(t *testing.T) {
 		t.Errorf("same fix = %+v, error %v; want the same folder", again, isErr)
 	}
 
-	_, text, isErr := call(0, map[string]any{"project": 1})
+	if _, err := st.PutRepoRequest(ctx, store.RepoRequest{Provider: "gitlab", Host: "gitlab.com", Path: "g/app", Number: 9,
+		URL: "https://gitlab.com/g/app/-/merge_requests/9", State: "opened", Head: first.Branch, Base: "develop",
+		WorkspaceID: first.ID, SpaceID: &toks[0].SpaceID}); err != nil {
+		t.Fatal(err)
+	}
+	text, isErr := callToolResult(t, st, toks[0], dataDir)("open_workspace", map[string]any{"project": 1, "fix": "login-bug"})
+	if isErr || !strings.Contains(text, `"requests":[{`) || !strings.Contains(text, `"number":9`) {
+		t.Errorf("continued fix = %q, error %v; want the request already open for it", text, isErr)
+	}
+
+	_, text, isErr = call(0, map[string]any{"project": 1})
 	if !isErr || !strings.Contains(text, "login-bug") || !strings.Contains(text, "Ask the user") {
 		t.Errorf("no fix with one open = %q, error %v; want a question naming login-bug", text, isErr)
 	}

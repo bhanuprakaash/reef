@@ -1,6 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 
+export type RepoRequest = {
+  id: number;
+  provider: 'github' | 'gitlab';
+  path: string;
+  number: number;
+  url: string;
+  state: string;
+  dependsOn: number[];
+};
+
 export type SpaceWorkspace = {
   id: number;
   projectId: number;
@@ -13,6 +23,7 @@ export type SpaceWorkspace = {
   note: string;
   head: string;
   dirty: boolean;
+  requests: RepoRequest[];
 };
 
 const key = (spaceId: number) => ['spaces', spaceId, 'workspaces'];

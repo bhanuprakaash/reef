@@ -310,17 +310,33 @@ func fixLines(ctx context.Context, st *store.Store, b *strings.Builder, spaceID 
 	}
 	b.WriteString("Fixes of this conversation (open_workspace), each in its own folder under your working " +
 		"folder. A follow-up to a fix goes in the same fix (pass its name); clearly independent work " +
-		"gets a new fix name; when it is unclear, ask the user whether to continue a fix or start a new one.\n")
+		"gets a new fix name; when it is unclear, ask the user whether to continue a fix or start a new one. " +
+		"One fix across Projects takes the same fix name in each. Finish a fix by verifying it, committing " +
+		"it in its folder and calling open_repo_request with its workspace id: that pushes the branch and " +
+		"opens or links the pull or merge request, and calling it again after a follow-up commit updates the " +
+		"same request. When a request must merge after others of the fix, pass their request ids as " +
+		"dependsOn. Never merge: the user merges.\n")
 	for _, w := range open {
 		p, err := st.Project(ctx, w.ProjectID)
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(b, "- %s in %s: %s/ on branch %s (%s)", w.Name, p.Name, filepath.Base(w.Dir), w.Branch, w.State)
+		fmt.Fprintf(b, "- %s in %s: %s/ on branch %s (%s), workspace %d", w.Name, p.Name, filepath.Base(w.Dir), w.Branch, w.State, w.ID)
 		if w.Note != "" {
 			fmt.Fprintf(b, ": %s", w.Note)
 		}
 		b.WriteString("\n")
+		reqs, err := st.WorkspaceRequests(ctx, w.ID)
+		if err != nil {
+			return err
+		}
+		for _, r := range reqs {
+			fmt.Fprintf(b, "  - request %d: %s (%s)", r.ID, r.URL, r.State)
+			if len(r.DependsOn) > 0 {
+				fmt.Fprintf(b, ", merges after request %v", r.DependsOn)
+			}
+			b.WriteString("\n")
+		}
 	}
 	return nil
 }

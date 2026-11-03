@@ -17,14 +17,15 @@ type (
 		Fix     string `json:"fix,omitempty" jsonschema:"the fix to work in: a name this conversation already uses to continue it, or a new name for independent work; omit it only when this conversation has no open fix in the Project"`
 	}
 	openWorkspaceOut struct {
-		ID         int64  `json:"id"`
-		Fix        string `json:"fix"`
-		Dir        string `json:"dir" jsonschema:"the folder to change, inside your working folder"`
-		Branch     string `json:"branch"`
-		Base       string `json:"base"`
-		BaseSource string `json:"baseSource" jsonschema:"origin when the base branch was refreshed from origin, local when it was not"`
-		State      string `json:"state" jsonschema:"ready, or paused with the reason in note"`
-		Note       string `json:"note,omitempty"`
+		ID         int64               `json:"id"`
+		Fix        string              `json:"fix"`
+		Dir        string              `json:"dir" jsonschema:"the folder to change, inside your working folder"`
+		Branch     string              `json:"branch"`
+		Base       string              `json:"base"`
+		BaseSource string              `json:"baseSource" jsonschema:"origin when the base branch was refreshed from origin, local when it was not"`
+		State      string              `json:"state" jsonschema:"ready, or paused with the reason in note"`
+		Note       string              `json:"note,omitempty"`
+		Requests   []store.RepoRequest `json:"requests" jsonschema:"the pull or merge requests already opened from this fix; a follow-up commit and open_repo_request updates them"`
 	}
 )
 
@@ -36,8 +37,9 @@ func (m *mcpServer) registerOpenWorkspace(srv *mcp.Server) {
 			"fix from this conversation, with no work item. It starts on a new branch from the " +
 			"Project's base branch. Pass the fix name of earlier work here to continue it, or a new " +
 			"name for independent work. With no name while a fix is open in that Project it is " +
-			"refused: ask the user whether to continue it or start a new fix. Change files only " +
-			"under the dir returned.",
+			"refused: ask the user whether to continue it or start a new fix. One fix across " +
+			"Projects takes the same name in each. Change files only under the dir returned. When " +
+			"it is verified, commit it there and call open_repo_request with the id returned.",
 	}, m.openWorkspace)
 }
 
@@ -119,8 +121,12 @@ func (m *mcpServer) openWorkspace(
 			}
 		}
 	}
+	reqs, err := m.st.WorkspaceRequests(ctx, w.ID)
+	if err != nil {
+		return nil, openWorkspaceOut{}, err
+	}
 	return nil, openWorkspaceOut{
 		ID: w.ID, Fix: w.Name, Dir: w.Dir, Branch: w.Branch, Base: w.Base, BaseSource: w.BaseSource,
-		State: w.State, Note: w.Note,
+		State: w.State, Note: w.Note, Requests: reqs,
 	}, nil
 }

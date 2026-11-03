@@ -73,13 +73,15 @@ func (s *server) ensureWorkItemWorkspaces(w http.ResponseWriter, r *http.Request
 // is, what it started from and what it holds now.
 type spaceWorkspace struct {
 	store.Workspace
-	ProjectName string `json:"projectName"`
-	Head        string `json:"head"`
-	Dirty       bool   `json:"dirty"`
+	ProjectName string              `json:"projectName"`
+	Head        string              `json:"head"`
+	Dirty       bool                `json:"dirty"`
+	Requests    []store.RepoRequest `json:"requests"`
 }
 
 // listSpaceWorkspaces returns the quick fixes the conversation holds, abandoned ones included,
-// with the head commit and whether the tree has uncommitted changes. It never makes one.
+// with the head commit, whether the tree has uncommitted changes and the pull or merge
+// requests opened from it. It never makes one.
 func (s *server) listSpaceWorkspaces(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -102,7 +104,12 @@ func (s *server) listSpaceWorkspaces(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		sw := spaceWorkspace{Workspace: wk, ProjectName: p.Name}
+		reqs, err := s.st.WorkspaceRequests(r.Context(), wk.ID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		sw := spaceWorkspace{Workspace: wk, ProjectName: p.Name, Requests: reqs}
 		if wk.State == store.WorkspaceReady {
 			sw.Head = worktree.Head(r.Context(), wk.Dir)
 			sw.Dirty, _ = worktree.Dirty(r.Context(), wk.Dir)
