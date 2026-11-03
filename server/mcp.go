@@ -404,6 +404,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"one per line with method, URL and status.",
 	}, m.browserNetwork)
 	m.registerProjectTools(srv)
+	mcp.AddTool(srv, &mcp.Tool{Name: "open_repo_request", Description: "Push a workspace branch and open or link its GitLab merge request."}, m.openRepoRequest)
 	if c, err := st.Space(context.Background(), tok.SpaceID); err == nil && c.WorkItemID == nil && c.Kind != store.KindConsultation {
 		m.registerOpenWorkspace(srv)
 	}

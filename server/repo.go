@@ -30,6 +30,7 @@ type repoProvider interface {
 	// account it is. The text of a failure is a fixed phrase, safe to store and show; it never
 	// holds the CLI's own output, which can carry a token.
 	Account(ctx context.Context, host string) (string, error)
+	OpenRequest(ctx context.Context, remote repoRemote, dir, head, base, title, description string) (store.RepoRequest, error)
 }
 
 // repoCLI runs a provider's CLI. gh and glab both answer `api --hostname HOST user`.
@@ -131,6 +132,9 @@ func validRepoPath(provider, path string) bool {
 }
 
 func (s *server) repoRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /workspaces/{id}/request", s.openRepoRequest)
+	mux.HandleFunc("GET /workspaces/{id}/requests", s.workspaceRequests)
+	mux.HandleFunc("GET /work-items/{id}/requests", s.workItemRequests)
 	mux.HandleFunc("GET /repo-connections", s.listRepoConnections)
 	mux.HandleFunc("POST /repo-connections", s.connectRepo)
 	mux.HandleFunc("/repo-connections", methodNotAllowed)
