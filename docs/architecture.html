@@ -232,7 +232,7 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
       <div class="box"><b>Caps &amp; queue</b><span><code>HopCap = 6</code> talk-only hops, <code>TokenBudget = 1,000,000</code> per top-level Work item; a pause stores held wakes (<code>approval</code> kind <code>hold</code>). <code>MoveWorkItem</code> changes a status by who moves it; <code>startNext</code> starts a free Team's first queued item and sends its lead the item.</span></div>
       <div class="box"><b>Live state &amp; SSE</b><span>Per Space in memory: frames, hops, held, queued. <code>publishLocked</code> never waits for a subscriber. The inbox is a view recomputed after events.</span></div>
       <div class="box"><b>Proposals</b><span><code>/wrap</code>, and the lead's <code>submit_for_review</code> when its chain ends, start a turn whose prompt asks for <code>propose_wrap</code>. Approve saves the items, retires the ids, then saves the brief and closes the Space.</span></div>
-      <div class="box"><b>Background</b><span>GitHub poll every 60s (failed CI wakes the developer as author <code>reef</code>). At start, turns still <code>running</code> become <code>failed: server restarted</code>.</span></div>
+      <div class="box"><b>Background</b><span>Repository tracking every 60s (a failed check wakes the Space coordinator as author <code>reef</code>). At start, turns still <code>running</code> become <code>failed: server restarted</code>.</span></div>
     </div>
 
     <div class="node" id="m-chan" style="left:2260px;top:0;width:580px">
@@ -268,7 +268,7 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
       <div class="box"><b>Memory</b><span><code>brief</code> (versions) · <code>memory</code> · <code>memory_link</code></span></div>
       <div class="box"><b>Conversation</b><span><code>space</code> · <code>space_member</code> · <code>message</code> · <code>direct_message</code> · <code>turn</code> · <code>tool_call</code></span></div>
       <div class="box"><b>Control</b><span><code>teammate</code> · <code>team</code> · <code>team_member</code> · <code>approval</code> (holds) · <code>token</code> · <code>proposal</code> · <code>proof</code> · <code>inbox_fyi</code> · <code>profile</code></span></div>
-      <div class="box"><b>GitHub</b><span><code>work_item_github</code> · <code>work_item_github_check</code></span></div>
+      <div class="box"><b>Repositories</b><span><code>repo_connection</code> · <code>repo_request</code></span></div>
     </div>
 
     <div class="node" id="m-git" style="left:3080px;top:1010px;width:480px">
@@ -449,7 +449,7 @@ Asked together: @architect, @tester</pre>
         <tr><td>team</td><td><code>teammate</code> · <code>team</code> · <code>team_member</code></td></tr>
         <tr><td>waiting on you</td><td><code>approval</code> (kind hold) · <code>proposal</code> (kind wrap or brief) · <code>inbox_fyi</code></td></tr>
         <tr><td>identity</td><td><code>token</code> (Space + role, one per awake teammate)</td></tr>
-        <tr><td>GitHub</td><td><code>work_item_github</code> · <code>work_item_github_check</code></td></tr>
+        <tr><td>repositories</td><td><code>repo_connection</code> · <code>repo_request</code></td></tr>
       </table></div>
     </div>
     <div class="card">

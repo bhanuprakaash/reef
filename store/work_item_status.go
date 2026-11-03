@@ -13,6 +13,7 @@ const (
 	ByOwner  = "owner"
 	BySpace  = "space"
 	BySubmit = "submit"
+	ByReef   = "reef"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 
 func validMover(by string) bool {
 	switch by {
-	case ByUser, ByQueue, ByOwner, BySpace, BySubmit:
+	case ByUser, ByQueue, ByOwner, BySpace, BySubmit, ByReef:
 		return true
 	}
 	return false
@@ -41,7 +42,8 @@ func validMover(by string) bool {
 //   - queued to in_progress: the queue.
 //   - in_progress to needs_you and back: the Space, when it pauses and continues.
 //   - in_progress to review: submit, and only when every sub-item is done or dropped.
-//   - review to done: the user, on a top-level item. Review to queued, to send it back: the user.
+//   - review to done: the user, on a top-level item. Review to queued, to send it back: the user,
+//     or Reef when a check of its request fails.
 //   - any status but dropped to dropped: the user. A top-level item that drops is closed, with
 //     its Spaces.
 //   - a top-level item joining the queue goes last, and one sent back from review goes first;
@@ -164,6 +166,10 @@ func checkMove(from, to, by string, sub bool) error {
 		}
 	case BySubmit:
 		if from == _inProgress && to == _review {
+			return nil
+		}
+	case ByReef:
+		if from == _review && to == _queued && !sub {
 			return nil
 		}
 	case ByOwner:

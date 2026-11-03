@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bhanuprakaash/reef/store"
 )
 
 func TestSubItemUsesParentTreeBranchAndPR(t *testing.T) {
@@ -72,36 +69,5 @@ func TestSubItemUsesParentTreeBranchAndPR(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(tree, ".git")); err != nil {
 		t.Errorf("deleting the sub-item removed the parent's worktree: %v", err)
-	}
-}
-
-func TestPollGitHub_SubItemNotPolledOnItsOwn(t *testing.T) {
-	ctx := context.Background()
-	st, err := openStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
-	ts := httptest.NewServer(h)
-	t.Cleanup(ts.Close)
-	t.Cleanup(h.Close)
-	repo := ghWorkItemSetup(t, st, ts.URL, store.SoloTeam)
-	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Child"}`)
-
-	binDir := t.TempDir()
-	writeFakeGh(t, binDir, repo)
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	respFile := filepath.Join(t.TempDir(), "resp.json")
-	t.Setenv("GH_FAKE_RESPONSE", respFile)
-	setGhResponse(t, respFile, _ghFailedCheck)
-
-	h.s.pollGitHub(ctx)
-	msgs, err := st.Messages(ctx, 1, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(msgs) != 2 {
-		t.Errorf("space 1 has %d messages, want 2: %+v", len(msgs), msgs)
 	}
 }

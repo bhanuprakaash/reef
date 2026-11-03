@@ -471,7 +471,7 @@ Rules:
 
 ## Feature scripts
 
-Run several at once with `scripts/verify-parallel feature:github feature:work-item-flow ui:bots`:
+Run several at once with `scripts/verify-parallel feature:queue-and-review feature:work-item-flow ui:bots`:
 each job gets its own run (build, ports, data), so they do not wait on each other, and passed
 runs are cleaned. Never run two features in one run id: the second finds the first's server
 and every wait times out.
@@ -486,11 +486,10 @@ done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 | `work-item-flow.sh` | the `flow-*` lines of `queue-and-review.md`, `work-items.md` and `conversations.md` and the `hop-*` lines of `caps.md`: two work items queued on a Team, the lead's sub-items, developer and tester, submit for review, send back, Done, a conversation with a Bot added, a proposed work item, the hop cap |
 | `queue-and-review.sh` | the `queue-*` lines of `queue-and-review.md` |
 | `full-team.sh` | every line of `full-team.md` |
-| `github.sh` | every line of `github.md` |
 
 Give each feature its own run id (`build`, `doctor`, `feature`, `cleanup`): two features
 chained in one run share its scratch cwd, so the second one's `work-item/1` branch is already
-checked out in the first one's worktree (`github` after `queue-and-review` fails that way).
+checked out in the first one's worktree.
 
 `work-item-flow` runs on the fake `claude`: its `flow-*`, `work-*` and `talk-*` recordings in
 `fake/recordings/` come from one `REEF_VERIFY_CLAUDE=record` run of it on real claude (sonnet),

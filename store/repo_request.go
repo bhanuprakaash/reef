@@ -26,9 +26,19 @@ type RepoRequest struct {
 	DependsOn   []int64   `json:"dependsOn"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+	// Review, Checks and CheckedAt are the last status read from the provider. CheckError is why
+	// the last read failed, a fixed phrase, and is empty after a good read.
+	Review     string      `json:"review"`
+	Checks     []RepoCheck `json:"checks"`
+	CheckedAt  *time.Time  `json:"checkedAt"`
+	CheckError string      `json:"checkError"`
+	// Failure is the failed checks of the last read and FailureHandled the failure Reef already
+	// acted on; they differ only while a newly failed check waits to be routed.
+	Failure        string `json:"-"`
+	FailureHandled string `json:"-"`
 }
 
-const _repoRequestCols = "id, provider, host, path, number, url, state, head, base, workspace_id, work_item_id, space_id, depends_on, created_at, updated_at"
+const _repoRequestCols = "id, provider, host, path, number, url, state, head, base, workspace_id, work_item_id, space_id, depends_on, created_at, updated_at, review, checks, failure, failure_handled, checked_at, check_error"
 
 func (s *Store) PutRepoRequest(ctx context.Context, r RepoRequest) (RepoRequest, error) {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
@@ -112,6 +122,9 @@ func (s *Store) WorkspaceRequests(ctx context.Context, id int64) ([]RepoRequest,
 func (s *Store) WorkItemRequests(ctx context.Context, id int64) ([]RepoRequest, error) {
 	return s.repoRequests(ctx, "work_item_id", id)
 }
+func (s *Store) SpaceRequests(ctx context.Context, id int64) ([]RepoRequest, error) {
+	return s.repoRequests(ctx, "space_id", id)
+}
 func (s *Store) repoRequests(ctx context.Context, column string, id int64) ([]RepoRequest, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_repoRequestCols+" FROM repo_request WHERE "+column+" = ? ORDER BY id", id)
 	if err != nil {
@@ -128,13 +141,23 @@ func (s *Store) repoRequests(ctx context.Context, column string, id int64) ([]Re
 }
 func scanRepoRequest(row interface{ Scan(...any) error }) (RepoRequest, error) {
 	var r RepoRequest
-	var created, updated, deps string
-	if err := row.Scan(&r.ID, &r.Provider, &r.Host, &r.Path, &r.Number, &r.URL, &r.State, &r.Head, &r.Base, &r.WorkspaceID, &r.WorkItemID, &r.SpaceID, &deps, &created, &updated); err != nil {
+	var created, updated, deps, checks, checked string
+	if err := row.Scan(&r.ID, &r.Provider, &r.Host, &r.Path, &r.Number, &r.URL, &r.State, &r.Head, &r.Base, &r.WorkspaceID, &r.WorkItemID, &r.SpaceID, &deps, &created, &updated, &r.Review, &checks, &r.Failure, &r.FailureHandled, &checked, &r.CheckError); err != nil {
 		return r, err
+	}
+	if err := json.Unmarshal([]byte(checks), &r.Checks); err != nil {
+		return r, fmt.Errorf("repository request %d: bad checks: %w", r.ID, err)
 	}
 	var err error
 	if err = json.Unmarshal([]byte(deps), &r.DependsOn); err != nil {
 		return r, err
+	}
+	if checked != "" {
+		t, err := time.Parse(time.RFC3339Nano, checked)
+		if err != nil {
+			return r, err
+		}
+		r.CheckedAt = &t
 	}
 	if r.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
 		return r, err

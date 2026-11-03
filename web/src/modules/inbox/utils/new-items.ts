@@ -10,6 +10,7 @@ export const kindLabels: Record<InboxItem['kind'], string> = {
   sub_item: 'Sub-item',
   proposed: 'Proposed',
   started: 'Started',
+  delivery: 'Delivery',
   space_proposed: 'Space proposed',
 };
 

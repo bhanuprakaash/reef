@@ -63,16 +63,6 @@ type server struct {
 
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
-
-	// ghMu guards ghNoGhLogged and ghWorkItemErrLogged: the first github poll runs on its
-	// own goroutine and can overlap a caller that polls the server right after construction.
-	ghMu sync.Mutex
-	// ghNoGhLogged is set once the github poll has logged that gh is not on PATH, so it
-	// logs that once, not every poll.
-	ghNoGhLogged bool
-	// ghWorkItemErrLogged is the last gh error logged for a work item, so the poll logs a
-	// cause once and logs again only when it changes.
-	ghWorkItemErrLogged map[int64]string
 }
 
 // Handler serves the API. Close it when done.
@@ -119,7 +109,7 @@ func newHandler(
 		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{}, starting: map[int64]bool{},
-		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{}, now: time.Now,
+		inboxWake: make(chan struct{}), now: time.Now,
 		promptTimers: map[int64]*time.Timer{}, promptWait: _defaultPromptWait,
 		login: backendLogin,
 	}
@@ -160,7 +150,7 @@ func newHandler(
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
 	s.resumeProjectDeletes()
-	s.startGitHubPoll()
+	s.startRepoTracking()
 	s.startQueue()
 	return &Handler{h: guard(s.notifyInbox(mux)), s: s}
 }
