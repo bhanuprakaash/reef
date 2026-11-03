@@ -693,3 +693,5 @@ Claude Code's own messages are not stored in Reef. Only what the tools write is:
 and proposals. The Space that `reef token` made stays empty, so `search_sessions`
 and `read_thread` see only `reef chat` Spaces. Each `reef token` call makes a new
 Space and token.
+
+`open_repo_request` pushes a workspace branch and opens or links its GitLab merge request. Pass the workspace ID, title and description, or the Project ID for a Work item workspace; `open_workspace` returns the ID for a quick fix. It does not merge the request.

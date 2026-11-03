@@ -17,6 +17,7 @@ type (
 		Fix     string `json:"fix,omitempty" jsonschema:"the fix to work in: a name this conversation already uses to continue it, or a new name for independent work; omit it only when this conversation has no open fix in the Project"`
 	}
 	openWorkspaceOut struct {
+		ID         int64  `json:"id"`
 		Fix        string `json:"fix"`
 		Dir        string `json:"dir" jsonschema:"the folder to change, inside your working folder"`
 		Branch     string `json:"branch"`
@@ -116,7 +117,7 @@ func (m *mcpServer) openWorkspace(
 		}
 	}
 	return nil, openWorkspaceOut{
-		Fix: w.Name, Dir: w.Dir, Branch: w.Branch, Base: w.Base, BaseSource: w.BaseSource,
+		ID: w.ID, Fix: w.Name, Dir: w.Dir, Branch: w.Branch, Base: w.Base, BaseSource: w.BaseSource,
 		State: w.State, Note: w.Note,
 	}, nil
 }
