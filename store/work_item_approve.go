@@ -60,6 +60,14 @@ func (s *Store) ApproveWorkItem(
 	if err := authorizeTargets(ctx, tx, w, targets); err != nil {
 		return WorkItem{}, err
 	}
+	name, err := inactiveTarget(ctx, tx, id)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if name != "" {
+		return WorkItem{}, fmt.Errorf("work item %d targets deleted project %s, adjust its repositories first: %w",
+			id, name, ErrConflict)
+	}
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE work_item SET status = ?, approved_at = ?, approval_key = ? WHERE id = ?",
 		_queued, time.Now().UTC().Format(time.RFC3339Nano), key, id); err != nil {

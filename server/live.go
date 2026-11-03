@@ -608,7 +608,7 @@ func (s *server) runOne(
 }
 
 // checkSpace refuses a turn the Space may not run: any turn on a closed or moved Space or one
-// whose work item is dropped, a wrap on a Space with no work item or while a wrap-up waits for approval, and any turn while the
+// whose work item is dropped, any turn that would run against a deleted Project, a wrap on a Space with no work item or while a wrap-up waits for approval, and any turn while the
 // Space is paused or over its token budget. It returns the Space's lead role, the role a wrap
 // runs for.
 func (s *server) checkSpace(
@@ -616,6 +616,14 @@ func (s *server) checkSpace(
 ) (string, error) {
 	if err := ch.Writable(); err != nil {
 		return "", err
+	}
+	name, err := s.st.SpaceInactiveProject(ctx, ch.ID)
+	if err != nil {
+		return "", err
+	}
+	if name != "" {
+		return "", fmt.Errorf("space %d runs against deleted project %s; adjust its repositories first: %w",
+			ch.ID, name, store.ErrConflict)
 	}
 	if ch.WorkItemID != nil {
 		w, err := s.st.WorkItem(ctx, *ch.WorkItemID)

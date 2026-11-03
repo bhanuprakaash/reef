@@ -123,23 +123,6 @@ func (s *Store) ProjectWorkspaces(ctx context.Context, id int64) ([]Workspace, e
 	return s.workspaces(ctx, "project_id = ?", id)
 }
 
-// ProjectCheckpointRefs lists the checkpoint refs turns took in the repository of project id.
-func (s *Store) ProjectCheckpointRefs(ctx context.Context, id int64) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT c.ref FROM turn_checkpoint c "+
-		"JOIN workspace w ON w.id = c.workspace_id WHERE w.project_id = ?", id)
-	if err != nil {
-		return nil, fmt.Errorf("list checkpoint refs: %w", err)
-	}
-	refs, err := scanAll(rows, func(r interface{ Scan(...any) error }) (string, error) {
-		var ref string
-		return ref, r.Scan(&ref)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("list checkpoint refs: %w", err)
-	}
-	return refs, nil
-}
-
 func (s *Store) workspaces(ctx context.Context, where string, id int64) ([]Workspace, error) {
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT "+_workspaceCols+" FROM workspace WHERE "+where+" ORDER BY id", id)

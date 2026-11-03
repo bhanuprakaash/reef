@@ -107,6 +107,15 @@ func (s *Store) CreateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 		return WorkItem{}, fmt.Errorf("begin create work item: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	homes := []int64{w.ProjectID}
+	for _, t := range w.Targets {
+		homes = append(homes, t.ProjectID)
+	}
+	for _, id := range homes {
+		if err := requireActive(ctx, tx, id); err != nil {
+			return WorkItem{}, err
+		}
+	}
 	owner, others, extra := w.OwnerBotID, w.ParticipantBotIDs, w.Targets
 	w, err = insertWorkItem(ctx, tx, w)
 	if err != nil {

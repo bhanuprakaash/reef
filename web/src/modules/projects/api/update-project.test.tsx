@@ -15,6 +15,8 @@ const project: Project = {
   createdAt: '',
   repoConnectionId: null,
   remotePath: '',
+  deletingAt: null,
+  deletedAt: null,
 };
 
 afterEach(() => vi.unstubAllGlobals());

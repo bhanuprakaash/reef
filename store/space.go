@@ -115,12 +115,10 @@ type LastMessage struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// SpaceFilter narrows Spaces when set: to those associated with a project, to those whose
-// only project is OnlyProjectID, and to one work item.
+// SpaceFilter narrows Spaces when set: to those associated with a project, and to one work item.
 type SpaceFilter struct {
-	ProjectID     *int64
-	OnlyProjectID *int64
-	WorkItemID    *int64
+	ProjectID  *int64
+	WorkItemID *int64
 }
 
 func (f SpaceFilter) where() (string, []any) {
@@ -129,10 +127,6 @@ func (f SpaceFilter) where() (string, []any) {
 	if f.ProjectID != nil {
 		q, args = q+" AND EXISTS (SELECT 1 FROM space_project WHERE space_id = space.id "+
 			"AND project_id = ?)", append(args, *f.ProjectID)
-	}
-	if f.OnlyProjectID != nil {
-		q, args = q+" AND space.id IN (SELECT space_id FROM space_project GROUP BY space_id "+
-			"HAVING COUNT(*) = 1 AND MIN(project_id) = ?)", append(args, *f.OnlyProjectID)
 	}
 	if f.WorkItemID != nil {
 		q, args = q+" AND space.work_item_id = ?", append(args, *f.WorkItemID)
@@ -463,15 +457,17 @@ func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, e
 	return s.Space(ctx, id)
 }
 
-// SpaceProjects lists the projects Space id is associated with, by id.
+// SpaceProjects lists the active projects Space id is associated with, by id; the association
+// with a deleted project stays as a row.
 func (s *Store) SpaceProjects(ctx context.Context, id int64) ([]Project, error) {
 	if err := s.requireSpace(ctx, id); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.icon, project.colour, project.created_at, project.repo_connection_id, project.remote_path "+
+		"SELECT project.id, project.name, project.path, project.base_branch, project.purpose, project.icon, project.colour, project.created_at, project.repo_connection_id, project.remote_path, "+
+			"project.deleting_at, project.deleted_at "+
 			"FROM space_project JOIN project ON project.id = space_project.project_id "+
-			"WHERE space_project.space_id = ? ORDER BY project.id", id)
+			"WHERE space_project.space_id = ? AND "+_activeProject+" ORDER BY project.id", id)
 	if err != nil {
 		return nil, fmt.Errorf("list Space projects: %w", err)
 	}
@@ -603,8 +599,17 @@ func (s *Store) moveSpaceItem(ctx context.Context, id int64, from, to string) er
 
 // ContinueSpace clears the pause, drops the pending holds it left and raises the budget to
 // at least budget: its top-level Work item's, or the Space's own when it has no item. Its Work
-// item, if in needs_you, goes back to in_progress.
+// item, if in needs_you, goes back to in_progress. A Space that runs against a deleted Project
+// stays paused (ErrConflict).
 func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
+	name, err := s.SpaceInactiveProject(ctx, id)
+	if err != nil {
+		return err
+	}
+	if name != "" {
+		return fmt.Errorf("space %d runs against deleted project %s, adjust its repositories first: %w",
+			id, name, ErrConflict)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin continue: %w", err)

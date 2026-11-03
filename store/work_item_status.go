@@ -72,6 +72,16 @@ func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (Work
 	if to == _queued && w.ParentID == nil && w.OwnerBotID == nil {
 		return WorkItem{}, fmt.Errorf("%w: work item %d needs an owner before it is queued", ErrInvalid, id)
 	}
+	if w.ParentID == nil && (to == _queued || by == ByQueue) {
+		name, err := s.ItemInactiveTarget(ctx, id)
+		if err != nil {
+			return WorkItem{}, err
+		}
+		if name != "" {
+			return WorkItem{}, fmt.Errorf("work item %d targets deleted project %s, adjust its repositories first: %w",
+				id, name, ErrConflict)
+		}
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return WorkItem{}, fmt.Errorf("begin move work item: %w", err)

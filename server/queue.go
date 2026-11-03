@@ -165,6 +165,12 @@ func (s *server) startLead(ctx context.Context, id int64, w store.WorkItem) erro
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
 	}
+	if name, err := s.st.ItemInactiveTarget(ctx, w.ID); err != nil || name != "" {
+		if err != nil {
+			return err
+		}
+		return s.pauseWithNote(ctx, id, _projectDeletedReason+name, projectDeletedNote(name))
+	}
 	ws, err := space.EnsureWorkspaces(ctx, s.st, s.trees, s.dataDir, w)
 	if err != nil && ctx.Err() != nil {
 		return err

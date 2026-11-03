@@ -291,8 +291,8 @@ func TestWorkItemRoundTrip(t *testing.T) {
 		t.Fatalf("delete project = %d", status)
 	}
 	for _, path := range []string{"/work-items/1", "/work-items/1/brief", "/work-items/1/notes/architect"} {
-		if status, body = do(t, http.MethodGet, ts.URL+path, ""); status != 404 {
-			t.Errorf("GET %s after project delete = %d %s, want 404", path, status, body)
+		if status, body = do(t, http.MethodGet, ts.URL+path, ""); status != 200 {
+			t.Errorf("GET %s after project delete = %d %s, want 200", path, status, body)
 		}
 	}
 }

@@ -16,6 +16,8 @@ const projects: Project[] = [
     createdAt: '',
     repoConnectionId: null,
     remotePath: '',
+    deletingAt: null,
+    deletedAt: null,
   },
   {
     id: 2,
@@ -28,6 +30,8 @@ const projects: Project[] = [
     createdAt: '',
     repoConnectionId: null,
     remotePath: '',
+    deletingAt: null,
+    deletedAt: null,
   },
 ];
 

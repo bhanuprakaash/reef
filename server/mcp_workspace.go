@@ -58,6 +58,9 @@ func (m *mcpServer) openWorkspace(
 	if err != nil {
 		return nil, openWorkspaceOut{}, err
 	}
+	if !p.Active() {
+		return nil, openWorkspaceOut{}, fmt.Errorf("%w: project %s is deleted", store.ErrInvalid, p.Name)
+	}
 	rows, err := m.st.SpaceWorkspaces(ctx, sp.ID)
 	if err != nil {
 		return nil, openWorkspaceOut{}, err
