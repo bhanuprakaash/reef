@@ -42,6 +42,8 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/spaces/{id}/workspaces", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/workspaces/{workspaceId}/abandon", s.abandonSpaceWorkspace)
 	mux.HandleFunc("/spaces/{id}/workspaces/{workspaceId}/abandon", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/close", s.closeSpace)
+	mux.HandleFunc("/spaces/{id}/close", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/reopen", s.reopenSpace)
 	mux.HandleFunc("/spaces/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/inspector", s.getInspector)
@@ -593,6 +595,35 @@ func (s *server) setSpaceCoordinator(w http.ResponseWriter, r *http.Request) {
 		s.stopLive(l)
 	}
 	writeJSON(w, http.StatusOK, viewTeam(store.Team{Roles: roles}).Roles)
+}
+
+// closeSpace closes a Space with no work item. It leaves its workspaces and memory alone:
+// closing a chat is not abandoning its quick fix.
+func (s *server) closeSpace(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	c, ch, err := s.claim(r.Context(), id, _noTurn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if ch.WorkItemID != nil {
+		err = fmt.Errorf("%w: space %d belongs to work item %d, close the work item",
+			store.ErrInvalid, id, *ch.WorkItemID)
+	} else {
+		err = s.st.CloseSpace(r.Context(), id)
+	}
+	if err = c.release(err); err != nil {
+		writeError(w, err)
+		return
+	}
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) reopenSpace(w http.ResponseWriter, r *http.Request) {

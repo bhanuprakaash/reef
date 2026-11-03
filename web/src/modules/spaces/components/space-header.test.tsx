@@ -39,6 +39,8 @@ function render(over: Partial<SpaceDetail>) {
         onWrap={() => {}}
         attachDisabled={false}
         onAttach={() => {}}
+        closeDisabled={false}
+        onClose={() => {}}
         onAddBot={() => {}}
         onNewChat={() => {}}
         newChatDisabled={false}
