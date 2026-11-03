@@ -428,6 +428,20 @@ adds `skill_draft`: a skill a Bot proposed with `propose_skill`, with its `space
 
 A top-level message is the root of a thread. The author of the root owns the thread.
 
+Every message body is stored with each secret in it replaced by `[secret removed]`, so the
+secret never reaches `reef.db` or a Bot's prompt. The patterns:
+
+| Secret | Pattern | Stored as |
+| --- | --- | --- |
+| Bearer header | `Authorization: Bearer <token>`, any case | `Authorization: Bearer [secret removed]` |
+| JWT | `eyJ<part>.<part>.<part>` | `[secret removed]` |
+| Database URL password | `postgres://`, `postgresql://`, `mongodb://`, `mongodb+srv://` with `user:pass@` | `postgres://user:[secret removed]@` |
+| API key | `sk-` (16+ chars), `ghp_` (20+), `glpat-` (16+), `xoxa-`/`xoxb-`/`xoxp-`/`xoxr-`/`xoxs-` (10+) | `[secret removed]` |
+
+`POST /spaces/{id}/send` removes them before anything else sees the text (the stored message, the
+Space name, the Bot's prompt) and, when it removed one, posts a `reef` note after the message:
+`A secret was removed from your message before it was stored or sent to a Bot.`
+
 ### turn
 
 One agent run in a Space.

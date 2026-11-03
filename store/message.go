@@ -49,8 +49,9 @@ type MessageHit struct {
 	at        time.Time
 }
 
-// CreateMessage appends m to its Space.
+// CreateMessage appends m to its Space, with any secret in its body removed.
 func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
+	m.Body, _ = RemoveSecrets(m.Body)
 	if m.Author == "" {
 		return Message{}, fmt.Errorf("%w: message author is required", ErrInvalid)
 	}
