@@ -299,16 +299,26 @@ type CreatureName = keyof typeof drawings;
 
 export const creatureNames = Object.keys(drawings) as CreatureName[];
 
-const byRole: Record<string, CreatureName> = {
-  lead: 'jellyfish',
-  architect: 'whale',
-  developer: 'penguin',
-  tester: 'shark',
-};
+export const bodyColours = {
+  orange: '#F26B2E',
+  red: '#E5484D',
+  yellow: '#F5C542',
+  green: '#8BC34A',
+  teal: '#3FBFA0',
+  blue: '#3B82F6',
+  violet: '#8B5CF6',
+  pink: '#EC6FA8',
+} as const;
 
-export function creatureName(role: string, face?: string): CreatureName {
-  if (face && Object.hasOwn(drawings, face)) return face as CreatureName;
-  return Object.hasOwn(byRole, role) ? byRole[role] : 'pebble';
+export type Look = { face?: string; colour?: string };
+
+export type Faces = Record<string, Look | undefined>;
+
+export const faceOf = (faces: Faces | undefined, botId: number | null | undefined) =>
+  botId == null ? undefined : faces?.[botId];
+
+export function creatureName(face?: string): CreatureName {
+  return face && Object.hasOwn(drawings, face) ? (face as CreatureName) : 'pebble';
 }
 
 function eyes([a, b]: readonly [Eye, Eye], state: CreatureState) {
@@ -339,9 +349,16 @@ function eyes([a, b]: readonly [Eye, Eye], state: CreatureState) {
   );
 }
 
-function Body({ role, face, state }: { role: string; face?: string; state: CreatureState }) {
-  const d: Drawing = drawings[creatureName(role, face)];
-  const p = state === 'asleep' ? asleep : d.colors;
+export function bodyColour(look?: Look): string {
+  return look?.colour && Object.hasOwn(bodyColours, look.colour)
+    ? bodyColours[look.colour as keyof typeof bodyColours]
+    : drawings[creatureName(look?.face)].colors.body;
+}
+
+function Body({ look, state }: { look?: Look; state: CreatureState }) {
+  const d: Drawing = drawings[creatureName(look?.face)];
+  const p =
+    state === 'asleep' || state === 'failed' ? asleep : { ...d.colors, body: bodyColour(look) };
   return (
     <g className={d.motion}>
       {d.shapes(p)}
@@ -387,8 +404,7 @@ const marks = {
 };
 
 type CreatureProps = {
-  role: string;
-  face?: string;
+  look?: Look;
   state?: CreatureState;
   size: number;
   animate?: boolean;
@@ -418,7 +434,7 @@ const bubbles = (
   </>
 );
 
-export function Creature({ role, face, state = 'idle', size, animate, delay }: CreatureProps) {
+export function Creature({ look, state = 'idle', size, animate, delay }: CreatureProps) {
   const looping = animate && state === 'idle';
   return (
     <svg
@@ -429,9 +445,9 @@ export function Creature({ role, face, state = 'idle', size, animate, delay }: C
       style={delay ? ({ '--c-delay': `${-delay}s` } as CSSProperties) : undefined}
       className={`shrink-0 overflow-visible${animate ? ' creature-live' : ''}${looping ? ' creature-loop' : ''}`}
     >
-      <Body role={role} face={face} state={state} />
+      <Body look={look} state={state} />
       {state === 'needs-you' || state === 'asleep' ? marks[state] : null}
-      {looping && creatureName(role, face) === 'pebble' ? bubbles : null}
+      {looping && creatureName(look?.face) === 'pebble' ? bubbles : null}
     </svg>
   );
 }
@@ -449,15 +465,24 @@ const stacks = [
 ];
 
 type GroupAvatarProps = {
-  roles: string[];
-  faces?: Record<string, string | undefined>;
+  roles: (string | number | null | undefined)[];
+  faces?: Faces;
   size: number;
+  working?: string | number | null;
 };
 
-export function GroupAvatar({ roles, faces, size }: GroupAvatarProps) {
+export function GroupAvatar({ roles, faces, size, working }: GroupAvatarProps) {
   const shown = roles.slice(0, 3);
   if (shown.length < 2) {
-    return <Creature role={shown[0] ?? ''} face={faces?.[shown[0]]} size={size} />;
+    const busy = shown[0] != null && working === shown[0];
+    return (
+      <Creature
+        look={shown[0] == null ? undefined : faces?.[shown[0]]}
+        state={busy ? 'working' : 'idle'}
+        size={size}
+        animate={busy}
+      />
+    );
   }
   return (
     <svg
@@ -465,15 +490,30 @@ export function GroupAvatar({ roles, faces, size }: GroupAvatarProps) {
       height={size}
       viewBox="0 0 64 64"
       aria-hidden="true"
-      className="shrink-0 overflow-visible"
+      className={`shrink-0 overflow-visible${working != null ? ' creature-live' : ''}`}
     >
       {shown.map((role, i) => {
         const s = stacks[shown.length - 2][i];
+        const busy = role != null && role === working;
         return (
           <g key={i}>
             <circle cx={s.cx} cy={s.cy} r={s.r} fill="var(--creature-ring)" />
+            {busy && (
+              <circle
+                className="c-ring"
+                cx={s.cx}
+                cy={s.cy}
+                r={s.r}
+                fill="none"
+                stroke="var(--color-working)"
+                strokeWidth="3"
+              />
+            )}
             <g transform={`translate(${s.x} ${s.y}) scale(${s.scale})`}>
-              <Body role={role} face={faces?.[role]} state="idle" />
+              <Body
+                look={role == null ? undefined : faces?.[role]}
+                state={busy ? 'working' : 'idle'}
+              />
             </g>
           </g>
         );

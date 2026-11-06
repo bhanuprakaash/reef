@@ -3,23 +3,18 @@ import { Link } from 'react-router';
 import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
-import { useChannels } from '@/lib/api/get-channels';
-import { useTeams } from '@/lib/api/get-teams';
+import { useSpaces } from '@/lib/api/get-spaces';
+import { useBots } from '@/lib/api/get-bots';
 import { useCurrentProject } from '@/lib/current-project';
-import { useFeatures } from '@/modules/features/api/get-features';
-import { STAGES } from '@/modules/features/utils/stages';
-import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
+import { useWorkItems } from '@/modules/work-items/api/get-work-items';
+import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
-import { age } from '@/modules/inbox/utils/age';
+import { useSeenItems } from '@/modules/inbox/hooks/use-seen-items';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { useCreateTask } from '@/modules/tasks/api/create-task';
-import { useTasks } from '@/modules/tasks/api/get-tasks';
-import { TaskProgress } from '@/modules/tasks/components/task-progress';
-import type { Feature } from '@/types/api';
-import { roleFaces } from '@/utils/role-faces';
-
-const DAY = 24 * 60 * 60 * 1000;
+import type { WorkItem } from '@/types/api';
+import { memberFaces } from '@/utils/role-faces';
 
 function greeting(now: Date) {
   const hour = now.getHours();
@@ -28,7 +23,7 @@ function greeting(now: Date) {
 
 function QuickCapture() {
   const projects = useProjects();
-  const create = useCreateTask();
+  const create = useCreateWorkItem();
   const [text, setText] = useState('');
   const [project] = useCurrentProject(projects.data);
   const isDesktop = typeof window !== 'undefined' && window.reef != null;
@@ -41,7 +36,7 @@ function QuickCapture() {
         e.preventDefault();
         if (!project || text.trim() === '') return;
         create.mutate(
-          { projectId: project.id, featureId: null, title: `todo: ${text.trim()}` },
+          { projectId: project.id, type: 'task', title: text.trim() },
           { onSuccess: () => setText('') },
         );
       }}
@@ -94,44 +89,25 @@ function QuickCapture() {
   );
 }
 
-function FeatureCard({ feature }: { feature: Feature }) {
-  const channels = useChannels();
-  const teams = useTeams();
-  const inbox = useInbox();
-  const mine = channels.data?.filter((c) => c.featureId === feature.id) ?? [];
+function WorkItemCard({ workItem }: { workItem: WorkItem }) {
+  const spaces = useSpaces();
+  const bots = useBots();
+  const inbox = useNeedsYou();
+  const mine = spaces.data?.filter((c) => c.workItemId === workItem.id) ?? [];
   const latest = mine[mine.length - 1];
-  const team = teams.data?.find((t) => t.name === latest?.team);
-  const roles = team ? team.roles.map((r) => r.name) : latest ? [latest.role] : [];
-  const faces = roleFaces(teams.data, latest?.team);
-  const waiting = inbox.data?.some((i) => i.featureId === feature.id) ?? false;
-  const tasks = useTasks();
-  const current = STAGES.findIndex((s) => s.value === feature.stage);
+  const roles = latest ? (latest.members.length > 0 ? latest.members : [latest.botId]) : [];
+  const faces = memberFaces(bots.data, latest?.members);
+  const waiting = inbox.data?.some((i) => i.workItemId === workItem.id) ?? false;
 
   return (
     <Link
-      to={`/features/${feature.id}`}
+      to={`/work-items/${workItem.id}`}
       className="flex flex-1 flex-col gap-3 rounded-card bg-sidebar p-4 [--creature-ring:var(--color-sidebar)]"
     >
       <div className="flex items-center gap-2">
-        <span className="truncate text-base">{feature.name}</span>
-        {feature.kind === 'journey' && (
-          <span className="ml-auto shrink-0 text-[12.5px] text-muted">
-            {STAGES[current]?.label ?? feature.stage}
-          </span>
-        )}
+        <span className="truncate text-base">{workItem.title}</span>
+        <span className="ml-auto shrink-0 text-[12.5px] text-muted">{workItem.status}</span>
       </div>
-      {feature.kind === 'journey' ? (
-        <div aria-hidden="true" className="grid grid-cols-8 gap-[3px]">
-          {STAGES.map((s, i) => (
-            <span
-              key={s.value}
-              className={`h-[3px] rounded-sm ${i === current ? 'bg-lead' : i < current ? 'bg-pill' : 'bg-track'}`}
-            />
-          ))}
-        </div>
-      ) : (
-        <TaskProgress tasks={tasks.data?.filter((t) => t.featureId === feature.id) ?? []} />
-      )}
       <div
         className={`flex items-center gap-2 text-[13px] ${waiting ? 'text-paused' : 'text-muted'}`}
       >
@@ -139,8 +115,8 @@ function FeatureCard({ feature }: { feature: Feature }) {
         {waiting
           ? 'waiting on you'
           : mine.length === 0
-            ? 'no channel yet'
-            : `${mine.length} ${mine.length === 1 ? 'channel' : 'channels'}`}
+            ? 'no Space yet'
+            : `${mine.length} ${mine.length === 1 ? 'Space' : 'Spaces'}`}
       </div>
     </Link>
   );
@@ -148,23 +124,17 @@ function FeatureCard({ feature }: { feature: Feature }) {
 
 export function HomePage() {
   const projects = useProjects();
-  const features = useFeatures();
-  const inbox = useInbox();
-  const tasks = useTasks();
-  const channels = useChannels();
+  const workItems = useWorkItems();
+  const inbox = useNeedsYou();
+  const spaces = useSpaces();
+  const { seen, markSeen } = useSeenItems();
   const [project] = useCurrentProject(projects.data);
   const now = new Date();
-  const since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - DAY;
 
   const waiting = inbox.data ?? [];
-  const done = (tasks.data ?? [])
-    .filter((t) => t.status === 'done' && Date.parse(t.updatedAt) >= since)
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
-  const error = projects.error ?? features.error ?? inbox.error ?? tasks.error;
-  const projectFeatures = features.data?.filter((f) => f.projectId === project?.id);
+  const error = projects.error ?? workItems.error ?? inbox.error;
+  const projectWorkItems = workItems.data?.filter((f) => !project || f.projectId === project.id);
   const summary = [
-    done.length > 0 &&
-      `The team finished ${done.length} ${done.length === 1 ? 'task' : 'tasks'} since yesterday.`,
     waiting.length > 0 &&
       (waiting.length === 1 ? 'One thing waits on you.' : `${waiting.length} things wait on you.`),
   ].filter(Boolean);
@@ -194,61 +164,41 @@ export function HomePage() {
           <EmptyState
             title="Nothing needs you"
             body="Everything is moving on its own."
-            role="lead"
+            face="jellyfish"
           />
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col border-t border-hairline">
             {waiting.map((item) => (
               <InboxRow
                 key={itemKey(item)}
                 item={item}
-                channel={channels.data?.find((c) => c.id === item.channelId)}
+                space={spaces.data?.find((c) => c.id === item.spaceId)}
+                seen={seen.includes(itemKey(item))}
+                onSeen={() => markSeen(itemKey(item))}
               />
             ))}
           </ul>
         )}
       </section>
 
-      <section aria-labelledby="today-features" className="flex flex-col gap-2.5">
-        <h2 id="today-features" className="text-[15px]">
-          Features
+      <section aria-labelledby="today-work-items" className="flex flex-col gap-2.5">
+        <h2 id="today-work-items" className="text-[15px]">
+          Work items
         </h2>
-        {projectFeatures?.length === 0 && (
+        {projectWorkItems?.length === 0 && (
           <p className="text-[13px] text-muted">
-            No features yet. Add one from <span className="md:hidden">Channels.</span>
+            No Work items yet. Add one from <span className="md:hidden">Spaces.</span>
             <span className="hidden md:inline">the sidebar.</span>
           </p>
         )}
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {projectFeatures?.map((f) => (
+          {projectWorkItems?.map((f) => (
             <li key={f.id} className="flex">
-              <FeatureCard feature={f} />
+              <WorkItemCard workItem={f} />
             </li>
           ))}
         </ul>
       </section>
-
-      {done.length > 0 && (
-        <section aria-labelledby="today-done" className="flex flex-col gap-1">
-          <h2 id="today-done" className="mb-1.5 text-[15px]">
-            Since yesterday
-          </h2>
-          <ul>
-            {done.map((t) => (
-              <li key={t.id} className="flex items-center gap-3 px-1 py-2 text-sm text-soft">
-                <span
-                  aria-hidden="true"
-                  className="flex size-[22px] flex-none items-center justify-center rounded-full bg-done/15 text-xs text-done"
-                >
-                  ✓
-                </span>
-                <span className="min-w-0 truncate">{t.title}</span>
-                <span className="ml-auto text-[12.5px] text-faint">{age(t.updatedAt)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
     </div>
   );
 }

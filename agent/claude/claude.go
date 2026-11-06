@@ -22,18 +22,24 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-var _ agent.Agent = (*Agent)(nil)
+var (
+	_ agent.Agent = (*Agent)(nil)
+	_ agent.Asker = (*Agent)(nil)
+)
 
 // _serverName is the set claude keeps unchanged in a tool name; anything else would
 // break the comma-joined --allowedTools value or never match.
 var _serverName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// _editTools get no addRules suggestion from claude, only setMode acceptEdits; their rule is
+// the tool's name.
+var _editTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 const (
 	// SIGTERM lets claude stop the tool processes it started; they are not in its group.
 	_termGrace = time.Second
 	// WaitDelay bounds Wait when a process that outlived claude holds its stderr pipe.
 	_waitDelay = 2 * time.Second
-	_stderrMax = 4 << 10
 	// _messageBreak goes before the text of a message that follows text in the same turn.
 	_messageBreak = "\n\n"
 )
@@ -42,7 +48,7 @@ const (
 type Agent struct {
 	cmd     *exec.Cmd
 	stdin   io.Writer
-	stderr  bytes.Buffer
+	stderr  agent.Tail
 	events  chan agent.Event
 	quit    chan struct{}
 	done    chan struct{}
@@ -50,6 +56,10 @@ type Agent struct {
 	mu      sync.Mutex // guards started, stopped and the fields start sets
 	started bool
 	stopped bool
+
+	inMu    sync.Mutex                 // one line at a time on stdin: Send and Answer
+	pendMu  sync.Mutex                 // guards pending
+	pending map[string]json.RawMessage // input of each permission request not answered yet, by request id
 }
 
 type (
@@ -79,12 +89,25 @@ type (
 		CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
 	}
 
+	// modelUsage is a result's count of every model call of the whole session so far, by model,
+	// also after a resume: the subagents' and claude's own side calls too, which usage leaves out.
+	modelUsage map[string]struct {
+		InputTokens      int64 `json:"inputTokens"`
+		OutputTokens     int64 `json:"outputTokens"`
+		CacheReadTokens  int64 `json:"cacheReadInputTokens"`
+		CacheWriteTokens int64 `json:"cacheCreationInputTokens"`
+	}
+
 	outputLine struct {
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
 		SessionID string `json:"session_id"`
 		Model     string `json:"model"` // system/init
-		Event     struct {
+		MCP       []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"mcp_servers"` // system/init
+		Event struct {
 			Type  string `json:"type"`
 			Delta struct {
 				Type string `json:"type"`
@@ -95,16 +118,57 @@ type (
 		Message struct {
 			Content blocks `json:"content"`
 		} `json:"message"`
-		ParentToolUseID string      `json:"parent_tool_use_id"`
-		IsReplay        bool        `json:"isReplay"`
-		IsError         bool        `json:"is_error"`
-		Result          string      `json:"result"`
-		Errors          []string    `json:"errors"`
-		Usage           usageCounts `json:"usage"`
-		TotalCostUSD    *float64    `json:"total_cost_usd"` // result; nil when the backend did not send one
+		RequestID string `json:"request_id"` // control_request
+		Request   struct {
+			Subtype               string          `json:"subtype"`
+			ToolName              string          `json:"tool_name"`
+			Input                 json.RawMessage `json:"input"`
+			ToolUseID             string          `json:"tool_use_id"`
+			BlockedPath           string          `json:"blocked_path"`
+			PermissionSuggestions []struct {
+				Type  string           `json:"type"`
+				Rules []permissionRule `json:"rules"`
+			} `json:"permission_suggestions"`
+		} `json:"request"`
+		ParentToolUseID string     `json:"parent_tool_use_id"`
+		IsReplay        bool       `json:"isReplay"`
+		IsError         bool       `json:"is_error"`
+		Result          string     `json:"result"`
+		Errors          []string   `json:"errors"`
+		ModelUsage      modelUsage `json:"modelUsage"`
+		TotalCostUSD    *float64   `json:"total_cost_usd"` // result; nil when the backend did not send one
 		Origin          struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
+	}
+
+	// permissionRule is one allow rule: Bash(cat /x) is ToolName Bash, RuleContent "cat /x".
+	permissionRule struct {
+		ToolName    string `json:"toolName"`
+		RuleContent string `json:"ruleContent,omitempty"`
+	}
+
+	permissionUpdate struct {
+		Type        string           `json:"type"`
+		Rules       []permissionRule `json:"rules"`
+		Behavior    string           `json:"behavior"`
+		Destination string           `json:"destination"`
+	}
+
+	permissionReply struct {
+		Behavior           string             `json:"behavior"`
+		UpdatedInput       json.RawMessage    `json:"updatedInput,omitempty"`
+		UpdatedPermissions []permissionUpdate `json:"updatedPermissions,omitempty"`
+		Message            string             `json:"message,omitempty"`
+	}
+
+	controlResponse struct {
+		Type     string `json:"type"`
+		Response struct {
+			Subtype   string          `json:"subtype"`
+			RequestID string          `json:"request_id"`
+			Response  permissionReply `json:"response"`
+		} `json:"response"`
 	}
 
 	blocks []block
@@ -126,6 +190,8 @@ func New() *Agent {
 		events: make(chan agent.Event),
 		quit:   make(chan struct{}),
 		done:   make(chan struct{}),
+
+		pending: make(map[string]json.RawMessage),
 	}
 }
 
@@ -136,11 +202,15 @@ func (a *Agent) Start(_ context.Context, cfg agent.Config) error {
 
 // Resume launches claude in cfg.Cwd continuing the session with the given id.
 func (a *Agent) Resume(_ context.Context, cfg agent.Config, sessionID string) error {
-	return a.start(cfg, "--resume", sessionID)
+	args := []string{"--resume", sessionID}
+	if cfg.Fork {
+		args = append(args, "--fork-session")
+	}
+	return a.start(cfg, args...)
 }
 
 // Send writes the prompt to claude as one user message.
-func (a *Agent) Send(_ context.Context, prompt string) error {
+func (a *Agent) Send(ctx context.Context, prompt string) error {
 	if a.stdin == nil {
 		return errors.New("claude not started")
 	}
@@ -151,10 +221,80 @@ func (a *Agent) Send(_ context.Context, prompt string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := a.stdin.Write(append(msg, '\n')); err != nil {
-		return fmt.Errorf("write prompt: %w", err)
+	if err := a.writeLine(msg); err != nil {
+		err = fmt.Errorf("write prompt: %w", err)
+		if why := a.exitReason(ctx); why != "" {
+			err = fmt.Errorf("%w: %s", err, why)
+		}
+		return err
 	}
 	return nil
+}
+
+// Answer writes the control_response of the permission request with requestID. An allow with a
+// Rule also adds the rule for the rest of the session. A deny gives the tool call ans.Reason as
+// its result and does not interrupt the turn.
+func (a *Agent) Answer(requestID string, ans agent.Answer) error {
+	if a.stdin == nil {
+		return errors.New("claude not started")
+	}
+	a.pendMu.Lock()
+	input, ok := a.pending[requestID]
+	delete(a.pending, requestID)
+	a.pendMu.Unlock()
+	if !ok {
+		return fmt.Errorf("no permission request %s", requestID)
+	}
+	var resp controlResponse
+	resp.Type = "control_response"
+	resp.Response.Subtype = "success"
+	resp.Response.RequestID = requestID
+	reply := &resp.Response.Response
+	if ans.Allow {
+		reply.Behavior, reply.UpdatedInput = "allow", input
+		if ans.Rule != "" {
+			reply.UpdatedPermissions = []permissionUpdate{{
+				Type: "addRules", Rules: []permissionRule{parseRule(ans.Rule)},
+				Behavior: "allow", Destination: "session",
+			}}
+		}
+	} else {
+		reply.Behavior, reply.Message = "deny", ans.Reason
+	}
+	line, err := json.Marshal(resp)
+	if err != nil {
+		return err
+	}
+	if err := a.writeLine(line); err != nil {
+		return fmt.Errorf("write answer: %w", err)
+	}
+	return nil
+}
+
+func (a *Agent) writeLine(line []byte) error {
+	a.inMu.Lock()
+	defer a.inMu.Unlock()
+	_, err := a.stdin.Write(append(line, '\n'))
+	return err
+}
+
+// exitReason is the text of the error event claude left when it exited before it read the
+// prompt, such as on a session it could not resume. The caller of a failed write is not
+// reading Events, so the reason would otherwise never reach it.
+func (a *Agent) exitReason(ctx context.Context) string {
+	for {
+		select {
+		case ev, ok := <-a.events:
+			if !ok {
+				return ""
+			}
+			if ev.Kind == agent.KindError {
+				return ev.Text
+			}
+		case <-ctx.Done():
+			return ""
+		}
+	}
 }
 
 // Events streams events until claude exits, then closes the channel.
@@ -210,6 +350,12 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
 	}
+	if cfg.Instructions != "" {
+		args = append(args, "--append-system-prompt", cfg.Instructions)
+	}
+	for _, dir := range cfg.AddDirs {
+		args = append(args, "--add-dir", dir)
+	}
 	if len(cfg.MCPServers) > 0 {
 		for name := range cfg.MCPServers {
 			if !_serverName.MatchString(name) {
@@ -225,7 +371,7 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 				_ = os.Remove(path)
 			}
 		}()
-		args = append(args, "--mcp-config", path)
+		args = append(args, "--mcp-config", path, "--strict-mcp-config")
 		a.mcpPath = path
 	}
 	if len(cfg.Tools) > 0 {
@@ -234,9 +380,16 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if len(cfg.DisallowedTools) > 0 {
 		args = append(args, "--disallowedTools", strings.Join(cfg.DisallowedTools, ","))
 	}
+	if cfg.AskPermissions {
+		args = append(args, "--permission-prompt-tool", "stdio")
+	}
 	args = append(args, extra...)
 
-	cmd := exec.Command("claude", args...)
+	bin := cfg.Bin
+	if bin == "" {
+		bin = "claude"
+	}
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = cfg.Cwd
 	cmd.Env = append(os.Environ(), cfg.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -262,18 +415,24 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 func (a *Agent) read(stdout io.Reader) {
 	defer close(a.done)
 	defer close(a.events)
-	defer func() {
-		if a.mcpPath != "" {
-			_ = os.Remove(a.mcpPath)
-		}
-	}()
 
 	r := bufio.NewReader(stdout)
+	// claude reads --mcp-config once at start-up, before it prints anything, so the file goes
+	// at its first output: a reef killed after that leaves no file behind.
+	_, _ = r.Peek(1)
+	if a.mcpPath != "" {
+		_ = os.Remove(a.mcpPath)
+	}
 	var last agent.Kind
 	var st state
 	for {
 		line, err := r.ReadBytes('\n')
 		for _, ev := range parse(line, &st) {
+			if ev.Kind == agent.KindPermission {
+				a.pendMu.Lock()
+				a.pending[ev.RequestID] = ev.Input
+				a.pendMu.Unlock()
+			}
 			if !a.emit(ev) {
 				_ = a.cmd.Wait()
 				return
@@ -288,13 +447,9 @@ func (a *Agent) read(stdout io.Reader) {
 	if err == nil || last == agent.KindError {
 		return
 	}
-	stderr := a.stderr.Bytes()
-	if len(stderr) > _stderrMax {
-		stderr = stderr[len(stderr)-_stderrMax:]
-	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(stderr)),
+		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(a.stderr.Bytes())),
 	})
 }
 
@@ -313,7 +468,7 @@ func (a *Agent) emit(ev agent.Event) bool {
 	}
 }
 
-func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
+func mcpJSON(servers map[string]agent.MCPServer) ([]byte, error) {
 	entries := make(map[string]mcpEntry, len(servers))
 	for name, s := range servers {
 		e := mcpEntry{MCPServer: s}
@@ -322,7 +477,11 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 		}
 		entries[name] = e
 	}
-	b, err := json.Marshal(mcpFile{MCPServers: entries})
+	return json.Marshal(mcpFile{MCPServers: entries})
+}
+
+func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
+	b, err := mcpJSON(servers)
 	if err != nil {
 		return "", err
 	}
@@ -343,7 +502,6 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 
 // state is what parse keeps between lines.
 type state struct {
-	seen agent.Usage   // usage the turn has sent so far
 	held []agent.Event // tool calls of the message in progress and the results after them, held until its usage
 
 	// wrote is set once the turn has sent text; breakNext is set at a message start that
@@ -354,10 +512,7 @@ type state struct {
 	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
 	// claude ran by itself for a background task: its text and tool events answer no prompt.
 	unprompted bool
-
-	// lastCost is the process total the most recent result line with a cost reported; carried
-	// across a reset so a turn's CostUSD is its own share, not the process running total.
-	lastCost float64
+	answer     string
 }
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
@@ -369,13 +524,21 @@ type state struct {
 // (its assistant line comes before the message_delta). A tool_result that arrives before
 // the message_delta waits with the calls, so a call never follows its own result. A
 // subagent's messages have no message_delta, so its calls are sent at once. The result line
-// sends what is still held, then only what is left of its usage total. An unprompted turn
-// gives only its usage. A result's total_cost_usd is the cost of the process so far, not the
-// turn: CostUSD is that total minus the last one seen in the process.
+// sends what is still held, then the turn end. Its SessionUsage is the result's modelUsage, the
+// whole session's usage so far, also after a resume: it counts the subagents and claude's own
+// side calls too, which the messages' usage leaves out. Its CostUSD is total_cost_usd, the
+// whole session's running cost. The caller takes off what earlier turns had. An unprompted turn
+// gives its usage, then at its result its text as one KindBackground event. A background
+// result sends no total; the next turn's total holds it.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
 		return evs
+	}
+	for _, ev := range evs {
+		if ev.Kind == agent.KindText {
+			st.answer += ev.Text
+		}
 	}
 	return slices.DeleteFunc(evs, func(ev agent.Event) bool {
 		return ev.Kind == agent.KindText || ev.Kind == agent.KindToolCall || ev.Kind == agent.KindToolResult
@@ -391,7 +554,19 @@ func parseLine(line []byte, st *state) []agent.Event {
 	case "system":
 		if l.Subtype == "init" {
 			st.unprompted = true
-			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
+			evs := []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
+			for _, m := range l.MCP {
+				switch m.Status {
+				case "connected":
+					evs = append(evs, agent.Event{Kind: agent.KindMCP, MCPServer: m.Name, Text: agent.MCPConnected})
+				case "needs-auth":
+					evs = append(evs, agent.Event{Kind: agent.KindMCP, MCPServer: m.Name, Text: agent.MCPNeedsAuth})
+				}
+			}
+			return evs
+		}
+		if l.Subtype == "compact_boundary" {
+			return []agent.Event{{Kind: agent.KindCompacted}}
 		}
 	case "stream_event":
 		if l.Event.Type == "message_start" {
@@ -407,7 +582,6 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()
-			st.seen.Add(u)
 			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.held...)
 			st.held = nil
 			return evs
@@ -448,39 +622,66 @@ func parseLine(line []byte, st *state) []agent.Event {
 			return nil
 		}
 		return evs
-	case "result":
-		total := l.Usage.usage()
-		rest := agent.Usage{
-			InputTokens:      total.InputTokens - st.seen.InputTokens,
-			OutputTokens:     total.OutputTokens - st.seen.OutputTokens,
-			CacheReadTokens:  total.CacheReadTokens - st.seen.CacheReadTokens,
-			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
+	case "control_request":
+		if l.Request.Subtype != "can_use_tool" {
+			return nil
+		}
+		var rule string
+		for _, sug := range l.Request.PermissionSuggestions {
+			if sug.Type == "addRules" && len(sug.Rules) > 0 {
+				rule = sug.Rules[0].String()
+				break
+			}
+		}
+		if rule == "" && slices.Contains(_editTools, l.Request.ToolName) {
+			rule = l.Request.ToolName
 		}
 		evs := st.held
-		lastCost := st.lastCost
-		// A background task's cost rides on no turn; its delta carries forward to the
-		// next turn's result instead of being counted here.
-		background := l.Origin.Kind == "task-notification"
-		var cost *float64
-		if l.TotalCostUSD != nil && !background {
-			delta := *l.TotalCostUSD - lastCost
-			cost, lastCost = &delta, *l.TotalCostUSD
-		}
-		*st = state{lastCost: lastCost}
-		if rest != (agent.Usage{}) {
-			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
-		}
+		st.held = nil
+		return append(evs, agent.Event{
+			Kind: agent.KindPermission, RequestID: l.RequestID, ToolID: l.Request.ToolUseID,
+			ToolName: l.Request.ToolName, Input: l.Request.Input, Rule: rule, Text: l.Request.BlockedPath,
+		})
+	case "result":
+		evs := st.held
+		answer := strings.TrimSpace(st.answer)
+		*st = state{}
 		// A turn claude runs by itself for a background task is not the answer to a prompt.
-		if background {
+		if l.Origin.Kind == "task-notification" {
+			if answer != "" {
+				evs = append(evs, agent.Event{Kind: agent.KindBackground, Text: answer})
+			}
 			return evs
 		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text), CostUSD: cost})
+			return append(evs, agent.Event{
+				Kind: agent.KindError, Text: strings.TrimSpace(text),
+				CostUSD: l.TotalCostUSD, SessionUsage: l.ModelUsage.sessionUsage(),
+			})
 		}
-		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: cost})
+		return append(evs, agent.Event{
+			Kind: agent.KindTurnEnd, CostUSD: l.TotalCostUSD, SessionUsage: l.ModelUsage.sessionUsage(),
+		})
 	}
 	return nil
+}
+
+// String is the rule as Tool(ruleContent), or Tool when it has no content.
+func (r permissionRule) String() string {
+	if r.RuleContent == "" {
+		return r.ToolName
+	}
+	return r.ToolName + "(" + r.RuleContent + ")"
+}
+
+// parseRule is String's inverse.
+func parseRule(s string) permissionRule {
+	name, content, ok := strings.Cut(s, "(")
+	if !ok {
+		return permissionRule{ToolName: s}
+	}
+	return permissionRule{ToolName: name, RuleContent: strings.TrimSuffix(content, ")")}
 }
 
 // UnmarshalJSON reads a list of blocks. The content of a replayed prompt is a plain
@@ -502,12 +703,30 @@ func (c usageCounts) usage() agent.Usage {
 	}
 }
 
+// sessionUsage is the sum over the models, nil when the result sent none.
+func (m modelUsage) sessionUsage() *agent.Usage {
+	if len(m) == 0 {
+		return nil
+	}
+	var u agent.Usage
+	for _, c := range m {
+		u.Add(agent.Usage{
+			InputTokens:      c.InputTokens,
+			OutputTokens:     c.OutputTokens,
+			CacheReadTokens:  c.CacheReadTokens,
+			CacheWriteTokens: c.CacheWriteTokens,
+		})
+	}
+	return &u
+}
+
 func resultText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return s
 	}
 	var blocks []struct {
+		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
@@ -515,6 +734,9 @@ func resultText(raw json.RawMessage) string {
 	}
 	var parts []string
 	for _, b := range blocks {
+		if b.Type == "image" {
+			b.Text = "[image]"
+		}
 		parts = append(parts, b.Text)
 	}
 	return strings.Join(parts, "\n")

@@ -1,0 +1,16 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api-client';
+import type { WorkItem, WorkItemStatus } from '@/types/api';
+
+export function useMoveWorkItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: WorkItemStatus }) =>
+      api<WorkItem>(`/work-items/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['work-items'] }),
+        queryClient.invalidateQueries({ queryKey: ['spaces'] }),
+      ]),
+  });
+}

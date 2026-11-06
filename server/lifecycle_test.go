@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -24,7 +25,7 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	<-env.fake.started
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
-	if status, body := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 || body != "" {
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/stop", ""); status != 204 || body != "" {
 		t.Fatalf("stop = %d %q, want 204", status, body)
 	}
 	sub.want(t, `turn {"role":"lead","status":"failed","error":"interrupted"}`)
@@ -45,16 +46,16 @@ func TestContinue_WhileRunning(t *testing.T) {
 	env := newLiveEnv(t)
 	env.send(t, "block")
 	<-env.fake.started
-	if err := env.st.PauseChannel(context.Background(), 1, "capped"); err != nil {
+	if err := env.st.PauseSpace(context.Background(), 1, "capped"); err != nil {
 		t.Fatal(err)
 	}
 
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/continue", "")
-	if status != 409 || body != `{"error":"channel 1 has a turn running: conflict"}` {
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/continue", "")
+	if status != 409 || body != `{"error":"space 1 has a turn running: conflict"}` {
 		t.Errorf("continue while running = %d %s, want 409 turn running", status, body)
 	}
-	if ch, err := env.st.Channel(context.Background(), 1); err != nil || ch.Paused != "capped" {
-		t.Errorf("channel = %+v, %v, want still paused", ch, err)
+	if ch, err := env.st.Space(context.Background(), 1); err != nil || ch.Paused != "capped" {
+		t.Errorf("space = %+v, %v, want still paused", ch, err)
 	}
 	env.fake.release <- struct{}{}
 }
@@ -62,15 +63,15 @@ func TestContinue_WhileRunning(t *testing.T) {
 func TestContinue_StartFailureKeepsHeldWakes(t *testing.T) {
 	env := newLiveEnv(t)
 	id, sub := env.pingPong(t)
-	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	continueURL := fmt.Sprintf("%s/spaces/%d/continue", env.url, id)
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	env.open = func(context.Context) (session, error) { return nil, errors.New("boom") }
 
 	if status, body := do(t, http.MethodPost, continueURL, ""); status != 500 {
 		t.Fatalf("continue = %d %s, want 500: the agent did not open", status, body)
 	}
-	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
-		t.Fatalf("channel = %+v, %v, want still paused with the hop cap reason", ch, err)
+	if ch, err := env.st.Space(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Fatalf("space = %+v, %v, want still paused with the hop cap reason", ch, err)
 	}
 
 	env.open = nil
@@ -88,13 +89,13 @@ func TestContinue_StartFailureKeepsHeldWakes(t *testing.T) {
 func TestContinue_RunsBudgetHeldWakeAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role != "lead" {
 			return
 		}
 		post("lead", "@architect plan", nil)
-		turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: int64(id), Role: "lead", Backend: "claude"})
+		turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: int64(id), Role: "lead", Backend: "claude"})
 		if err != nil {
 			t.Error(err)
 			return
@@ -115,19 +116,19 @@ func TestContinue_RunsBudgetHeldWakeAfterRestart(t *testing.T) {
 	env.restart(t)
 	sub = subscribeTo(t, env.url, id)
 	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "architect")
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the wake held before the restart", got)
 	}
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != "" || ch.TokenBudget != 2000000 {
-		t.Errorf("channel = %+v, %v, want not paused with budget 2000000", ch, err)
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != "" || ch.TokenBudget != 2000000 {
+		t.Errorf("space = %+v, %v, want not paused with budget 2000000", ch, err)
 	}
 }
 
@@ -143,7 +144,7 @@ func TestContinue_TwoAtOnceRunHeldWakeOnce(t *testing.T) {
 	}
 	sub := subscribeTo(t, env.url, id)
 	sub.want(t, _idleFrame, `pause {"reason":"`+_hopPause+`"}`)
-	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
+	continueURL := fmt.Sprintf("%s/spaces/%d/continue", env.url, id)
 
 	first := make(chan int)
 	go func() {
@@ -156,7 +157,7 @@ func TestContinue_TwoAtOnceRunHeldWakeOnce(t *testing.T) {
 		t.Fatal("the first continue opened no agent after 5s")
 	}
 	if status, body := do(t, http.MethodPost, continueURL, ""); status != 409 ||
-		body != `{"error":"channel 2 has a turn running: conflict"}` {
+		body != `{"error":"space 2 has a turn running: conflict"}` {
 		t.Errorf("second continue = %d %s, want 409 turn running", status, body)
 	}
 	close(proceed)
@@ -174,7 +175,7 @@ func TestContinue_TwoAtOnceRunHeldWakeOnce(t *testing.T) {
 func TestContinue_UsedFarOverBudget(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "lead", Backend: "claude"})
+	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,11 +188,11 @@ func TestContinue_UsedFarOverBudget(t *testing.T) {
 		t.Fatalf("send over budget = %d, want 409", status)
 	}
 
-	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, env.url+"/spaces/1/continue", ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
-	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 6000000 {
-		t.Errorf("channel after continue = %+v, %v, want not paused with budget 6000000", ch, err)
+	if ch, err := env.st.Space(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 6000000 {
+		t.Errorf("space after continue = %+v, %v, want not paused with budget 6000000", ch, err)
 	}
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Errorf("send after continue = %d, want 202", status)
@@ -200,7 +201,7 @@ func TestContinue_UsedFarOverBudget(t *testing.T) {
 
 func TestStop_NotLive(t *testing.T) {
 	env := newLiveEnv(t)
-	if status, body := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 || body != "" {
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/stop", ""); status != 204 || body != "" {
 		t.Errorf("stop = %d %q, want 204", status, body)
 	}
 	if got := env.fake.closed.Load(); got != 0 {
@@ -227,8 +228,8 @@ func TestClose_FailsRunningTurn(t *testing.T) {
 
 func TestClose_ClosesSessionsInParallel(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"two","backend":"claude"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"three","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"three"}`)
 	var closing sync.WaitGroup
 	var met atomic.Int32
 	closing.Add(3)
@@ -306,11 +307,11 @@ func TestStop_WhileOpening(t *testing.T) {
 			}()
 			<-opening
 
-			if status, _ := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 {
+			if status, _ := do(t, http.MethodPost, env.url+"/spaces/1/stop", ""); status != 204 {
 				t.Fatalf("stop = %d, want 204", status)
 			}
 			got := <-sent
-			if got.status != 409 || got.body != `{"error":"channel 1 was stopped: conflict"}` {
+			if got.status != 409 || got.body != `{"error":"space 1 was stopped: conflict"}` {
 				t.Errorf("send = %d %s, want 409 stopped", got.status, got.body)
 			}
 			env.fake.mu.Lock()
@@ -319,7 +320,7 @@ func TestStop_WhileOpening(t *testing.T) {
 			if len(ran) != 0 {
 				t.Errorf("ran = %q, want no turn", ran)
 			}
-			_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+			_, body := do(t, http.MethodGet, env.url+"/messages?space=1", "")
 			if body != "[]" {
 				t.Errorf("messages = %s, want none", body)
 			}
@@ -330,14 +331,14 @@ func TestStop_WhileOpening(t *testing.T) {
 	}
 }
 
-func TestDelete_StopsLiveChannel(t *testing.T) {
+func TestDelete_StopsLiveSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
-	if status, _ := do(t, http.MethodDelete, env.url+"/channels/1", ""); status != 204 {
+	if status, _ := do(t, http.MethodDelete, env.url+"/spaces/1", ""); status != 204 {
 		t.Fatalf("delete = %d, want 204", status)
 	}
 	if got := env.fake.closed.Load(); got != 1 {
@@ -347,7 +348,7 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 	lives := len(env.h.s.lives)
 	env.h.s.mu.Unlock()
 	if lives != 0 {
-		t.Errorf("live channels = %d, want 0 after delete", lives)
+		t.Errorf("live Spaces = %d, want 0 after delete", lives)
 	}
 	env.h.s.mu.Lock()
 	marks := len(env.h.s.deleting)
@@ -357,47 +358,24 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 	}
 }
 
-func TestStop_AfterPrepareTheTurnStillRuns(t *testing.T) {
-	tests := []struct {
-		name      string
-		inPrepare bool
-	}{
-		{name: "in prepare", inPrepare: true},
-		{name: "in say", inPrepare: false},
+func TestDelete_RemovesTheNeutralFolder(t *testing.T) {
+	env := newLiveEnv(t)
+	dir := filepath.Join(env.h.s.dataDir, "chats", "1")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newLiveEnv(t)
-			stopWhile, stopped, ag := stopAfterOpen(env)
-			if !tt.inPrepare {
-				env.fake.say = stopWhile
-			}
-			prepare := func() error {
-				_, err := env.st.PromoteChannel(
-					context.Background(), 1, store.Feature{Slug: "login", Name: "Login"})
-				if tt.inPrepare {
-					stopWhile()
-				}
-				return err
-			}
 
-			err := env.h.s.startUserTurn(context.Background(), 1,
-				userTurn{kind: _promote, text: channel.PromoteCommand, prepare: prepare})
-			if err != nil {
-				t.Fatalf("startUserTurn = %v, want nil", err)
-			}
-			<-stopped
-			env.wantInterruptedPromote(t, ag)
-			if status, _ := env.send(t, "again"); status != 202 {
-				t.Errorf("send after the stop = %d, want 202", status)
-			}
-		})
+	if status, _ := do(t, http.MethodDelete, env.url+"/spaces/1", ""); status != 204 {
+		t.Fatalf("delete = %d, want 204", status)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("stat %s = %v, want not exist", dir, err)
 	}
 }
 
 func TestStop_DuringTurnCheck(t *testing.T) {
 	env := newLiveEnv(t)
-	ctx := &gateCtx{Context: context.Background()}
+	ctx := &hookCtx{Context: context.Background()}
 	ctx.hook = func() {
 		l := env.h.s.lookup(1)
 		if l == nil {
@@ -417,7 +395,7 @@ func TestStop_DuringTurnCheck(t *testing.T) {
 	if got := env.opened.Load(); got != 0 {
 		t.Errorf("sessions opened = %d, want 0", got)
 	}
-	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	_, body := do(t, http.MethodGet, env.url+"/messages?space=1", "")
 	if body != "[]" {
 		t.Errorf("messages = %s, want none", body)
 	}
@@ -429,18 +407,18 @@ func TestStop_DuringTurnCheck(t *testing.T) {
 	}
 }
 
-func TestDelete_FeatureOrProjectStopsLiveChannel(t *testing.T) {
+func TestDelete_WorkItemOrProjectStopsLiveSpace(t *testing.T) {
 	tests := []struct {
 		name string
 		give string
 	}{
-		{name: "feature", give: "/features/1"},
+		{name: "work item", give: "/work-items/1"},
 		{name: "project", give: "/projects/1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newLiveEnv(t)
-			id := env.featureChannel(t)
+			id := env.workItemSpace(t)
 			sub := subscribeTo(t, env.url, id)
 			env.sendTo(t, id, "block")
 			<-env.fake.started
@@ -467,7 +445,7 @@ func TestDelete_DropsHeldWakes(t *testing.T) {
 	env := newLiveEnv(t)
 	id, _ := env.pingPong(t)
 
-	if status, _ := do(t, http.MethodDelete, fmt.Sprintf("%s/channels/%d", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodDelete, fmt.Sprintf("%s/spaces/%d", env.url, id), ""); status != 204 {
 		t.Fatalf("delete = %d, want 204", status)
 	}
 	if l := env.h.s.lookup(int64(id)); l != nil {
@@ -475,5 +453,36 @@ func TestDelete_DropsHeldWakes(t *testing.T) {
 	}
 	if got := env.fake.closed.Load(); got != 1 {
 		t.Errorf("session closes = %d, want 1", got)
+	}
+}
+
+func TestSend_TokenCapMovesWorkItemToNeedsYouAndContinueBack(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id := env.workItemSpace(t)
+	if _, err := env.st.DB().ExecContext(ctx, "UPDATE work_item SET status = 'in_progress' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: int64(id), Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	turn.Usage = agent.Usage{InputTokens: store.TokenBudget}
+	if _, err := env.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := env.sendTo(t, id, "hello"); status != 409 {
+		t.Fatalf("send over budget = %d %s, want 409", status, body)
+	}
+	if w, err := env.st.WorkItem(ctx, 1); err != nil || w.Status != "needs_you" {
+		t.Errorf("work item after the pause = %q, %v, want needs_you", w.Status, err)
+	}
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	if w, err := env.st.WorkItem(ctx, 1); err != nil || w.Status != "in_progress" {
+		t.Errorf("work item after continue = %q, %v, want in_progress", w.Status, err)
 	}
 }

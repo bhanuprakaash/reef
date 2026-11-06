@@ -1,110 +1,156 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { Button, buttonClass } from '@/components/button';
-import { Creature } from '@/components/creature';
-import { useContinueChannel } from '@/lib/api/continue-channel';
-import { useDecideApproval } from '@/lib/api/decide-approval';
+import { Creature, faceOf } from '@/components/creature';
+import { Markdown } from '@/components/markdown';
+import { useContinueSpace } from '@/lib/api/continue-space';
 import { useRetryTurn } from '@/lib/api/retry-turn';
-import { useTeams } from '@/lib/api/get-teams';
-import { useDismissWaiting } from '@/modules/inbox/api/dismiss-waiting';
+import { useBots } from '@/lib/api/get-bots';
+import { useDismissItem } from '@/modules/inbox/api/dismiss-item';
 import { age } from '@/modules/inbox/utils/age';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
-import type { Channel, InboxItem } from '@/types/api';
+import { preview } from '@/modules/inbox/utils/preview';
+import type { SpacePreview, InboxItem } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
-import { roleFaces } from '@/utils/role-faces';
+import { memberFaces } from '@/utils/role-faces';
 
 const kindColors: Record<InboxItem['kind'], string> = {
-  approval: 'text-paused',
-  paused: 'text-failed',
+  paused: 'text-paused',
+  held: 'text-paused',
   failed: 'text-failed',
-  waiting: 'text-working',
+  review: 'text-paused',
+  question: 'text-working',
+  reply: 'text-muted',
+  sub_item: 'text-muted',
+  proposed: 'text-muted',
+  started: 'text-muted',
+  delivery: 'text-failed',
+  space_proposed: 'text-working',
 };
 
-export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel }) {
-  const decide = useDecideApproval();
-  const cont = useContinueChannel();
+type Props = {
+  item: InboxItem;
+  space?: SpacePreview;
+  seen: boolean;
+  onSeen: () => void;
+};
+
+export function InboxRow({ item, space, seen, onSeen }: Props) {
+  const [open, setOpen] = useState(false);
+  const cont = useContinueSpace();
   const retry = useRetryTurn();
-  const dismiss = useDismissWaiting();
-  const teams = useTeams();
-  const pending = decide.isPending || cont.isPending || retry.isPending || dismiss.isPending;
-  const error = decide.error ?? cont.error ?? retry.error ?? dismiss.error;
-  const { channelId, approvalId, turnId, messageId } = item;
+  const dismiss = useDismissItem();
+  const bots = useBots();
+  const pending = cont.isPending || retry.isPending || dismiss.isPending;
+  const error = cont.error ?? retry.error ?? dismiss.error;
+  const { spaceId, turnId } = item;
+  const where =
+    item.spaceId === 0 ? `Work item ${item.workItemId}` : (space?.name ?? `Space ${spaceId}`);
+  const linkAction = item.kind === 'review' ? 'Review' : item.kind === 'question' ? 'Reply' : null;
+
+  let action = null;
+  if (item.kind === 'failed' && turnId !== undefined) {
+    action = (
+      <Button
+        type="button"
+        variant="primary"
+        size="sm"
+        disabled={pending}
+        onClick={() => retry.mutate(turnId)}
+      >
+        Retry
+      </Button>
+    );
+  } else if (item.kind === 'paused' || item.kind === 'held') {
+    action = (
+      <Button
+        type="button"
+        variant="primary"
+        size="sm"
+        disabled={pending}
+        onClick={() => cont.mutate(spaceId)}
+      >
+        Continue
+      </Button>
+    );
+  } else if (linkAction) {
+    action = (
+      <Link to={itemPath(item)} className={buttonClass('primary', 'sm')}>
+        {linkAction}
+      </Link>
+    );
+  }
+
+  const more = (
+    <>
+      {!linkAction && (
+        <Link to={itemPath(item)} className={buttonClass('ghost', 'sm')}>
+          {item.group === 'needs_you' ? 'Open Space' : 'Open'}
+        </Link>
+      )}
+      {item.group === 'fyi' && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={pending}
+          onClick={() => dismiss.mutate(item)}
+        >
+          Dismiss
+        </Button>
+      )}
+    </>
+  );
 
   return (
-    <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
-      <Creature
-        role={channel?.role ?? ''}
-        face={roleFaces(teams.data, channel?.team)[channel?.role ?? '']}
-        size={40}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline gap-2 text-xs">
-          <span className={`uppercase tracking-wider ${kindColors[item.kind]}`}>
-            {kindLabels[item.kind]}
-          </span>
-          <span className="text-muted">
-            #{channel?.name ?? `Channel ${channelId}`} · {age(item.at)}
-          </span>
-        </div>
-        <div className="mt-1 whitespace-pre-wrap text-[15px]">{item.text}</div>
-        <div className="mt-3.5 flex flex-wrap items-center gap-2">
-          {item.kind === 'approval' && approvalId !== undefined && (
-            <>
-              <Button
-                type="button"
-                variant="primary"
-                disabled={pending}
-                onClick={() => decide.mutate({ channelId, id: approvalId, approve: true })}
+    <li className="group border-b border-hairline">
+      <div className="-mx-2.5 flex items-center gap-2 rounded-field px-2.5 hover:bg-card">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen(!open);
+            onSeen();
+          }}
+          className="flex min-h-[58px] min-w-0 flex-1 items-center gap-3 py-2 text-left"
+        >
+          <span
+            role={seen ? undefined : 'img'}
+            aria-label={seen ? undefined : 'Not opened yet'}
+            className={`size-[7px] flex-none rounded-full ${seen ? '' : 'bg-working'}`}
+          />
+          <Creature look={faceOf(memberFaces(bots.data, space?.members), space?.botId)} size={32} />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2 text-sm">
+              <span className={`truncate ${seen ? 'text-soft' : 'font-medium'}`}>{where}</span>
+              <span
+                className={`flex-none text-[11.5px] uppercase tracking-wider ${kindColors[item.kind]}`}
               >
-                Approve
-              </Button>
-              <Button
-                type="button"
-                disabled={pending}
-                onClick={() => decide.mutate({ channelId, id: approvalId, approve: false })}
-              >
-                Reject
-              </Button>
-            </>
+                {kindLabels[item.kind]}
+              </span>
+            </span>
+            {!open && (
+              <span className="block truncate text-[13.5px] text-muted">{preview(item.text)}</span>
+            )}
+          </span>
+        </button>
+        <div className="flex flex-none items-center gap-1.5">
+          {action}
+          {!open && (
+            <span className="hidden items-center gap-1 group-focus-within:flex group-hover:flex">
+              {more}
+            </span>
           )}
-          {item.kind === 'paused' && (
-            <Button
-              type="button"
-              variant="primary"
-              disabled={pending}
-              onClick={() => cont.mutate(channelId)}
-            >
-              Continue
-            </Button>
-          )}
-          {item.kind === 'failed' && turnId !== undefined && (
-            <Button
-              type="button"
-              variant="primary"
-              disabled={pending}
-              onClick={() => retry.mutate(turnId)}
-            >
-              Retry
-            </Button>
-          )}
-          <Link
-            to={itemPath(item)}
-            className={buttonClass(item.kind === 'waiting' ? 'primary' : 'ghost')}
-          >
-            {item.kind === 'waiting' ? 'Open' : 'Open channel'}
-          </Link>
-          {item.kind === 'waiting' && messageId !== undefined && (
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={pending}
-              onClick={() => dismiss.mutate({ channelId, messageId })}
-            >
-              Dismiss
-            </Button>
-          )}
+          <span className="w-8 text-right text-xs text-muted">{age(item.at)}</span>
         </div>
-        {error && <p className="mt-2 text-sm text-danger">{error.message}</p>}
       </div>
+      {open && (
+        <div className="max-w-[720px] pb-4 pl-[60px] text-sm text-soft">
+          <Markdown>{item.text}</Markdown>
+          <div className="mt-3 flex items-center gap-1.5">{more}</div>
+        </div>
+      )}
+      {error && <p className="pb-2 pl-[60px] text-sm text-danger">{error.message}</p>}
     </li>
   );
 }

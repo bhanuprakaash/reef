@@ -1,17 +1,21 @@
 import { createBrowserRouter } from 'react-router';
 import { Layout } from '@/app/layout';
 import { CapturePage } from '@/app/routes/capture';
-import { ChannelPage } from '@/app/routes/channel';
-import { ChannelsPage } from '@/app/routes/channels';
-import { FeaturePage } from '@/app/routes/feature';
+import { BoardPage } from '@/app/routes/board';
+import { SpacePage } from '@/app/routes/space';
+import { ConversationsPage, SpacesPage } from '@/app/routes/spaces';
+import { WorkItemPage } from '@/app/routes/work-item';
 import { HomePage } from '@/app/routes/home';
 import { InboxPage } from '@/app/routes/inbox';
 import { ProjectPage } from '@/app/routes/project';
 import { ReviewPage } from '@/app/routes/review';
+import { SpaceProposalPage } from '@/app/routes/space-proposal';
 import { SettingsPage } from '@/app/routes/settings';
-import { TaskPage } from '@/app/routes/task';
-import { TasksPage } from '@/app/routes/tasks';
-import { TeamsPage } from '@/app/routes/teams';
+import { BotChatPage } from '@/app/routes/bot-chat';
+import { BotActivityPage } from '@/app/routes/bot-activity';
+import { BotPage } from '@/app/routes/bot';
+import { BotsPage } from '@/app/routes/bots';
+import { TeamsRedirect } from '@/app/routes/crews';
 
 export const router = createBrowserRouter([
   { path: '/capture', element: <CapturePage /> },
@@ -19,15 +23,21 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { path: '/', element: <HomePage /> },
-      { path: '/features/:id', element: <FeaturePage /> },
-      { path: '/features/:id/review', element: <ReviewPage /> },
-      { path: '/channels', element: <ChannelsPage /> },
-      { path: '/channels/:id', element: <ChannelPage /> },
+      { path: '/board', element: <BoardPage /> },
+      { path: '/work-items/:id', element: <WorkItemPage /> },
+      { path: '/work-items/:id/review', element: <ReviewPage /> },
+      { path: '/spaces', element: <SpacesPage /> },
+      { path: '/conversations', element: <ConversationsPage /> },
+      { path: '/spaces/:id', element: <SpacePage /> },
+      { path: '/spaces/:id/bots/:botId', element: <BotActivityPage /> },
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },
-      { path: '/tasks', element: <TasksPage /> },
-      { path: '/tasks/:id', element: <TaskPage /> },
-      { path: '/teams', element: <TeamsPage /> },
+      { path: '/space-proposals/:id', element: <SpaceProposalPage /> },
+      { path: '/teams', element: <TeamsRedirect /> },
+      { path: '/teams/:name', element: <TeamsRedirect /> },
+      { path: '/bots', element: <BotsPage /> },
+      { path: '/bots/:id', element: <BotPage /> },
+      { path: '/bots/:id/chat', element: <BotChatPage /> },
       { path: '/settings', element: <SettingsPage /> },
     ],
   },

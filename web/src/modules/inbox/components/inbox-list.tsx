@@ -1,43 +1,40 @@
-import { useState } from 'react';
 import { Button } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
-import { useChannels } from '@/lib/api/get-channels';
+import { usePendingMemory } from '@/lib/api/get-pending-memory';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { PendingMemoryList } from '@/modules/inbox/components/pending-memory';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
-import { itemKey } from '@/modules/inbox/utils/new-items';
+import { useDismissItems } from '@/modules/inbox/api/dismiss-item';
+import { useSeenItems } from '@/modules/inbox/hooks/use-seen-items';
+import { dismissableSeen, itemKey } from '@/modules/inbox/utils/new-items';
 import type { InboxItem } from '@/types/api';
 
-type Filter = 'all' | InboxItem['kind'];
-
-const filters: { value: Filter; label: string }[] = [
-  { value: 'all', label: 'All' },
-  { value: 'approval', label: 'Approvals' },
-  { value: 'waiting', label: 'Waiting' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'failed', label: 'Failed' },
+const groups: { group: InboxItem['group']; title: string; hint: string }[] = [
+  { group: 'needs_you', title: 'Needs you', hint: 'Work is stopped until you act.' },
+  { group: 'fyi', title: 'FYI', hint: 'Nothing is blocked.' },
 ];
 
 export function InboxList() {
   const inbox = useInbox();
-  const channels = useChannels();
+  const spaces = useSpaces();
+  const pendingMemory = usePendingMemory();
   const { permission, request } = useNotificationPermission();
-  const [chosen, setChosen] = useState<Filter>('all');
-
+  const { seen, markSeen } = useSeenItems();
+  const dismissAll = useDismissItems();
   const items = inbox.data ?? [];
-  const count = (f: Filter) =>
-    f === 'all' ? items.length : items.filter((i) => i.kind === f).length;
-  const filter = count(chosen) > 0 ? chosen : 'all';
-  const shown = items.filter((i) => filter === 'all' || i.kind === filter);
+  const needsYou = items.filter((i) => i.group === 'needs_you').length;
+  const seenFyi = dismissableSeen(items, seen);
 
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-7 py-6">
       <header>
-        <h1 className="text-4xl tracking-tight">Needs you</h1>
+        <h1 className="text-4xl tracking-tight">Inbox</h1>
         {items.length > 0 && (
           <p className="mt-1.5 text-muted">
             {items.length === 1 ? '1 thing is waiting.' : `${items.length} things are waiting.`}{' '}
-            Everything else is moving on its own.
+            {needsYou === 1 ? '1 needs you.' : `${needsYou} need you.`}
           </p>
         )}
         {permission === 'default' && (
@@ -50,36 +47,52 @@ export function InboxList() {
         )}
       </header>
       {inbox.isError && <p className="text-sm text-danger">{inbox.error.message}</p>}
-      {items.length > 0 && (
-        <div role="group" aria-label="Filter" className="flex flex-wrap gap-1.5">
-          {filters
-            .filter((f) => f.value === 'all' || count(f.value) > 0)
-            .map((f) => (
-              <Button
-                key={f.value}
-                type="button"
-                size="sm"
-                variant={f.value === filter ? 'primary' : 'secondary'}
-                aria-pressed={f.value === filter}
-                onClick={() => setChosen(f.value)}
-              >
-                {f.label} {count(f.value)}
-              </Button>
-            ))}
-        </div>
+      {dismissAll.isError && <p className="text-sm text-danger">{dismissAll.error.message}</p>}
+      <PendingMemoryList />
+      {inbox.data?.length === 0 && !pendingMemory.data?.length && (
+        <EmptyState
+          title="Nothing needs you"
+          body="Everything is moving on its own."
+          face="jellyfish"
+        />
       )}
-      {inbox.data?.length === 0 && (
-        <EmptyState title="Nothing needs you" body="Everything is moving on its own." role="lead" />
-      )}
-      <ul className="flex flex-col gap-3">
-        {shown.map((item) => (
-          <InboxRow
-            key={itemKey(item)}
-            item={item}
-            channel={channels.data?.find((c) => c.id === item.channelId)}
-          />
-        ))}
-      </ul>
+      {groups.map(({ group, title, hint }) => {
+        const shown = items.filter((i) => i.group === group);
+        if (shown.length === 0) return null;
+        return (
+          <section key={group} aria-labelledby={`inbox-${group}`} className="flex flex-col gap-1">
+            <div className="flex items-baseline gap-2.5">
+              <h2 id={`inbox-${group}`} className="text-[15px]">
+                {title} <span className="font-normal text-muted">· {shown.length}</span>
+              </h2>
+              <p className="text-[13px] text-muted">{hint}</p>
+              {group === 'fyi' && seenFyi.length > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  disabled={dismissAll.isPending}
+                  onClick={() => dismissAll.mutate(seenFyi)}
+                >
+                  Dismiss all seen ({seenFyi.length})
+                </Button>
+              )}
+            </div>
+            <ul className="flex flex-col border-t border-hairline">
+              {shown.map((item) => (
+                <InboxRow
+                  key={itemKey(item)}
+                  item={item}
+                  space={spaces.data?.find((c) => c.id === item.spaceId)}
+                  seen={seen.includes(itemKey(item))}
+                  onSeen={() => markSeen(itemKey(item))}
+                />
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </div>
   );
 }

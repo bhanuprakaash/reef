@@ -32,20 +32,51 @@ type Agent interface {
 // Config is how a session starts.
 type Config struct {
 	Cwd             string
+	Bin             string               // backend executable; empty is claude or codex from PATH
 	PermissionMode  string               // backend-specific value, passed through
 	Model           string               // backend-specific model name; empty is the backend's default
+	Instructions    string               // standing instructions the backend keeps on top of its own, for the whole session
 	Tools           []string             // tools allowed without asking; codex ignores it
 	DisallowedTools []string             // tools denied whatever settings allow; codex ignores it
 	MCPServers      map[string]MCPServer // extra MCP servers, by name
+	AddDirs         []string             // extra folders the backend may read; codex ignores it
 	Env             []string             // extra "KEY=value" on top of os.Environ
+	Fork            bool                 // Resume continues in a copy of the session, which gets a new id; claude only
+	// AskPermissions has a tool call that needs permission wait for an Answer to its
+	// KindPermission event instead of being refused; codex ignores it.
+	AskPermissions bool
 }
 
-// MCPServer is a stdio server (Command) or an HTTP server (URL).
+// Asker is an Agent whose tool calls can wait for permission: claude is one, codex is not.
+type Asker interface {
+	// Answer answers the KindPermission event with requestID. The turn waits until it is answered.
+	Answer(requestID string, a Answer) error
+}
+
+// Answer is the reply to a KindPermission event.
+type Answer struct {
+	Allow bool
+	// Rule, with Allow, is also allowed for the rest of the session.
+	Rule string
+	// Reason, on a deny, is the tool result the agent gets.
+	Reason string
+}
+
+// MCPServer is a stdio server (Command) or an HTTP server (URL, with optional Headers and OAuth).
 type MCPServer struct {
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
 	URL     string            `json:"url,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	OAuth   *OAuth            `json:"oauth,omitempty"`
+}
+
+// OAuth is the OAuth client an HTTP server signs in with when the backend's own default does not
+// fit: a registered client id and the local port its redirect uses.
+type OAuth struct {
+	ClientID     string `json:"clientId,omitempty"`
+	CallbackPort int    `json:"callbackPort,omitempty"`
 }
 
 // Kind says which fields of an Event are set.
@@ -60,13 +91,33 @@ const (
 	KindTurnEnd    Kind = "turn_end"
 	KindError      Kind = "error"
 	KindSession    Kind = "session"
+	// KindBackground is the answer of a turn the backend ran by itself for a finished
+	// background task, in Text. It answers no Send and no turn ends with it.
+	KindBackground Kind = "background"
+	// KindCompacted says the backend has shortened the session's history. The agent no longer
+	// holds everything it was sent, so what the caller sent it once it must send again.
+	KindCompacted Kind = "compacted"
+	// KindPermission is a tool call that waits for permission (Config.AskPermissions): ToolID,
+	// ToolName and Input name the call, RequestID is what Answer takes, Rule is the allow rule
+	// the backend suggests for it and Text the path it reaches outside its folders, if any.
+	KindPermission Kind = "permission"
+	// KindMCP reports whether the backend could use the MCP server MCPServer: Text is MCPConnected
+	// or MCPNeedsAuth. Other states are not reported.
+	KindMCP Kind = "mcp"
+)
+
+// States of an MCP server in a KindMCP event.
+const (
+	MCPConnected = "connected"
+	MCPNeedsAuth = "needs_auth"
 )
 
 // Event is one normalized step of a session. Its JSON is the wire format
 // reef-agent prints, one line per event.
 type Event struct {
 	Kind         Kind            `json:"kind"`
-	Text         string          `json:"text,omitempty"`      // text delta, error message
+	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer, MCP state
+	MCPServer    string          `json:"mcpServer,omitempty"` // KindMCP
 	SessionID    string          `json:"sessionId,omitempty"` // KindSession
 	Model        string          `json:"model,omitempty"`     // KindSession
 	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it
@@ -76,7 +127,13 @@ type Event struct {
 	Output       string          `json:"output,omitempty"`       // tool result
 	IsError      bool            `json:"isError,omitempty"`      // tool result failed
 	Usage        *Usage          `json:"usage,omitempty"`
-	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the turn's own cost, not the process total
+	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the session's running total, not the turn's cost: the caller takes off what earlier turns cost
+	// SessionUsage is on KindTurnEnd or KindError, claude only: everything the session has used
+	// so far, subagents and side calls included, not the turn's usage. The caller takes off what
+	// earlier turns used. KindUsage events still carry the turn's own messages as they end.
+	SessionUsage *Usage `json:"sessionUsage,omitempty"`
+	RequestID    string `json:"requestId,omitempty"` // KindPermission
+	Rule         string `json:"rule,omitempty"`      // KindPermission
 }
 
 // Usage is the token count of a turn.
@@ -85,6 +142,20 @@ type Usage struct {
 	OutputTokens     int64 `json:"outputTokens"`
 	CacheReadTokens  int64 `json:"cacheReadTokens"`
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+}
+
+// Context is the input of the model call u counts, cached input included: the size of the
+// context the call read.
+func (u Usage) Context() int64 {
+	return u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
+}
+
+// Sub takes v's counts off u's, each count stopping at zero.
+func (u *Usage) Sub(v Usage) {
+	u.InputTokens = max(u.InputTokens-v.InputTokens, 0)
+	u.OutputTokens = max(u.OutputTokens-v.OutputTokens, 0)
+	u.CacheReadTokens = max(u.CacheReadTokens-v.CacheReadTokens, 0)
+	u.CacheWriteTokens = max(u.CacheWriteTokens-v.CacheWriteTokens, 0)
 }
 
 // Add adds v's counts to u.

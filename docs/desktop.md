@@ -58,12 +58,22 @@ sidebar's top row. Dragging that row, a thin top strip or the browser pane's top
 window (`app-drag` in the web app; buttons and inputs inside stay clickable). The New project
 dialog's Choose button opens the native folder picker (`folder:choose`).
 
+## Files in the message box
+
+A file dropped on the message box or pasted into it (the `drop` and `paste` events) inserts its
+path: the page asks `window.reef.pathForFile(file)` (Electron's `webUtils.getPathForFile`, called
+in the preload script). A plain browser has no path, so the box inserts the file name and says so.
+The chip above the box, `File in clipboard <name> Paste`, comes from one source:
+`window.reef.clipboardFile()` asks the main process ([`clipboard-file.js`](../desktop/clipboard-file.js))
+for the `text/uri-list` entry Finder puts on the clipboard. The page asks when the window gains
+focus; a browser has no bridge and shows no chip. Only the first copied file shows.
+
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
-shared by every channel. It sits to the right of the main area with Back, Forward and Reload
+shared by every Space. It sits to the right of the main area with Back, Forward and Reload
 buttons and an address bar; a preload script reports the pane's size to the main process so the
-native view stays lined up with it. The Browser toggle at the window's top right (every page)
+native view stays lined up with it. The Browser toggle at the window's top right (on a Space, in its header)
 shows or hides the pane, as does the pane's own close button; the choice is remembered and the
 pane starts closed, and opens by itself while an agent drives it (the stored choice does not change). A hidden pane reports a zero size, which hides the view. Back, Forward and
 Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
@@ -106,9 +116,9 @@ one entry per call with its level (`log`, `error`, ...); `Network.requestWillBeS
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
 frame, so a new navigation starts them empty, and each is capped at the last 500 entries.
 
-While a browser tool call (`mcp__reef__browser_*`) runs in the open channel's live turn, a banner
+While a browser tool call (`mcp__reef__browser_*`) runs in the open Space's live turn, a banner
 under the address bar shows that role's creature and `<Role> is driving · <what it is doing>`.
-The banner comes from the channel's live events, not from the socket, and goes when the call
+The banner comes from the Space's live events, not from the socket, and goes when the call
 ends. A "Take over" button (in the banner, else next to the address bar) flips a boolean in the
 main process. While it is on, every tool call over `browser.sock` fails with `the user has the
 browser`, the banner reads "You have the browser", and the button reads "Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
@@ -117,18 +127,18 @@ take-over back off, so the button and the main process agree.
 
 ## Terminal pane
 
-One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
-worktree, or a project checkout for a quick session. Neither the toggle nor viewing a page ever
-makes a worktree. With the toggle on, a feature page or feature channel reads
-`GET /features/{id}/worktree`: when the feature has one, the pane opens the shell there; when it
+One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a Work item's
+worktree, or a project checkout for a free Space. Neither the toggle nor viewing a page ever
+makes a worktree. With the toggle on, a Work item page or Work item Space reads
+`GET /work-items/{id}/worktree`: when the Work item has one, the pane opens the shell there; when it
 has none, the pane shows "No worktree yet" and an Open terminal button, and only that button
-calls `POST /features/{id}/worktree` (making the worktree the same way a first wake would), then
-opens the shell in the returned path; a failed call shows its error in the pane. A quick session
-opens in the project path. The pane is keyed by feature, so moving to another feature never keeps
+calls `POST /work-items/{id}/worktree` (making the worktree the same way a first wake would), then
+opens the shell in the returned path; a failed call shows its error in the pane. A free Space
+opens in the project path. The pane is keyed by Work item, so moving to another one never keeps
 the previous one's shell.
-The Terminal toggle sits next to the Browser toggle at the window's top right, only on a channel or
-feature page (a page with a folder); one on/off choice for the window (default off, quick sessions included), remembered. On a channel
-page the terminal is a drawer under the messages, on a feature page a panel pinned to the bottom,
+The Terminal toggle sits next to the Browser toggle, only on a Space or
+Work item page (a page with a folder); one on/off choice for the window (default off, free Spaces included), remembered. On a Space
+page the terminal is a drawer under the messages, on a Work item page a panel pinned to the bottom,
 with a header (folder, Clear, hide); the toggle or the hide button turns it off.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
 the app already resolved at start, sized to xterm's own columns and rows so the shell's first
@@ -138,9 +148,18 @@ that exits (the user typed `exit`, or it crashed) is dropped from that buffer, s
 same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
 keeps running until the app quits.
 
+Settings > Terminal chooses where the toggle opens a working tree: Built-in pane (the default), an
+installed Ghostty, iTerm, Terminal or Warp (found as `<Name>.app` in `/Applications`,
+`~/Applications` or `/System/Applications/Utilities`), or Custom, an app name typed in. With an
+app chosen the toggle runs `open -a <app> <path>` in the main process (`terminal:launch`) in the
+same worktree the pane would use, with the same Open terminal step first when a Work item has no
+worktree, then switches itself off; no xterm pane opens, and a failed `open` shows its error in
+the pane until the toggle is pressed or the page changes. The choice is kept in the window's
+`localStorage` (`reef.terminalApp`), not on the server. The path must be an absolute path to an existing folder, else `open` is not run; the app name is passed as typed, so Custom is deliberately open.
+
 ## Back and forward
 
-The window has no browser toolbar, so detail pages (feature, review, project) start with a Back
+The window has no browser toolbar, so detail pages (Work item, review, project) start with a Back
 button: it goes back one page, or to the page's parent when the window has no earlier page.
 `Cmd+[` goes back and `Cmd+]` forward, except while a text field is focused.
 
@@ -151,9 +170,11 @@ small always-on-top window on `/capture`: the same web app, no sidebar or browse
 main window's sidebar has a Capture button that calls the same open through `window.reef.capture()`
 over IPC, so capture also works where the global shortcut does not reach, and in tests; in a plain
 browser (no `window.reef`) the button just navigates to `/capture`. The capture window has a
-project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
-(idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
-through `POST /tasks`, and closes the window; Escape closes it without creating a task. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
+project picker (the project chosen last time, kept in `localStorage`, is the default), a type
+(task, feature, bug, incident, investigation or improvement), a text box and a description. Enter creates a Work item
+in the project's Backlog with that type, title and description, through `POST /work-items`, and closes the window.
+The "Talk to a Bot" toggle swaps the type for a Bot picker: Enter then starts a direct
+conversation with that Bot, with the text as its first message. Escape closes the window without creating anything. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
 shortcut is unregistered when the app quits. The window is frameless and transparent: the
 rounded translucent panel on `/capture` is the window (the OS draws its shadow), and you drag it
 by the panel. It is 400px tall, about 150px of panel and transparent room below for the project

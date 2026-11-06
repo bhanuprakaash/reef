@@ -81,6 +81,9 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB is the open database, for packages that keep their own tables in it.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // writeErr is the error to return when the INSERT or UPDATE op failed with err.
 // SQLite does not say which foreign key broke, so a foreign-key failure looks up
 // the parents and names the first one that is gone: kind ErrNotFound for a parent
@@ -102,10 +105,11 @@ func (s *Store) writeErr(
 		if ok {
 			continue
 		}
+		name := strings.ReplaceAll(p.table, "_", " ")
 		if kind == ErrNotFound {
-			return fmt.Errorf("%s %d: %w", p.table, *p.id, ErrNotFound)
+			return fmt.Errorf("%s %d: %w", name, *p.id, ErrNotFound)
 		}
-		return fmt.Errorf("%w: unknown %s %d", kind, p.table, *p.id)
+		return fmt.Errorf("%w: unknown %s %d", kind, name, *p.id)
 	}
 	return fmt.Errorf("%s: %w", op, err)
 }
@@ -119,43 +123,46 @@ func (s *Store) exists(ctx context.Context, table string, id int64) (bool, error
 	return ok, err
 }
 
-func (s *Store) requireFeature(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "feature", id)
+func (s *Store) requireWorkItem(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "work_item", id)
 	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
+		return fmt.Errorf("check work item: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
+		return fmt.Errorf("work item %d: %w", id, ErrNotFound)
 	}
 	return nil
 }
 
-func (s *Store) requireChannel(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "channel", id)
+func (s *Store) requireSpace(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "space", id)
 	if err != nil {
-		return fmt.Errorf("check channel: %w", err)
+		return fmt.Errorf("check Space: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
+		return fmt.Errorf("space %d: %w", id, ErrNotFound)
 	}
 	return nil
 }
 
-func (s *Store) checkFeatureInProject(
-	ctx context.Context, featureID *int64, projectID int64,
+func (s *Store) checkWorkItemInProject(
+	ctx context.Context, workItemID *int64, projectID int64,
 ) error {
-	if featureID == nil {
+	if workItemID == nil {
 		return nil
 	}
-	f, err := s.Feature(ctx, *featureID)
+	f, err := s.WorkItem(ctx, *workItemID)
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
+		return fmt.Errorf("%w: unknown work item %d", ErrInvalid, *workItemID)
 	}
 	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
+		return fmt.Errorf("check work item: %w", err)
 	}
 	if f.ProjectID != projectID {
-		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+		return fmt.Errorf("%w: work item %d is not in project %d", ErrInvalid, f.ID, projectID)
+	}
+	if f.ParentID != nil {
+		return fmt.Errorf("%w: work item %d is a sub-item and shares its parent's Space", ErrInvalid, f.ID)
 	}
 	return nil
 }
@@ -226,8 +233,29 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func apply(ctx context.Context, db *sql.DB, version int, body string) error {
-	tx, err := db.BeginTx(ctx, nil)
+// _foreignKeysOff starts a migration that rebuilds a table other tables point at: dropping it
+// would otherwise cascade into them. SQLite ignores the pragma inside a transaction, so apply
+// sets it on its connection first and checks the foreign keys before it commits.
+const _foreignKeysOff = "PRAGMA foreign_keys = OFF"
+
+func apply(ctx context.Context, db *sql.DB, version int, body string) (err error) {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	rebuild := strings.HasPrefix(body, _foreignKeysOff)
+	if rebuild {
+		if _, err := conn.ExecContext(ctx, _foreignKeysOff); err != nil {
+			return err
+		}
+		defer func() {
+			if _, rerr := conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err == nil {
+				err = rerr
+			}
+		}()
+	}
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -241,6 +269,16 @@ func apply(ctx context.Context, db *sql.DB, version int, body string) error {
 	}
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return err
+	}
+	if rebuild {
+		var table string
+		err := tx.QueryRowContext(ctx, "SELECT \"table\" FROM pragma_foreign_key_check LIMIT 1").Scan(&table)
+		if err == nil {
+			return fmt.Errorf("foreign key check failed on table %s", table)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		"PRAGMA user_version = "+strconv.Itoa(version)); err != nil {

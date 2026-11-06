@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { SkillPicker } from './skill-picker';
 
-const hint = 'Add a project to see its skills.';
+const hint = 'Pick a project to also see its skills.';
 const onlyHint = 'Only these skills are available.';
 
 describe('SkillPicker', () => {
@@ -19,7 +19,9 @@ describe('SkillPicker', () => {
       <SkillPicker
         label="dev"
         picked={[]}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         onChange={() => {}}
       />,
     );
@@ -31,8 +33,10 @@ describe('SkillPicker', () => {
     const markup = renderToStaticMarkup(
       <SkillPicker
         label="dev"
-        picked={['how']}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        picked={['claude:how']}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         limits
         onChange={() => {}}
       />,
@@ -45,8 +49,10 @@ describe('SkillPicker', () => {
     const markup = renderToStaticMarkup(
       <SkillPicker
         label="dev"
-        picked={['how']}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        picked={['claude:how']}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         onChange={() => {}}
       />,
     );
@@ -59,12 +65,36 @@ describe('SkillPicker', () => {
       <SkillPicker
         label="dev"
         picked={[]}
-        available={[{ name: 'how', description: 'Explain.' }]}
+        available={[
+          { ref: 'claude:how', name: 'how', description: 'Explain.', source: 'claude' as const },
+        ]}
         limits
         onChange={() => {}}
       />,
     );
 
     expect(markup).not.toContain(onlyHint);
+  });
+
+  it('says why a picked skill is not usable on the backend', () => {
+    const markup = renderToStaticMarkup(
+      <SkillPicker
+        label="dev"
+        backend="codex"
+        picked={['claude:plugged']}
+        available={[
+          {
+            ref: 'claude:plugged',
+            name: 'plugged',
+            description: 'Needs Claude.',
+            source: 'claude' as const,
+            compat: { claude: '', codex: 'uses ${CLAUDE_PLUGIN_ROOT}' },
+          },
+        ]}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('claude:plugged is not usable on codex: uses ${CLAUDE_PLUGIN_ROOT}');
   });
 });

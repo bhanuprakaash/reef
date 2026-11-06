@@ -1,7 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Creature, creatureNames } from '@/components/creature';
+import {
+  bodyColours,
+  Creature,
+  creatureName,
+  creatureNames,
+  type Look,
+} from '@/components/creature';
 
-type Props = { value: string; onChange: (face: string) => void; size?: number };
+type Props = { value: Look; onChange: (look: Look) => void; size?: number };
 
 const label = (name: string) => `${name[0].toUpperCase()}${name.slice(1).replace('-', ' ')}`;
 
@@ -54,37 +60,56 @@ export function CreaturePicker({ value, onChange, size = 44 }: Props) {
       <button
         ref={trigger}
         type="button"
-        aria-label={`Change creature (${label(value)})`}
+        aria-label={`Change creature (${label(creatureName(value.face))})`}
         aria-haspopup="true"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
         style={{ width: size, height: size }}
         className="flex items-center justify-center rounded-2xl border border-line bg-bubble outline-none hover:border-faint focus-visible:ring-3 focus-visible:ring-ring aria-expanded:border-fg"
       >
-        <Creature role="" face={value} size={Math.round(size * 0.65)} animate />
+        <Creature look={value} size={Math.round(size * 0.65)} animate />
       </button>
       {open && (
         <div
           ref={popover}
           style={{ visibility: 'hidden' }}
-          className="fixed z-50 grid grid-cols-4 gap-1.5 rounded-menu border border-line bg-card p-2 shadow-menu"
+          className="fixed z-50 space-y-2 rounded-menu border border-line bg-card p-2 shadow-menu"
         >
-          {creatureNames.map((name) => (
-            <button
-              key={name}
-              type="button"
-              aria-label={label(name)}
-              aria-pressed={name === value}
-              onClick={() => {
-                setOpen(false);
-                trigger.current?.focus();
-                onChange(name);
-              }}
-              className={`flex size-10 items-center justify-center rounded-xl bg-bubble outline-none focus-visible:ring-3 focus-visible:ring-ring ${name === value ? 'border-2 border-fg' : 'border border-line hover:border-faint'}`}
-            >
-              <Creature role="" face={name} size={26} />
-            </button>
-          ))}
+          <div className="grid grid-cols-4 gap-1.5">
+            {creatureNames.map((name) => (
+              <button
+                key={name}
+                type="button"
+                aria-label={label(name)}
+                aria-pressed={name === creatureName(value.face)}
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                  onChange({ ...value, face: name });
+                }}
+                className={`flex size-10 items-center justify-center rounded-xl bg-bubble outline-none focus-visible:ring-3 focus-visible:ring-ring ${name === creatureName(value.face) ? 'border-2 border-fg' : 'border border-line hover:border-faint'}`}
+              >
+                <Creature look={{ ...value, face: name }} size={26} />
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-4 gap-1.5 border-t border-hairline pt-2">
+            {Object.entries(bodyColours).map(([name, hex]) => (
+              <button
+                key={name}
+                type="button"
+                aria-label={`${label(name)} colour`}
+                aria-pressed={name === value.colour}
+                onClick={() => {
+                  setOpen(false);
+                  trigger.current?.focus();
+                  onChange({ ...value, colour: name });
+                }}
+                style={{ backgroundColor: hex }}
+                className={`h-6 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring ${name === value.colour ? 'ring-2 ring-fg ring-offset-2 ring-offset-card' : ''}`}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

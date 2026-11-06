@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { Link } from 'react-router';
 
 export function Row(props: {
@@ -8,23 +8,19 @@ export function Row(props: {
   title: string;
   live?: ReactNode;
   aside?: ReactNode;
-  preview: string;
+  trigger?: ComponentProps<'a'>;
 }) {
   return (
     <Link
+      {...props.trigger}
       to={props.to}
-      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
+      className={`flex h-[34px] items-center gap-2.5 rounded-xl px-2.5 max-md:h-11 max-md:pr-12 ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
     >
-      {props.avatar}
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[14.5px]">{props.title}</span>
-            {props.live}
-          </span>
-          <span className="ml-auto shrink-0 text-xs text-muted">{props.aside}</span>
-        </span>
-        <span className="block truncate text-[13px] text-muted">{props.preview}</span>
+      <span className="flex w-[26px] flex-none justify-center">{props.avatar}</span>
+      <span className="truncate text-sm">{props.title}</span>
+      {props.live}
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted">
+        {props.aside}
       </span>
     </Link>
   );

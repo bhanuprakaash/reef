@@ -13,6 +13,8 @@ export type UpdateCheck =
 export type ReefBridge = {
   capture: () => Promise<void>;
   chooseFolder: () => Promise<string | null>;
+  pathForFile: (file: File) => string;
+  clipboardFile: () => Promise<string | null>;
   setTheme: (theme: Theme) => void;
   setBrowserBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
   navigateBrowser: (url: string) => Promise<void>;
@@ -30,6 +32,8 @@ export type ReefBridge = {
   openTerminal: (cwd: string, cols: number, rows: number) => Promise<string>;
   writeTerminal: (cwd: string, data: string) => void;
   resizeTerminal: (cwd: string, cols: number, rows: number) => void;
+  terminalApps: () => Promise<string[]>;
+  launchTerminalApp: (app: string, cwd: string) => Promise<string>;
   onTerminalData: (cwd: string, callback: (data: string) => void) => () => void;
 };
 

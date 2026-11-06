@@ -1,0 +1,239 @@
+import { useLayoutEffect, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
+import { useMemory } from '@/lib/api/get-memory';
+import { useBots } from '@/lib/api/get-bots';
+import { useTeams } from '@/lib/api/get-teams';
+import { useCurrentProject } from '@/lib/current-project';
+import { useProjects } from '@/modules/projects/api/get-projects';
+import { useStartConversation } from '@/modules/spaces/api/start-conversation';
+import { useBotChats, useBotLatestChat } from '@/modules/teams/api/get-bot-conversations';
+import { backendLabel } from '@/modules/teams/utils/backend-label';
+import { rowTime } from '@/utils/row-time';
+import { BackButton } from '@/components/back-button';
+import { PinButton } from '@/components/pin-button';
+import { Button, buttonClass } from '@/components/button';
+import { Card } from '@/components/card';
+import { Chip } from '@/components/chip';
+import { Creature } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
+import { Markdown } from '@/components/markdown';
+import { StatusDot } from '@/components/status-dot';
+
+const kindLabel = { chat: 'Chat', space: 'Space', consultation: 'Consultation' };
+
+export function BotPage() {
+  const id = Number(useParams().id);
+  const bots = useBots();
+  const teams = useTeams();
+  const memory = useMemory(`bot:${id}`);
+  const projects = useProjects();
+  const [project] = useCurrentProject(projects.data);
+  const conversations = useBotChats(id, project?.id);
+  const latest = useBotLatestChat(id, project?.id).data;
+  const create = useStartConversation();
+  const navigate = useNavigate();
+
+  if (bots.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (bots.isError) return <p className="text-sm text-danger">{bots.error.message}</p>;
+  const bot = bots.data.find((t) => t.id === id);
+  if (!bot) return <p className="text-sm text-danger">No Bot {id}</p>;
+
+  const memberships = (teams.data ?? []).flatMap((team) =>
+    team.roles.filter((r) => r.botId === id).map((role) => ({ team, role })),
+  );
+
+  const chats = conversations.data && [
+    ...new Map(conversations.data.pages.flat().map((c) => [c.spaceId, c])).values(),
+  ];
+
+  function start() {
+    if (!bot) return;
+    create.mutate(
+      { projectId: project?.id, bot },
+      { onSuccess: (space) => void navigate(`/spaces/${space.id}`) },
+    );
+  }
+
+  return (
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6 py-6">
+      <header className="flex flex-wrap items-center gap-4">
+        <BackButton fallback="/bots" />
+        <Creature look={bot} size={64} animate />
+        <div className="min-w-0 flex-1 basis-56">
+          <h1 className="text-[32px] font-normal tracking-[-0.02em]">{bot.name}</h1>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Chip>{backendLabel(bot.backend)}</Chip>
+            {bot.model && <Chip>{bot.model}</Chip>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <PinButton kind="bot" id={id} />
+          <Link to={`/bots?bot=${id}`} className={buttonClass('secondary')}>
+            Edit
+          </Link>
+          {latest && (
+            <Link to={`/spaces/${latest.id}`} className={buttonClass('primary')}>
+              Resume chat
+            </Link>
+          )}
+          <Button
+            variant={latest ? 'secondary' : 'primary'}
+            loading={create.isPending}
+            onClick={start}
+          >
+            New chat
+          </Button>
+        </div>
+      </header>
+      {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
+      {bot.description && <Description body={bot.description} />}
+
+      <Card title="Crews" flush>
+        {memberships.length === 0 ? (
+          <div className="px-6 pb-5">
+            <EmptyState title="In no Crew yet" body="Add it from a Crew's page." compact />
+          </div>
+        ) : (
+          <ul>
+            {memberships.map(({ team, role }) => (
+              <li key={team.name} className="border-t border-hairline">
+                <Link
+                  to={`/bots?tab=crews&team=${team.name}`}
+                  className="flex flex-wrap items-center gap-2 px-6 py-3.5 text-sm"
+                >
+                  <span>{team.name}</span>
+                  <span className="text-muted">{role.name}</span>
+                  {role.lead && (
+                    <span className="rounded-pill bg-lead px-2 text-[11px] leading-5 text-mark-ink">
+                      answers by default
+                    </span>
+                  )}
+                  <span className="ml-auto text-xs text-muted">
+                    {role.write ? 'edits code' : 'read-only'}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card title="Chats" flush>
+        {conversations.isError && (
+          <p className="px-6 pb-4 text-sm text-danger">{conversations.error.message}</p>
+        )}
+        {chats?.length === 0 && (
+          <div className="px-6 pb-5">
+            <EmptyState title="No chats yet" body="Start a new chat to talk directly." compact />
+          </div>
+        )}
+        <ul>
+          {chats?.map((c) => (
+            <li key={c.spaceId} className="group relative border-t border-hairline">
+              <Link
+                to={
+                  c.kind === 'chat'
+                    ? `/spaces/${c.spaceId}`
+                    : `/spaces/${c.spaceId}/bots/${c.botId}`
+                }
+                className="flex items-baseline gap-3 px-6 py-3.5 max-md:pr-12"
+              >
+                <span className="flex min-w-0 flex-1 items-center gap-2">
+                  <span className="truncate text-sm">{c.label}</span>
+                  <Chip>{kindLabel[c.kind]}</Chip>
+                  {c.active && <StatusDot status="working" label="Working now" />}
+                  {c.closed && <span className="text-xs text-muted">closed</span>}
+                </span>
+                <span className="shrink-0 text-xs text-muted">{rowTime(c.lastActivity)}</span>
+              </Link>
+              {c.origin && (
+                <Link
+                  to={`/spaces/${c.origin.spaceId}`}
+                  className="block truncate px-6 pb-3 text-[13px] text-muted hover:text-fg"
+                >
+                  Asked from {c.origin.label}
+                </Link>
+              )}
+              {c.kind !== 'consultation' && <PinButton kind={c.kind} id={c.spaceId} overlay />}
+            </li>
+          ))}
+        </ul>
+        {conversations.hasNextPage && (
+          <div className="border-t border-hairline px-6 py-3">
+            <Button
+              variant="secondary"
+              loading={conversations.isFetchingNextPage}
+              onClick={() => void conversations.fetchNextPage()}
+            >
+              Load more
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Memory"
+        flush
+        aside={
+          <span className="ml-auto text-xs text-muted tabular-nums">{memory.data?.length}</span>
+        }
+      >
+        {memory.isError && <p className="px-6 pb-4 text-sm text-danger">{memory.error.message}</p>}
+        {memory.data?.length === 0 && (
+          <div className="px-6 pb-5">
+            <EmptyState
+              title="Nothing remembered yet"
+              body={`What ${bot.name} keeps across every work item lands here.`}
+              compact
+            />
+          </div>
+        )}
+        <ul>
+          {memory.data?.map((item) => (
+            <li key={item.id} className="flex gap-3.5 border-t border-hairline px-6 py-3.5">
+              <span className="w-16 shrink-0 pt-0.5 text-xs text-muted">{item.kind}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm">{item.body}</span>
+                {item.why && <span className="mt-1 block text-sm text-soft">{item.why}</span>}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </div>
+  );
+}
+
+function Description({ body }: { body: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const text = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const el = text.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight);
+  }, [body, expanded]);
+
+  return (
+    <Card title="Description">
+      <div className="space-y-3">
+        <div
+          ref={text}
+          className={`text-sm leading-relaxed text-soft ${expanded ? '' : 'max-h-40 overflow-hidden'} ${overflows && !expanded ? 'mask-[linear-gradient(to_bottom,black_70%,transparent)]' : ''}`}
+        >
+          <Markdown>{body}</Markdown>
+        </div>
+        {(overflows || expanded) && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            className="border-b border-line text-xs text-soft"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Show less' : 'Show all'}
+          </button>
+        )}
+      </div>
+    </Card>
+  );
+}

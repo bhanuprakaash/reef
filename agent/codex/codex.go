@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,10 +26,9 @@ import (
 var _ agent.Agent = (*Agent)(nil)
 
 const (
-	_killAfter  = time.Second
-	_waitDelay  = 2 * time.Second
-	_stderrKeep = 4 << 10
-	_stopWait   = time.Second
+	_killAfter = time.Second
+	_waitDelay = 2 * time.Second
+	_stopWait  = time.Second
 
 	_messageBreak = "\n\n"
 )
@@ -38,7 +39,7 @@ type (
 		cmd      *exec.Cmd
 		stdin    io.Writer
 		stdout   *bufio.Reader
-		stderr   tail
+		stderr   agent.Tail
 		threadID string
 		model    string
 		nextID   int
@@ -53,25 +54,36 @@ type (
 		wrote    bool   // the turn in progress has sent text; owned by run
 
 		turn     atomic.Pointer[string] // id of the turn between turn/started and its end; resume replays usage outside it
-		stopping atomic.Bool            // Interrupt is stopping the turn in progress
+		stopping chan struct{}          // closed by Interrupt when it stops the turn in progress
 	}
 
-	// tail keeps the last _stderrKeep bytes written to it.
-	tail struct{ b []byte }
-
 	mcpServer struct {
-		agent.MCPServer
-		ApprovalMode string `json:"default_tools_approval_mode,omitempty"`
+		Command      string            `json:"command,omitempty"`
+		Args         []string          `json:"args,omitempty"`
+		Env          map[string]string `json:"env,omitempty"`
+		URL          string            `json:"url,omitempty"`
+		Headers      map[string]string `json:"http_headers,omitempty"`
+		OAuth        *oauth            `json:"oauth,omitempty"`
+		Enabled      *bool             `json:"enabled,omitempty"`
+		ApprovalMode string            `json:"default_tools_approval_mode,omitempty"`
+	}
+
+	oauth struct {
+		ClientID string `json:"client_id"`
 	}
 
 	message struct {
 		ID     json.RawMessage `json:"id"`
 		Method string          `json:"method"`
 		Params struct {
-			Delta      string `json:"delta"`
-			ItemID     string `json:"itemId"`
-			Item       item   `json:"item"`
-			TokenUsage struct {
+			Name          string          `json:"name"`          // mcpServer/startupStatus/updated
+			Status        string          `json:"status"`        // mcpServer/startupStatus/updated
+			Error         json.RawMessage `json:"error"`         // a string in mcpServer/startupStatus/updated
+			FailureReason string          `json:"failureReason"` // mcpServer/startupStatus/updated
+			Delta         string          `json:"delta"`
+			ItemID        string          `json:"itemId"`
+			Item          item            `json:"item"`
+			TokenUsage    struct {
 				Last struct {
 					InputTokens           int64 `json:"inputTokens"`
 					CachedInputTokens     int64 `json:"cachedInputTokens"`
@@ -106,6 +118,7 @@ type (
 		Arguments        json.RawMessage `json:"arguments"`
 		Result           *struct {
 			Content []struct {
+				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"result"`
@@ -118,10 +131,11 @@ type (
 // New returns an Agent that has not started.
 func New() *Agent {
 	return &Agent{
-		events:  make(chan agent.Event, 1),
-		done:    make(chan struct{}),
-		stopped: make(chan struct{}),
-		exited:  make(chan struct{}),
+		events:   make(chan agent.Event, 1),
+		done:     make(chan struct{}),
+		stopping: make(chan struct{}),
+		stopped:  make(chan struct{}),
+		exited:   make(chan struct{}),
 	}
 }
 
@@ -194,7 +208,7 @@ func (a *Agent) stopTurn() {
 	if id == nil {
 		return
 	}
-	a.stopping.Store(true)
+	close(a.stopping)
 	err := a.write(map[string]any{
 		"id": "stop", "method": "turn/interrupt",
 		"params": map[string]any{"threadId": a.threadID, "turnId": *id},
@@ -239,7 +253,11 @@ func (a *Agent) spawn(
 		return nil, errors.New("codex agent already used")
 	}
 	a.used = true
-	cmd := exec.Command("codex", "app-server")
+	bin := cfg.Bin
+	if bin == "" {
+		bin = "codex"
+	}
+	cmd := exec.Command(bin, "app-server")
 	cmd.Dir = cfg.Cwd
 	cmd.Env = append(os.Environ(), cfg.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -281,7 +299,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("codex exited: %v: %s", err, strings.TrimSpace(string(a.stderr.b))),
+		Text: fmt.Sprintf("codex exited: %v: %s", err, strings.TrimSpace(string(a.stderr.Bytes()))),
 	})
 }
 
@@ -293,6 +311,11 @@ func (a *Agent) handshake(method string, params map[string]any) error {
 	if err := a.write(map[string]any{"method": "initialized"}); err != nil {
 		return err
 	}
+	user, err := a.userConfig(params["cwd"])
+	if err != nil {
+		return err
+	}
+	disableUserTools(params, user)
 	res, err := a.call(method, params)
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
@@ -308,6 +331,63 @@ func (a *Agent) handshake(method string, params map[string]any) error {
 	}
 	a.threadID, a.model = thread.Thread.ID, thread.Model
 	return nil
+}
+
+// userTools is what codex itself would load for cwd besides the session's servers: the MCP
+// servers of its config.toml (CODEX_HOME aware) and the project's .codex/config.toml, and the
+// plugins enabled there, which bring MCP servers of their own.
+type userTools struct {
+	servers []string
+	plugins []string
+}
+
+func (a *Agent) userConfig(cwd any) (userTools, error) {
+	res, err := a.call("config/read", map[string]any{"cwd": cwd})
+	if err != nil {
+		return userTools{}, fmt.Errorf("config/read: %w", err)
+	}
+	var read struct {
+		Config struct {
+			MCPServers map[string]json.RawMessage `json:"mcp_servers"`
+			Plugins    map[string]struct {
+				Enabled bool `json:"enabled"`
+			} `json:"plugins"`
+		} `json:"config"`
+	}
+	if err := json.Unmarshal(res, &read); err != nil {
+		return userTools{}, fmt.Errorf("config/read result: %w", err)
+	}
+	u := userTools{servers: slices.Collect(maps.Keys(read.Config.MCPServers))}
+	for name, p := range read.Config.Plugins {
+		if p.Enabled {
+			u.plugins = append(u.plugins, name)
+		}
+	}
+	return u, nil
+}
+
+// disableUserTools turns off, on the thread, every user server the session did not select,
+// every enabled plugin and the ChatGPT apps (codex_apps): codex merges the thread's config into
+// its own rather than replacing it. An enabled=false entry only works for a server codex
+// already knows; a new name with no transport fails thread/start.
+func disableUserTools(params map[string]any, u userTools) {
+	cfg, _ := params["config"].(map[string]any)
+	servers, ok := cfg["mcp_servers"].(map[string]mcpServer)
+	if !ok {
+		return
+	}
+	off := false
+	for _, name := range u.servers {
+		if _, ok := servers[name]; !ok {
+			servers[name] = mcpServer{Enabled: &off}
+		}
+	}
+	plugins := make(map[string]any, len(u.plugins))
+	for _, name := range u.plugins {
+		plugins[name] = map[string]bool{"enabled": false}
+	}
+	cfg["plugins"] = plugins
+	cfg["features"] = map[string]bool{"apps": false}
 }
 
 func (a *Agent) call(method string, params any) (json.RawMessage, error) {
@@ -375,8 +455,10 @@ func (a *Agent) read() {
 // model call; each report is emitted as it arrives, so an interrupted turn keeps its usage.
 // A break goes before the text of a second agent message in a turn.
 func (a *Agent) handle(m message) bool {
-	if a.stopping.Load() {
+	select {
+	case <-a.stopping:
 		return a.handleStopping(m)
+	default:
 	}
 	switch m.Method {
 	case "turn/started":
@@ -411,21 +493,25 @@ func (a *Agent) handleStopping(m message) bool {
 	switch m.Method {
 	case "thread/tokenUsage/updated":
 		ev, _ := m.event()
-		for {
-			select {
-			case a.events <- ev:
-				return true
-			case old := <-a.events:
-				if old.Kind == agent.KindUsage {
-					ev.Usage.Add(*old.Usage)
-				}
-			}
-		}
+		a.keepUsage(ev)
 	case "turn/completed":
 		close(a.stopped)
 		return false
 	}
 	return true
+}
+
+func (a *Agent) keepUsage(ev agent.Event) {
+	for {
+		select {
+		case a.events <- ev:
+			return
+		case old := <-a.events:
+			if old.Kind == agent.KindUsage {
+				ev.Usage.Add(*old.Usage)
+			}
+		}
+	}
 }
 
 func (a *Agent) emit(ev agent.Event) bool {
@@ -434,6 +520,11 @@ func (a *Agent) emit(ev agent.Event) bool {
 		return true
 	case <-a.done:
 		return false
+	case <-a.stopping:
+		if ev.Kind == agent.KindUsage {
+			a.keepUsage(ev)
+		}
+		return true
 	}
 }
 
@@ -469,14 +560,6 @@ func (a *Agent) signal(sig syscall.Signal) error {
 	return err
 }
 
-func (t *tail) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > _stderrKeep {
-		t.b = t.b[len(t.b)-_stderrKeep:]
-	}
-	return len(p), nil
-}
-
 func (m message) event() (ev agent.Event, ok bool) {
 	p := m.Params
 	switch {
@@ -486,6 +569,8 @@ func (m message) event() (ev agent.Event, ok bool) {
 		return agent.Event{Kind: agent.KindText, Text: p.Delta}, true
 	case m.Method == "item/started":
 		return p.Item.toolCall()
+	case m.Method == "item/completed" && p.Item.Type == "contextCompaction":
+		return agent.Event{Kind: agent.KindCompacted}, true
 	case m.Method == "item/completed":
 		return p.Item.toolResult()
 	case m.Method == "thread/tokenUsage/updated":
@@ -496,6 +581,11 @@ func (m message) event() (ev agent.Event, ok bool) {
 			CacheReadTokens:  u.CachedInputTokens,
 			CacheWriteTokens: u.CacheWriteInputTokens,
 		}}, true
+	case m.Method == "mcpServer/startupStatus/updated" && p.Status == "ready":
+		return agent.Event{Kind: agent.KindMCP, MCPServer: p.Name, Text: agent.MCPConnected}, true
+	case m.Method == "mcpServer/startupStatus/updated" && p.Status == "failed" &&
+		(p.FailureReason == "reauthenticationRequired" || strings.Contains(string(p.Error), "not logged in")):
+		return agent.Event{Kind: agent.KindMCP, MCPServer: p.Name, Text: agent.MCPNeedsAuth}, true
 	case m.Method == "turn/completed" && p.Turn.Status == "failed":
 		msg := "turn failed"
 		if p.Turn.Error != nil {
@@ -539,6 +629,9 @@ func (it item) toolResult() (agent.Event, bool) {
 		case it.Result != nil:
 			texts := make([]string, 0, len(it.Result.Content))
 			for _, c := range it.Result.Content {
+				if c.Type == "image" {
+					c.Text = "[image]"
+				}
 				texts = append(texts, c.Text)
 			}
 			ev.Output = strings.Join(texts, "\n")
@@ -557,16 +650,20 @@ func threadParams(cfg agent.Config) map[string]any {
 	if cfg.Model != "" {
 		params["model"] = cfg.Model
 	}
-	if len(cfg.MCPServers) > 0 {
-		servers := make(map[string]mcpServer, len(cfg.MCPServers))
-		for name, s := range cfg.MCPServers {
-			server := mcpServer{MCPServer: s}
-			if name == "reef" {
-				server.ApprovalMode = "approve"
-			}
-			servers[name] = server
-		}
-		params["config"] = map[string]any{"mcp_servers": servers}
+	if cfg.Instructions != "" {
+		params["developerInstructions"] = cfg.Instructions
 	}
+	servers := make(map[string]mcpServer, len(cfg.MCPServers))
+	for name, s := range cfg.MCPServers {
+		m := mcpServer{
+			Command: s.Command, Args: s.Args, Env: s.Env, URL: s.URL, Headers: s.Headers,
+			ApprovalMode: "approve",
+		}
+		if s.OAuth != nil && s.OAuth.ClientID != "" {
+			m.OAuth = &oauth{ClientID: s.OAuth.ClientID}
+		}
+		servers[name] = m
+	}
+	params["config"] = map[string]any{"mcp_servers": servers}
 	return params
 }

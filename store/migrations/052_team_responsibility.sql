@@ -1,0 +1,1 @@
+ALTER TABLE team ADD COLUMN responsibility TEXT NOT NULL DEFAULT '';

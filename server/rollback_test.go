@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -32,7 +33,7 @@ func writeIn(t *testing.T, dir, name, body string) {
 	}
 }
 
-// rollbackEnv is a feature channel (id 2) whose worktree has a checkpoint on turn 1, with
+// rollbackEnv is a work item Space (id 2) whose worktree has a checkpoint on turn 1, with
 // a.txt changed and new.txt untracked when the checkpoint was taken.
 func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	t.Helper()
@@ -44,23 +45,26 @@ func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, env.url+"/features", `{"projectId":2,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"featureId":1,"name":"c","backend":"claude"}`)
-	tree = worktree.Path(env.dir, 2, "login")
-	if err := worktree.Ensure(ctx, repo, tree, worktree.Branch("login"), ""); err != nil {
-		t.Fatal(err)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Login"}`)
+	approveForSpace(t, env.st, 1)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"c"}`)
+	do(t, http.MethodPost, env.url+"/work-items/1/workspaces", "")
+	ws, err := env.st.WorkItemWorkspaces(ctx, 1)
+	if err != nil || len(ws) != 1 {
+		t.Fatalf("workspaces = %+v, %v, want one", ws, err)
 	}
+	tree = ws[0].Dir
 	writeIn(t, tree, "a.txt", "a edited")
 	writeIn(t, tree, "new.txt", "n")
 	const ref = "refs/reef/checkpoints/1"
 	if err := worktree.Checkpoint(ctx, tree, ref); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: 2, Role: "lead", Backend: "claude"})
+	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: 2, Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
+	if err := env.st.AddTurnCheckpoint(ctx, turn.ID, ws[0].ID, ref); err != nil {
 		t.Fatal(err)
 	}
 	turn.Status = "done"
@@ -98,33 +102,35 @@ func TestRollback_RestoresTheWorktree(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tree, "made.txt")); !os.IsNotExist(err) {
 		t.Errorf("made.txt exists after rollback, err = %v", err)
 	}
-	_, body := do(t, http.MethodGet, env.url+"/messages?channel=2", "")
+	_, body := do(t, http.MethodGet, env.url+"/messages?space=2", "")
 	if !strings.Contains(body, `"author":"reef","body":"Rolled back to before turn 1."`) {
 		t.Errorf("messages = %s, want the rollback note from reef", body)
 	}
 	sub := subscribeTo(t, env.url, 2)
 	if status, _ := env.sendTo(t, 2, "go on"); status != 202 {
-		t.Errorf("send after rollback = %d, want 202: the channel is free again", status)
+		t.Errorf("send after rollback = %d, want 202: the Space is free again", status)
 	}
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 2]\ngo on"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 2, message 2]\ngo on"}) {
 		t.Errorf("ran = %q, want the wake without the note: the runner adds it when it sends", got)
 	}
 }
 
-func TestRollback_NotesEveryChannelOnTheTree(t *testing.T) {
+func TestRollback_NotesEverySpaceOnTheTree(t *testing.T) {
 	env, _ := rollbackEnv(t)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"featureId":1,"name":"d","backend":"claude"}`)
+	env.exec(t, "UPDATE space SET closed_at = '2026-01-01T00:00:00Z' WHERE id = 2")
+	approveForSpace(t, env.st, 1)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"d"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", ""); status != 204 || body != "" {
 		t.Fatalf("rollback = %d %q, want 204", status, body)
 	}
 
 	for _, id := range []int{2, 3} {
-		_, body := do(t, http.MethodGet, env.url+"/messages?channel="+strconv.Itoa(id), "")
+		_, body := do(t, http.MethodGet, env.url+"/messages?space="+strconv.Itoa(id), "")
 		if !strings.Contains(body, `"author":"reef","body":"Rolled back to before turn 1."`) {
-			t.Errorf("channel %d messages = %s, want the rollback note from reef", id, body)
+			t.Errorf("space %d messages = %s, want the rollback note from reef", id, body)
 		}
 	}
 }
@@ -132,7 +138,7 @@ func TestRollback_NotesEveryChannelOnTheTree(t *testing.T) {
 func TestRollback_Refused(t *testing.T) {
 	env, tree := rollbackEnv(t)
 	if _, err := env.st.CreateTurn(context.Background(),
-		store.Turn{ChannelID: 2, Role: "lead", Backend: "claude"}); err != nil {
+		store.Turn{SpaceID: 2, Role: "lead", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	writeIn(t, tree, "a.txt", "a by the turn")
@@ -155,7 +161,7 @@ func TestRollback_Refused(t *testing.T) {
 		})
 	}
 
-	unlock, err := env.h.s.trees.Lock(context.Background(), tree)
+	unlock, err := env.h.s.trees.Lock(context.Background(), space.WorkRoot(env.dir, "1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,14 +174,14 @@ func TestRollback_Refused(t *testing.T) {
 	env.sendTo(t, 2, "block")
 	<-env.fake.started
 	status, body = do(t, http.MethodPost, env.url+"/turns/1/rollback", "")
-	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+	if status != 409 || body != `{"error":"space 2 has a turn running: conflict"}` {
 		t.Errorf("rollback while a turn runs = %d %s, want 409", status, body)
 	}
 	env.fake.release <- struct{}{}
 	if b, err := os.ReadFile(filepath.Join(tree, "a.txt")); err != nil || string(b) != "a by the turn" {
 		t.Errorf("a.txt = %q, %v, want it untouched by refused rollbacks", b, err)
 	}
-	_, msgs := do(t, http.MethodGet, env.url+"/messages?channel=2", "")
+	_, msgs := do(t, http.MethodGet, env.url+"/messages?space=2", "")
 	if strings.Contains(msgs, "Rolled back") {
 		t.Errorf("messages = %s, want no rollback note after refused rollbacks", msgs)
 	}

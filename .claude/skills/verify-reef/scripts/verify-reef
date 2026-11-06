@@ -9,18 +9,21 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef mcp-server
        REEF_VERIFY_RUN=ID verify-reef run [--name N] [--stdin FILE] [--timeout S] -- REEF_AGENT_ARGS...
        REEF_VERIFY_RUN=ID verify-reef interrupt --after S [--name N] -- REEF_AGENT_ARGS...
-       REEF_VERIFY_RUN=ID verify-reef serve-start [--data-name NAME]
+       REEF_VERIFY_RUN=ID verify-reef serve-start [--data-name NAME] [--prompt-wait DUR]
        REEF_VERIFY_RUN=ID verify-reef serve-stop [--kill]
        REEF_VERIFY_RUN=ID verify-reef serve-second [--same-addr]
        REEF_VERIFY_RUN=ID verify-reef api [-H 'Name: value']... METHOD PATH [JSON]
+       REEF_VERIFY_RUN=ID verify-reef team-apply FILE
        REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
-       REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes
-       REEF_VERIFY_RUN=ID verify-reef feature NAME
+       REEF_VERIFY_RUN=ID verify-reef ui live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|skills|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|consult|space-ref|send-space|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|space-header|sidebar|global-chats|navigate
+       verify-reef one SCENARIO [TEAM...]
+       REEF_VERIFY_RUN=ID verify-reef feature NAME [ARG...]
        REEF_VERIFY_RUN=ID verify-reef real
        REEF_VERIFY_RUN=ID verify-reef desktop
        REEF_VERIFY_RUN=ID verify-reef cleanup
+       verify-reef cleanup-all
 EOF
 	exit 2
 }
@@ -49,13 +52,20 @@ load_run() {
 
 # fake_claude_setup: in fake or record mode (REEF_VERIFY_CLAUDE, default fake), put the
 # fake claude first on PATH and point it at its recordings and log, for a command that may
-# start claude. Real mode leaves PATH alone.
+# start claude. Real mode leaves PATH alone. Real and record mode run claude's side calls
+# (the session title) and subagents on sonnet: they do not use ANTHROPIC_MODEL, and default
+# to haiku.
 fake_claude_setup() {
 	case "${REEF_VERIFY_CLAUDE:-fake}" in
 	fake | record)
 		export PATH="$SCR/fake:$PATH"
 		export REEF_FAKE_RECORDINGS="$REPO/.claude/skills/verify-reef/fake/recordings"
 		export REEF_FAKE_LOG="$EV/fake-claude.log"
+		;;
+	esac
+	case "${REEF_VERIFY_CLAUDE:-fake}" in
+	real | record)
+		export ANTHROPIC_SMALL_FAST_MODEL=sonnet ANTHROPIC_DEFAULT_HAIKU_MODEL=sonnet CLAUDE_CODE_SUBAGENT_MODEL=sonnet
 		;;
 	esac
 }
@@ -108,6 +118,7 @@ cmd_build() {
 
 cmd_doctor() {
 	load_run
+	browser_setup
 	out="$EV/doctor.txt"
 	check() { # check NAME OK DETAIL
 		if [ "$2" = 1 ]; then echo "ok   $1: $3"; else echo "FAIL $1: $3"; fi
@@ -126,12 +137,23 @@ cmd_doctor() {
 			check claude-auth "$([ "${v%% *}" = True ] && echo 1)" "$v"
 		fi
 		v=$(lim codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(lim codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim codex login status 2>&1)
+		if [ $? = 0 ]; then
+			check codex-auth 1 "$v"
+		else
+			# A config whose provider needs no OpenAI login (a proxy) calls fine while
+			# login status says Not logged in, so make one cheap call through it.
+			r=$(lim codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral -C "$REPO" \
+				'Reply with the single word: ok' </dev/null 2>/dev/null)
+			check codex-auth "$([ $? = 0 ] && echo 1)" "$v; one-word codex exec on gpt-6-luna answered: ${r:-nothing}"
+		fi
 		v=$(command -v sqlite3); check sqlite3 "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		v=$(command -v curl); check curl "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		check binary "$([ -x "$BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$BIN built from ${rev:-unknown}, HEAD $head"
 		check reef "$([ -x "$REEF_BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$REEF_BIN built from ${rev:-unknown}, HEAD $head"
 		check cwd "$([ -d "$CWD" ] && echo 1)" "$CWD"
+		echo "browser: ${REEF_VERIFY_CHROME:-<none: system Chrome or none found>}"
+		echo "fontconfig: ${FONTCONFIG_FILE:-<unset: system fonts>}"
 		echo "mode: REEF_VERIFY_CLAUDE=${REEF_VERIFY_CLAUDE:-fake}"
 		echo "model: ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-<unset: claude picks its default>}"
 	} | tee "$out"
@@ -296,9 +318,11 @@ cmd_serve_start() {
 	load_run
 	fake_claude_setup
 	name=data
+	wait_args=()
 	while [ $# -gt 0 ]; do
 		case $1 in
 		--data-name) [ $# -ge 2 ] || usage; name=$2; shift 2 ;;
+		--prompt-wait) [ $# -ge 2 ] || usage; wait_args=(--prompt-wait "$2"); shift 2 ;;
 		*) usage ;;
 		esac
 	done
@@ -320,7 +344,7 @@ cmd_serve_start() {
 	t0=$(now)
 	# The wrapper subshell outlives this call and records reef's exit code in serve.exit.
 	(
-		"$REEF_BIN" serve --addr "$addr" --data "$data" &
+		"$REEF_BIN" serve --addr "$addr" --data "$data" ${wait_args[@]+"${wait_args[@]}"} &
 		echo $! >"$SCR/serve.pid"
 		wait $!
 		echo $? >"$SCR/serve.exit"
@@ -456,6 +480,18 @@ cmd_api() {
 	cat "$tmp"
 }
 
+# team-apply FILE: the running server's data folder gets the team in FILE. Its roles make or
+# update their Bots through REST (see team-roster.py), then `reef team apply` stores the
+# roster of Bot ids, so the CLI under test makes the team.
+cmd_team_apply() {
+	load_run
+	[ $# -eq 1 ] || usage
+	[ -s "$SCR/serve.addr" ] && [ -f "$SCR/serve.pid" ] || fail "no running server for this run; serve-start first"
+	roster="$SCR/team-roster.json"
+	python3 -I "$REPO/.claude/skills/verify-reef/scripts/team-roster.py" "$1" "$(cat "$SCR/serve.addr")" "$EV/api.log" "$roster" || exit 1
+	cmd_reef -- team apply "$roster"
+}
+
 cmd_sql() {
 	load_run
 	flags=(-header -cmd '.timeout 5000')
@@ -550,7 +586,7 @@ cmd_reef() {
 	# --data goes right after the command words, so a -- in ARGS keeps the rest positional.
 	n=1
 	case $1 in
-		project | feature | task | team | wrap | memory) [ $# -ge 2 ] && n=2 ;;
+		project | work-item | team | wrap | memory) [ $# -ge 2 ] && n=2 ;;
 	esac
 	argv=("${@:1:n}" --data "$DATA" "${@:n+1}")
 	out="$SCR/reef.out" err="$SCR/reef.err" seen="$SCR/reef.children"
@@ -677,30 +713,79 @@ sys.exit(0 if got else 1)
 EOF
 }
 
+# browser_setup: with no REEF_VERIFY_CHROME and no system Chrome, use the newest Playwright
+# chrome-headless-shell (else its Chromium). On a Linux box with no fonts Chrome crashes
+# (SIGTRAP), so with FONTCONFIG_FILE unset write ~/.reef-verify/fonts/fonts.conf over copies
+# of the fonts the t3 client ships (else Playwright's codicon font); nothing goes in the repo.
+browser_setup() {
+	if [ -z "${REEF_VERIFY_CHROME:-}" ] && [ ! -e "/Applications/Google Chrome.app" ] && [ ! -x /opt/google/chrome/chrome ]; then
+		REEF_VERIFY_CHROME=$(ls "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell 2>/dev/null | sort -V | tail -n 1)
+		[ -n "$REEF_VERIFY_CHROME" ] || REEF_VERIFY_CHROME=$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -n 1)
+		export REEF_VERIFY_CHROME
+	fi
+	if [ -z "${FONTCONFIG_FILE:-}" ] && [ -n "${REEF_VERIFY_CHROME:-}" ] && [ "$(uname)" = Linux ] && ! fc-list 2>/dev/null | grep -q .; then
+		fdir="$EVIDENCE_ROOT/fonts"
+		if ! ls "$fdir"/ttf/*.ttf >/dev/null 2>&1; then
+			mkdir -p "$fdir/ttf"
+			cp "$HOME"/.t3/runtime/versions/*/client/assets/*.ttf "$fdir/ttf/" 2>/dev/null ||
+				cp "$REPO"/.claude/skills/verify-reef/scripts/ui/node_modules/playwright-core/lib/vite/*/*.ttf "$fdir/ttf/" 2>/dev/null
+		fi
+		printf '<?xml version="1.0"?>\n<fontconfig><dir>%s/ttf</dir><cachedir>%s/cache</cachedir></fontconfig>\n' "$fdir" "$fdir" >"$fdir/fonts.conf"
+		FONTCONFIG_FILE="$fdir/fonts.conf"
+		export FONTCONFIG_FILE
+	fi
+}
+
+# one SCENARIO [TEAM...]: build, doctor, serve-start --data-name ui, team-apply teams/TEAM.json
+# for each TEAM, ui SCENARIO, then serve-stop and cleanup, in a run of its own. Prints the
+# PASS and FAIL lines and `rc=<n> run=<id>`; exits with the ui status.
+cmd_one() {
+	[ $# -ge 1 ] || usage
+	sc=$1
+	shift
+	[ -f "$REPO/web/dist/index.html" ] || (cd "$REPO/web" && npm ci && npm run build) >&2 || fail "web build failed"
+	unset REEF_VERIFY_RUN
+	id=$("$0" build 2>/dev/null) || fail "build failed"
+	export REEF_VERIFY_RUN=$id ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-sonnet}
+	"$0" doctor >/dev/null 2>&1
+	"$0" serve-start --data-name ui >/dev/null 2>&1 || fail "serve-start failed (run=$id)"
+	for t in "$@"; do
+		"$0" team-apply "$REPO/teams/$t.json" >/dev/null 2>&1 || echo "team-apply $t failed"
+	done
+	"$0" ui "$sc" 2>&1 | cut -c1-400 | grep -E '^(PASS|FAIL)'
+	rc=${PIPESTATUS[0]}
+	echo "rc=$rc run=$id"
+	"$0" serve-stop >/dev/null 2>&1
+	"$0" cleanup >/dev/null 2>&1
+	exit "$rc"
+}
+
 # ui SCENARIO: drive the window of this run's server in Chrome (scripts/ui/drive.mjs).
 cmd_ui() {
 	load_run
 	[ $# -eq 1 ] || usage
-	[ -s "$SCR/serve.addr" ] || fail "no server up; run serve-start first (ANTHROPIC_MODEL=sonnet for claude channels)"
+	[ -s "$SCR/serve.addr" ] || fail "no server up; run serve-start first (ANTHROPIC_MODEL=sonnet for claude Spaces)"
 	ui="$REPO/.claude/skills/verify-reef/scripts/ui"
 	[ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2) || fail "npm ci failed in $ui"
+	browser_setup
 	mkdir -p "$EV/ui"
-	REEF_UI_DATA=$(cat "$SCR/serve.data") REEF_UI_PROJECT=$CWD REEF_UI_PROOF=$EV/ui \
+	REEF_UI_DATA=$(cat "$SCR/serve.data") REEF_UI_PROJECT=$CWD REEF_UI_REEF=$REEF_BIN REEF_UI_PROOF=$EV/ui REEF_FAKE_LOG=$EV/fake-claude.log REEF_UI_FAKE=$SCR/fake \
 		node "$ui/drive.mjs" "$1" "http://$(cat "$SCR/serve.addr")" 2>&1 | tee "$EV/ui-$1.log"
 	exit "${PIPESTATUS[0]}"
 }
 
-# feature NAME: run features/NAME.sh with H, REEF_VERIFY_RUN, E, S exported, tee its
-# output to feature-NAME.log, exit 1 if any line is FAIL.
+# feature NAME [ARG...]: run features/NAME.sh ARG... with H, REEF_VERIFY_RUN, E, S exported,
+# tee its output to feature-NAME.log, exit 1 if any line is FAIL.
 cmd_feature() {
 	load_run
-	[ $# -eq 1 ] || usage
+	[ $# -ge 1 ] || usage
 	name=$1
+	shift
 	script="$REPO/.claude/skills/verify-reef/features/$name.sh"
 	[ -x "$script" ] || fail "no script $script"
 	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
 	log="$EV/feature-$name.log"
-	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" "$script") 2>&1 | tee "$log"
+	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" "$script" "$@") 2>&1 | tee "$log"
 	rc=${PIPESTATUS[0]}
 	grep -q '^FAIL' "$log" && exit 1
 	exit "$rc"
@@ -762,6 +847,15 @@ cmd_cleanup() {
 			kill -0 "$p" 2>/dev/null && kill -KILL "$p" 2>/dev/null
 		done
 	fi
+	# Whatever is still running this run's own binaries, whatever data folder or pids file it
+	# came from. The trailing slash keeps run "a" from matching run "a2".
+	ps -axo pid=,command= | awk -v pre="$SCR/" '{ c = $0; sub(/^ *[0-9]+ /, "", c); if (index(c, pre) == 1) print $1 }' |
+		while read -r p; do
+			echo "killing leftover $p $(ps -o command= -p "$p" 2>/dev/null)"
+			kill -TERM "$p" 2>/dev/null
+			sleep 1
+			kill -0 "$p" 2>/dev/null && kill -KILL "$p" 2>/dev/null
+		done
 	key=$(printf '%s' "$CWD" | sed 's/[^A-Za-z0-9]/-/g')
 	for d in "$HOME/.claude/projects/$key" "$(dirname "$SCRATCH_ROOT")/claude-$(id -u)/$key"; do
 		[ -d "$d" ] && rm -rf "$d" && echo "removed claude session state $d"
@@ -769,6 +863,49 @@ cmd_cleanup() {
 	[ -d "$SCR" ] && rm -rf "$SCR" && echo "removed scratch $SCR"
 	echo "evidence kept: $EV"
 	ls -la "$EV"
+}
+
+# cleanup-all: clean up every run under the scratch root that no live process drives. A run is
+# live while a process outside its own scratch binaries (and the subshell that holds its
+# serve) has REEF_VERIFY_RUN=<id> or <id>/<section> in its environment, as a driver does.
+# This shell's own tree is skipped.
+cmd_cleanup_all() {
+	[ -d "$SCRATCH_ROOT" ] || { echo "nothing under $SCRATCH_ROOT"; return 0; }
+	live=$(ps -axeww -o pid=,ppid=,command= | awk -v root="$SCRATCH_ROOT/" -v me="$$" '
+		{ pid[NR] = $1; ppid[NR] = $2; line[NR] = $0 }
+		END {
+			skip[me] = 1
+			for (i = 1; i <= NR; i++) {
+				c = line[i]; sub(/^ *[0-9]+ +[0-9]+ /, "", c)
+				if (index(c, root) == 1) {
+					skip[pid[i]] = 1
+					if (c ~ /\/bin\/reef serve /) skip[ppid[i]] = 1
+				}
+			}
+			do {
+				grew = 0
+				for (i = 1; i <= NR; i++)
+					if ((ppid[i] in skip) && !(pid[i] in skip)) { skip[pid[i]] = 1; grew = 1 }
+			} while (grew)
+			for (i = 1; i <= NR; i++) {
+				if (pid[i] in skip) continue
+				n = split(line[i], w, " ")
+				for (j = 1; j <= n; j++)
+					if (w[j] ~ /^REEF_VERIFY_RUN=/) print substr(w[j], 17)
+			}
+		}' | sort -u)
+	for d in "$SCRATCH_ROOT"/*/; do
+		[ -d "$d" ] || continue
+		id=$(basename "$d")
+		if printf '%s\n' "$live" | awk -v id="$id" '$0 == id || index($0, id "/") == 1 { found = 1 } END { exit !found }'; then
+			echo "live, left alone: $id"
+			continue
+		fi
+		echo "stopping run $id"
+		mkdir -p "$EVIDENCE_ROOT/$id"
+		REEF_VERIFY_RUN=$id "$0" cleanup >/dev/null
+		rmdir "$EVIDENCE_ROOT/$id" 2>/dev/null
+	done
 }
 
 [ $# -gt 0 ] || usage
@@ -784,13 +921,16 @@ serve-start) cmd_serve_start "$@" ;;
 serve-stop) cmd_serve_stop "$@" ;;
 serve-second) cmd_serve_second "$@" ;;
 api) cmd_api "$@" ;;
+team-apply) cmd_team_apply "$@" ;;
 sql) cmd_sql "$@" ;;
 reef) cmd_reef "$@" ;;
 mcp-call) cmd_mcp_call "$@" ;;
 ui) cmd_ui "$@" ;;
+one) cmd_one "$@" ;;
 feature) cmd_feature "$@" ;;
 real) cmd_real "$@" ;;
 desktop) cmd_desktop "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
+cleanup-all) cmd_cleanup_all "$@" ;;
 *) usage ;;
 esac

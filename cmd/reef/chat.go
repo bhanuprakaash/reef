@@ -14,15 +14,16 @@ import (
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/server"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 const _continueCommand = "/continue"
 
-const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [--name N]
-  [--permission-mode M] [--debug] [--data DIR]
-       reef chat --channel ID [--debug] [--data DIR]`
+const _chatUsage = `usage: reef chat <work-item> [--role lead] [--name N] [--debug] [--data DIR]
+       reef chat --space ID [--debug] [--data DIR]`
 
 func chatCmd(
 	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
@@ -32,21 +33,17 @@ func chatCmd(
 
 	c := newCommand("reef chat", _chatUsage, 0, 1)
 	role := c.fs.String("role", "", "")
-	backend := c.fs.String("backend", "", "")
 	name := c.fs.String("name", "", "")
-	permissionMode := c.fs.String("permission-mode", "", "")
 	debug := c.fs.Bool("debug", false, "")
-	channelID := c.fs.Int64("channel", 0, "")
+	spaceID := c.fs.Int64("space", 0, "")
 	st, pos, err := c.open(args)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
 
-	resuming := *channelID != 0
-	if resuming == (len(pos) == 1) ||
-		(resuming && (*role != "" || *backend != "" || *name != "" || *permissionMode != "")) ||
-		(!resuming && (*role == "" || *backend == "")) {
+	resuming := *spaceID != 0
+	if resuming == (len(pos) == 1) || (resuming && (*role != "" || *name != "")) {
 		return errors.New(_chatUsage)
 	}
 	dir, err := dataDir(*c.data)
@@ -60,38 +57,51 @@ func chatCmd(
 	if err != nil {
 		return fmt.Errorf("find reef path: %w", err)
 	}
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
 
 	if !resuming {
-		f, err := st.FeatureByRef(ctx, pos[0])
+		f, err := spaceItemArg(ctx, st, pos[0])
 		if err != nil {
 			return err
+		}
+		solo, err := st.Team(ctx, store.SoloTeam)
+		if err != nil {
+			return err
+		}
+		if lead := solo.Roles[0].Name; *role == "" {
+			*role = lead
+		} else if *role != lead {
+			return fmt.Errorf("%w: reef chat runs the lead of team %s, %s: --role %s is not it",
+				store.ErrInvalid, store.SoloTeam, lead, *role)
 		}
 		if *name == "" {
 			*name = *role + " chat"
 		}
-		ch, err := st.CreateChannel(ctx, store.Channel{
-			ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *name, Role: *role,
-			Backend: *backend, PermissionMode: *permissionMode,
+		ch, err := st.CreateSpace(ctx, store.Space{
+			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *name, Role: *role,
 		})
 		if err != nil {
 			return err
 		}
-		*channelID = ch.ID
+		*spaceID = ch.ID
 	} else {
-		ch, err := st.Channel(ctx, *channelID)
+		ch, err := st.Space(ctx, *spaceID)
 		if err != nil {
 			return err
 		}
-		team, err := st.Team(ctx, ch.Team)
+		team, err := st.SpaceTeam(ctx, ch.ID)
 		if err != nil {
 			return err
 		}
 		if len(team.Roles) > 1 {
-			return fmt.Errorf("channel %d belongs to team %q; use the Reef window for multi-role teams",
+			return fmt.Errorf("space %d belongs to team %q; use the Reef window for multi-role teams",
 				ch.ID, team.Name)
 		}
 	}
-	sess, err := channel.Open(ctx, st, dir, exe, *channelID, channel.NewTrees(dir))
+	sess, err := space.Open(ctx, st, ms, dir, exe, *spaceID, space.NewTrees(dir), space.NewAgent)
 	if err == nil {
 		if err = sess.Start(ctx); err != nil {
 			_ = sess.Close()
@@ -99,7 +109,7 @@ func chatCmd(
 	}
 	if err != nil {
 		if !resuming {
-			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), *channelID))
+			err = errors.Join(err, st.DeleteSpace(context.WithoutCancel(ctx), *spaceID))
 		}
 		return err
 	}
@@ -110,11 +120,11 @@ func chatCmd(
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		})
 	}
-	if err := converse(ctx, st, *channelID, sess, readLines(stdin), stdout); err != nil {
+	if err := converse(ctx, st, ms, *spaceID, sess, readLines(stdin), stdout); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n",
-		*channelID, *channelID)
+	_, err = fmt.Fprintf(stdout, "\nspace %d: resume with reef chat --space %d\n",
+		*spaceID, *spaceID)
 	return err
 }
 
@@ -124,10 +134,10 @@ type chatSession interface {
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
-var _ chatSession = (*channel.Session)(nil)
+var _ chatSession = (*space.Session)(nil)
 
 func converse(
-	ctx context.Context, st *store.Store, channelID int64, sess chatSession,
+	ctx context.Context, st *store.Store, ms *memory.Store, spaceID int64, sess chatSession,
 	in *lineReader, stdout io.Writer,
 ) error {
 	show := func(ev agent.Event) {
@@ -148,8 +158,8 @@ func converse(
 		}
 		if line == _continueCommand {
 			msg := "continued"
-			if err := channel.Continue(ctx, st, channelID); errors.Is(err, store.ErrConflict) {
-				msg = "the channel is not paused"
+			if err := space.Continue(ctx, st, spaceID); errors.Is(err, store.ErrConflict) {
+				msg = "the Space is not paused"
 			} else if err != nil {
 				return err
 			}
@@ -158,12 +168,12 @@ func converse(
 			}
 			continue
 		}
-		ch, err := st.Channel(ctx, channelID)
+		ch, err := st.Space(ctx, spaceID)
 		if err != nil {
 			return err
 		}
-		if _, err := channel.CheckCaps(ctx, st, &ch); errors.Is(err, store.ErrConflict) {
-			if _, err := fmt.Fprintf(stdout, "channel %d is paused: %s\n%s to go on\n\n> ",
+		if _, err := space.CheckCaps(ctx, st, &ch); errors.Is(err, store.ErrConflict) {
+			if _, err := fmt.Fprintf(stdout, "space %d is paused: %s\n%s to go on\n\n> ",
 				ch.ID, ch.Paused, _continueCommand); err != nil {
 				return err
 			}
@@ -175,14 +185,14 @@ func converse(
 			return err
 		}
 		var p store.Proposal
-		wrap := line == channel.WrapCommand
+		wrap := line == space.WrapCommand
 		_, err = sess.Say(ctx, line, nil)
 		if err == nil && wrap {
 			p, err = sess.Wrap(ctx, show)
 		} else if err == nil {
 			err = sess.Run(ctx, line, nil, show)
 		}
-		noProposal := errors.Is(err, channel.ErrNoProposal)
+		noProposal := errors.Is(err, space.ErrNoProposal)
 		if err != nil && !noProposal {
 			if ctx.Err() != nil {
 				return nil
@@ -193,7 +203,7 @@ func converse(
 			return err
 		}
 		if wrap {
-			stop, err := decideWrap(ctx, st, p, noProposal, in, stdout)
+			stop, err := decideWrap(ctx, st, ms, p, noProposal, in, stdout)
 			if err != nil {
 				return err
 			}
@@ -208,7 +218,7 @@ func converse(
 }
 
 func decideWrap(
-	ctx context.Context, st *store.Store, p store.Proposal, noProposal bool,
+	ctx context.Context, st *store.Store, ms *memory.Store, p store.Proposal, noProposal bool,
 	in *lineReader, stdout io.Writer,
 ) (stop bool, err error) {
 	if noProposal {
@@ -243,15 +253,15 @@ func decideWrap(
 		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		p, added, err := st.ApproveProposal(ctx, p.ID)
+		a, err := server.ApproveProposal(ctx, st, ms, p.ID)
 		if err != nil {
-			if errors.Is(err, store.ErrInvalid) {
+			if errors.Is(err, store.ErrInvalid) || errors.Is(err, memory.ErrInvalid) {
 				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
 				return false, err
 			}
 			return false, err
 		}
-		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(p, added))
+		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(a))
 		return false, err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
@@ -276,11 +286,15 @@ func proposalTitle(p store.Proposal) string {
 	return fmt.Sprintf("proposal %d from %s", p.ID, p.Role)
 }
 
-func approvedText(p store.Proposal, added int) string {
-	if p.Kind == store.ProposalBrief {
-		return "approved: brief saved"
+func approvedText(a server.Approval) string {
+	text := "approved: brief saved"
+	if a.Proposal.Kind != store.ProposalBrief {
+		text = fmt.Sprintf("approved: brief and %d items saved", a.Added)
 	}
-	return fmt.Sprintf("approved: brief, notes and %d decisions saved", added)
+	for _, w := range a.Warnings {
+		text += "\nwarning: " + w
+	}
+	return text
 }
 
 func proposalBodyText(p store.Proposal) string {
@@ -288,19 +302,19 @@ func proposalBodyText(p store.Proposal) string {
 		return fmt.Sprintf("brief:\n%s\n", p.Brief)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "brief:\n%s\n\nnotes:\n%s\n\ndecisions:\n", p.Brief, p.Notes)
-	for _, d := range p.Decisions {
-		fmt.Fprintf(&b, "- %s", d.Body)
-		if d.Why != "" {
-			fmt.Fprintf(&b, " (%s)", d.Why)
+	fmt.Fprintf(&b, "brief:\n%s\n\nitems:\n", p.Brief)
+	for _, it := range p.Items {
+		fmt.Fprintf(&b, "- %s (%s): %s", it.Kind, it.Scope, it.Body)
+		if it.Why != "" {
+			fmt.Fprintf(&b, " (%s)", it.Why)
 		}
-		if len(d.Replaces) > 0 {
-			fmt.Fprintf(&b, " [replaces %v]", d.Replaces)
+		if len(it.Replaces) > 0 {
+			fmt.Fprintf(&b, " [replaces %v]", it.Replaces)
 		}
 		b.WriteString("\n")
 	}
 	if len(p.Retire) > 0 {
-		fmt.Fprintf(&b, "\nretire decisions: %v\n", p.Retire)
+		fmt.Fprintf(&b, "\nretire memory items: %v\n", p.Retire)
 	}
 	return b.String()
 }

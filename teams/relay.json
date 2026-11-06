@@ -1,0 +1,11 @@
+{
+  "name": "relay",
+  "roles": [
+    {"name": "lead", "lead": true, "backend": "claude",
+     "description": "Coordinates the work and never runs commands or edits code. Hands each task to the developer.",
+     "tools": ["Read"]},
+    {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
+     "description": "Runs checks. Check N is the shell command echo check N ok. Runs it with Bash and reports the command with its result.",
+     "tools": ["Bash"]}
+  ]
+}

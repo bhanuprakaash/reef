@@ -1,0 +1,483 @@
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import { useSendMessage } from '@/modules/spaces/api/send-message';
+import { useStopSpace } from '@/modules/spaces/api/stop-space';
+import { useMessages } from '@/lib/api/get-messages';
+import { useMediaQuery } from '@/lib/use-media-query';
+import { useDraft } from '@/modules/spaces/hooks/use-draft';
+import { stepHistory } from '@/modules/spaces/utils/history-step';
+import { splitMentions } from '@/utils/split-mentions';
+import { useQuery } from '@tanstack/react-query';
+import { spacesQuery } from '@/lib/api/get-spaces';
+import { botsQuery } from '@/lib/api/get-bots';
+import { useAddBot } from '@/modules/spaces/api/add-bot';
+import { findMention, insertMention, mentionOptions } from '@/modules/spaces/utils/mention';
+import { findSpaceRef, insertSpaceRef } from '@/modules/spaces/utils/space-ref';
+import { insertFiles, withPaths } from '@/modules/spaces/utils/file-path';
+import { ClipboardChip } from '@/modules/spaces/components/clipboard-chip';
+import { Button } from '@/components/button';
+import { Creature, faceOf, type CreatureState, type Faces } from '@/components/creature';
+import type { Role } from '@/types/api';
+import { Menu } from '@/components/menu';
+
+type Props = {
+  spaceId: number;
+  conversation?: boolean;
+  addable?: boolean;
+  running: boolean;
+  paused: boolean;
+  parent?: number;
+  reason?: string;
+  roles?: Role[];
+  faces?: Faces;
+  working?: string;
+  workingBotId?: number;
+};
+
+type DropEvent = {
+  preventDefault: () => void;
+  dataTransfer: { files: Iterable<File> & { length: number } };
+};
+
+export function filesFromDrop(event: DropEvent, paused: boolean) {
+  if (paused || event.dataTransfer.files.length === 0) return [];
+  event.preventDefault();
+  return [...event.dataTransfer.files];
+}
+
+const icon = {
+  width: 18,
+  height: 18,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 2,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const;
+
+export function Composer({
+  spaceId,
+  conversation,
+  addable,
+  running,
+  paused,
+  parent,
+  reason,
+  roles,
+  faces,
+  working,
+  workingBotId,
+}: Props) {
+  const [text, setText] = useDraft(`reef.draft.${spaceId}.${parent ?? 'main'}`);
+  const messages = useMessages(spaceId);
+  const recalled = useRef<number | null>(null);
+  const [caret, setCaret] = useState(0);
+  const [active, setActive] = useState(0);
+  const [closed, setClosed] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [clip, setClip] = useState<string | null>(null);
+  const [nameOnly, setNameOnly] = useState(false);
+  const [pending, setPending] = useState<{ botId: number; name: string } | null>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+  const mirror = useRef<HTMLDivElement>(null);
+  const picked = useRef<number | null>(null);
+  const adding = useRef(false);
+  const send = useSendMessage(spaceId, parent);
+  const stop = useStopSpace(spaceId);
+  const add = useAddBot(spaceId);
+
+  const mention = closed || paused ? null : findMention(text, caret);
+  const bots = useQuery({ ...botsQuery, enabled: addable === true && mention !== null });
+  const matches = mention
+    ? mentionOptions(roles ?? [], addable ? (bots.data ?? []) : [], mention.query)
+    : [];
+  const firstOther = matches.findIndex((o) => !o.member);
+  const card = mention ? pending : null;
+  const ref = closed || paused ? null : findSpaceRef(text, caret);
+  const spaces = useQuery({ ...spacesQuery(), enabled: ref !== null });
+  const refMatches = ref
+    ? (spaces.data ?? [])
+        .filter(
+          (s) =>
+            s.kind !== 'conversation' &&
+            (s.name.toLowerCase().includes(ref.query.toLowerCase()) || String(s.id) === ref.query),
+        )
+        .slice(0, 8)
+    : [];
+  const open = card === null && ((mention !== null && matches.length > 0) || refMatches.length > 0);
+  const highlighted = Math.min(active, (mention ? matches.length : refMatches.length) - 1);
+
+  const history = (messages.data ?? [])
+    .filter((m) => m.author === 'user' && (m.parentId ?? undefined) === parent)
+    .map((m) => m.body)
+    .reverse();
+
+  useLayoutEffect(() => {
+    if (picked.current === null) return;
+    field.current?.setSelectionRange(picked.current, picked.current);
+    picked.current = null;
+  }, [text]);
+
+  useEffect(() => {
+    const reef = window.reef;
+    if (!reef || parent !== undefined) return;
+    const check = () =>
+      void reef
+        .clipboardFile()
+        .then(setClip)
+        .catch(() => setClip(null));
+    check();
+    window.addEventListener('focus', check);
+    return () => window.removeEventListener('focus', check);
+  }, [parent]);
+
+  function attach(files: { path: string; name: string }[]) {
+    const next = insertFiles(text, caret, files);
+    setText(next.text);
+    setCaret(next.caret);
+    setNameOnly(next.nameOnly);
+    picked.current = next.caret;
+    field.current?.focus();
+  }
+
+  function dropFiles(e: DragEvent) {
+    setDragging(false);
+    const files = filesFromDrop(e, paused);
+    if (files.length === 0) return;
+    attach(withPaths(files, window.reef));
+  }
+
+  function hasFiles(e: DragEvent) {
+    return !paused && e.dataTransfer.types.includes('Files');
+  }
+
+  function submit() {
+    const trimmed = text.trim();
+    if (trimmed === '' || paused || send.isPending) return;
+    send.mutate(trimmed, {
+      onSuccess: () => {
+        setText('');
+        setNameOnly(false);
+      },
+    });
+  }
+
+  function pick(name: string) {
+    if (!mention) return;
+    const next = insertMention(text, caret, mention, name);
+    setText(next.text);
+    setCaret(next.caret);
+    picked.current = next.caret;
+  }
+
+  function pickOption(option: { botId: number; name: string; member: boolean }) {
+    if (option.member) pick(option.name);
+    else {
+      add.reset();
+      setPending({ botId: option.botId, name: option.name });
+    }
+  }
+
+  function confirmAdd() {
+    if (!card || adding.current) return;
+    adding.current = true;
+    add.mutate(card.botId, {
+      onSuccess: () => {
+        if (!conversation) pick(card.name);
+        setPending(null);
+      },
+      onSettled: () => {
+        adding.current = false;
+      },
+    });
+  }
+
+  function dismissCard() {
+    setPending(null);
+    add.reset();
+  }
+
+  function pickSpace(space: { id: number; name: string }) {
+    if (!ref) return;
+    const next = insertSpaceRef(text, caret, ref, space);
+    setText(next.text);
+    setCaret(next.caret);
+    picked.current = next.caret;
+  }
+
+  const narrow = useMediaQuery('(max-width: 767px)');
+  const state = (botId: number): CreatureState =>
+    !running ? 'idle' : botId === workingBotId ? 'working' : 'asleep';
+  const placeholder = paused
+    ? reason
+      ? `Paused: ${reason}`
+      : 'Paused'
+    : running
+      ? `${working ? working[0].toUpperCase() + working.slice(1) : 'Agent'} is working… your message runs next`
+      : parent !== undefined
+        ? 'Reply in thread'
+        : roles
+          ? narrow
+            ? 'Message, @ to mention'
+            : conversation
+              ? 'Message the conversation, @ to mention'
+              : 'Message the Space, @ to mention'
+          : 'Message';
+
+  return (
+    <form
+      className="relative space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      {send.isError && !paused && <p className="text-sm text-danger">{send.error.message}</p>}
+      {refMatches.length > 0 && (
+        <Menu
+          role="listbox"
+          aria-label="Space"
+          className="absolute bottom-full left-4 z-10 mb-2 w-[320px]"
+        >
+          {refMatches.map((space, i) => (
+            <div
+              key={space.id}
+              role="option"
+              aria-selected={i === highlighted}
+              tabIndex={-1}
+              className={`flex h-[38px] cursor-pointer items-center gap-2.5 rounded-lg px-2 ${i === highlighted ? 'bg-hover' : ''}`}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pickSpace(space);
+              }}
+            >
+              <span className="truncate">{space.name}</span>
+              <span className="ml-auto shrink-0 text-xs text-muted">
+                {space.kind.replace('_', ' ')} ·{' '}
+                {space.workItemId ? `item ${space.workItemId} · ` : ''}
+                {space.id}
+              </span>
+            </div>
+          ))}
+        </Menu>
+      )}
+      {card === null && mention !== null && matches.length > 0 && (
+        <Menu
+          role="listbox"
+          aria-label="Mention"
+          className="absolute bottom-full left-4 z-10 mb-2 w-[260px]"
+        >
+          {matches.map((role, i) => (
+            <Fragment key={role.botId}>
+              {i === firstOther && (
+                <div role="separator" className="px-2 pb-1 pt-2 text-xs text-muted">
+                  {conversation ? 'Not in this chat' : 'Not in this Space'}
+                </div>
+              )}
+              <div
+                role="option"
+                aria-selected={i === highlighted}
+                tabIndex={-1}
+                className={`flex h-[38px] cursor-pointer items-center gap-2.5 rounded-lg px-2 ${i === highlighted ? 'bg-hover' : ''} ${role.member ? '' : 'opacity-60'}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  pickOption(role);
+                }}
+              >
+                <Creature
+                  look={faceOf(faces, role.botId)}
+                  size={22}
+                  state={role.member ? state(role.botId) : 'idle'}
+                />
+                {role.name}
+                <span className="ml-auto text-xs text-muted">
+                  {role.member ? state(role.botId).replace('-', ' ') : 'Add'}
+                </span>
+              </div>
+            </Fragment>
+          ))}
+        </Menu>
+      )}
+      {card !== null && (
+        <div
+          role="group"
+          aria-label="Add Bot"
+          className="absolute bottom-full left-4 z-10 mb-2 w-[320px] space-y-2.5 rounded-menu border border-line bg-card p-3 shadow-menu"
+        >
+          <p className="text-sm">
+            {conversation
+              ? `Add ${card.name}? This chat moves into a new Space with both Bots.`
+              : `Add ${card.name} to this Space?`}
+          </p>
+          {add.isError && <p className="text-sm text-danger">{add.error.message}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" onClick={dismissCard}>
+              Dismiss
+            </Button>
+            <Button type="button" variant="primary" disabled={add.isPending} onClick={confirmAdd}>
+              Add
+            </Button>
+          </div>
+        </div>
+      )}
+      {clip && !paused && (
+        <div className="px-1.5">
+          <ClipboardChip
+            path={clip}
+            onPaste={() => {
+              attach([{ path: clip, name: clip }]);
+              setClip(null);
+            }}
+          />
+        </div>
+      )}
+      <div
+        className={`flex min-h-14 items-end gap-2.5 rounded-composer border bg-field p-1.5 ${dragging ? 'border-dashed border-mention' : 'border-hover'}`}
+        onDragEnter={(e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={dropFiles}
+      >
+        <Button type="button" size="icon" aria-label="Attach" disabled className="shrink-0">
+          <svg {...icon} strokeWidth={1.7}>
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+        </Button>
+        <div className="grid min-w-0 flex-1 py-2.5 md:py-2">
+          <div
+            ref={mirror}
+            aria-hidden
+            className={`col-start-1 row-start-1 max-h-40 min-w-0 overflow-hidden whitespace-pre-wrap break-words [scrollbar-gutter:stable] text-[15.5px] ${paused ? 'text-faint' : 'text-fg'}`}
+          >
+            {splitMentions(paused ? '' : text).map((piece, i) =>
+              piece.mention ? (
+                <span key={i} className="text-mention">
+                  {piece.value}
+                </span>
+              ) : (
+                piece.value
+              ),
+            )}
+            {'\u200b'}
+          </div>
+          <textarea
+            ref={field}
+            rows={1}
+            className="field-sizing-content col-start-1 row-start-1 max-h-40 w-full [scrollbar-gutter:stable] min-w-0 resize-none bg-transparent text-[15.5px] text-transparent caret-fg outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted disabled:cursor-not-allowed disabled:text-transparent"
+            placeholder={dragging ? 'Drop to add the file path' : placeholder}
+            aria-label={parent === undefined ? 'Message' : 'Reply'}
+            disabled={paused}
+            value={paused ? '' : text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaret(e.target.selectionStart);
+              setActive(0);
+              setClosed(false);
+              setPending(null);
+            }}
+            onScroll={(e) => {
+              if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop;
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length === 0) return;
+              e.preventDefault();
+              attach(withPaths([...e.clipboardData.files], window.reef));
+            }}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (card) {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  confirmAdd();
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  dismissCard();
+                  return;
+                }
+              }
+              if (open) {
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  const step = e.key === 'ArrowDown' ? 1 : -1;
+                  const count = mention ? matches.length : refMatches.length;
+                  setActive((highlighted + step + count) % count);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  if (mention) pickOption(matches[highlighted]);
+                  else pickSpace(refMatches[highlighted]);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setClosed(true);
+                  return;
+                }
+              }
+              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                const step = stepHistory(history, recalled.current, text, e.key);
+                if (step) {
+                  e.preventDefault();
+                  recalled.current = step.index;
+                  setText(step.text);
+                  setCaret(step.text.length);
+                  picked.current = step.text.length;
+                  return;
+                }
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+          />
+        </div>
+        {running && (
+          <Button
+            variant="secondary"
+            type="button"
+            size="icon"
+            aria-label="Stop"
+            className="shrink-0"
+            disabled={stop.isPending}
+            onClick={() => stop.mutate()}
+          >
+            <svg {...icon} width={14} height={14}>
+              <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor" stroke="none" />
+            </svg>
+          </Button>
+        )}
+        <Button
+          variant="primary"
+          type="submit"
+          size="icon"
+          aria-label="Send"
+          className="shrink-0"
+          disabled={text.trim() === '' || paused || send.isPending}
+        >
+          <svg {...icon} width={16} height={16} strokeWidth={2.2}>
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
+        </Button>
+      </div>
+      {nameOnly && (
+        <p className="px-4 text-xs text-muted">No file path here: only the file name was added.</p>
+      )}
+    </form>
+  );
+}

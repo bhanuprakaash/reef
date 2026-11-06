@@ -1,24 +1,29 @@
 import { useEffect, type ReactNode } from 'react';
-import type { Role, Skills } from '@/types/api';
-import { ChipList } from '@/modules/teams/components/chip-list';
+import { Link } from 'react-router';
+import type { Connection, Provider, Role, Skills } from '@/types/api';
+import { ConnectionPicker } from '@/modules/teams/components/connection-picker';
+import { connectionLabel } from '@/modules/teams/utils/connections';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
 import { SkillPicker } from '@/modules/teams/components/skill-picker';
 import { ToolPicker } from '@/modules/teams/components/tool-picker';
+import { providerOptions, providerFor } from '@/modules/teams/utils/providers';
 import { backendOptions } from '@/modules/teams/utils/backend-label';
-import { Button } from '@/components/button';
-import { creatureName } from '@/components/creature';
 import { Select } from '@/components/select';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 import { Toggle } from '@/components/toggle';
+import { claudeModelOptions } from '@/utils/models';
 
 type Props = {
   role: Role;
   skills?: Skills;
+  connections?: Connection[];
+  providers?: Provider[];
   noProject?: boolean;
   onChange: (role: Role) => void;
-  onRemove: () => void;
   onClose: () => void;
+  extra?: ReactNode;
+  children: ReactNode;
 };
 
 const modes: Record<string, string[]> = {
@@ -32,26 +37,17 @@ function modeOptions(role: Role) {
   return values.map((value) => ({ value, label: value || 'Backend default' }));
 }
 
-const claudeModels = [
-  { value: '', label: 'Default' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'haiku', label: 'Haiku' },
-];
-
-function claudeModelOptions(model: string) {
-  return claudeModels.some((o) => o.value === model)
-    ? claudeModels
-    : [...claudeModels, { value: model, label: model }];
-}
-
-function Section({ title, children }: { title?: string; children: ReactNode }) {
+function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="space-y-3 border-t border-hairline pt-[18px]">
-      {title && <h3 className="text-[11px] uppercase tracking-[0.08em] text-muted">{title}</h3>}
+    <section className="space-y-2">
+      <h3 className="text-[11px] uppercase tracking-[0.08em] text-muted">{title}</h3>
       {children}
     </section>
   );
+}
+
+function Group({ children }: { children: ReactNode }) {
+  return <div className="divide-y divide-hairline rounded-[14px] bg-field px-3.5">{children}</div>;
 }
 
 function SettingRow({
@@ -74,7 +70,17 @@ function SettingRow({
   );
 }
 
-export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose }: Props) {
+export function RolePanel({
+  role,
+  skills,
+  connections,
+  providers = [],
+  noProject,
+  onChange,
+  onClose,
+  extra,
+  children,
+}: Props) {
   const label = role.name || 'role';
 
   useEffect(() => {
@@ -87,22 +93,33 @@ export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose
 
   return (
     <aside
-      aria-label="Role"
-      className="fixed inset-y-3 right-3 z-30 w-[calc(100%-24px)] max-w-[420px] space-y-[18px] overflow-y-auto rounded-card border border-line bg-card p-5 shadow-dialog"
+      aria-label="Bot"
+      className="fixed inset-y-3 right-3 z-30 flex w-[calc(100%-24px)] max-w-[420px] flex-col overflow-hidden rounded-card border border-line bg-card shadow-dialog"
     >
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
+      <div className="flex-1 space-y-5 overflow-y-auto p-5">
+        <div className="flex items-start gap-3.5">
           <CreaturePicker
             size={56}
-            value={creatureName(role.name, role.face)}
-            onChange={(face) => onChange({ ...role, face })}
+            value={role}
+            onChange={(look) => onChange({ ...role, ...look })}
           />
-          <TextField
-            className="min-w-0 flex-1"
-            aria-label={`${label} name`}
-            value={role.name}
-            onChange={(e) => onChange({ ...role, name: e.target.value })}
-          />
+          <div className="min-w-0 flex-1">
+            <TextField
+              className="w-full border-transparent! bg-transparent! text-lg hover:border-line! hover:bg-field! focus-visible:border-fg!"
+              aria-label={`${label} name`}
+              placeholder="Name"
+              value={role.name}
+              onChange={(e) => onChange({ ...role, name: e.target.value })}
+            />
+            <div className="mt-1 flex items-center gap-3 px-3 text-[13px] text-muted">
+              <span className="min-w-0 flex-1 truncate">
+                {role.description.split('\n')[0] || 'No description yet'}
+              </span>
+              <Link to={`/bots/${role.botId}`} className="shrink-0 text-soft">
+                Open profile
+              </Link>
+            </div>
+          </div>
           <button
             type="button"
             aria-label="Close role"
@@ -123,125 +140,128 @@ export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose
             </svg>
           </button>
         </div>
-        <SettingRow title="Answers by default" hint="Replies when nobody is @mentioned.">
-          <Toggle
-            label={`${label} lead`}
-            checked={role.lead}
-            onChange={(lead) => onChange({ ...role, lead })}
-          />
-        </SettingRow>
-        <SettingRow title="Can edit code" hint="Off keeps the role read-only.">
-          <Toggle
-            label={`${label} write`}
-            checked={role.write}
-            onChange={(write) => onChange({ ...role, write })}
-          />
-        </SettingRow>
-      </div>
 
-      <Section title="Persona">
-        <p className="text-xs text-muted">How this role thinks and works. Sent on every turn.</p>
-        <TextArea
-          className="w-full leading-normal"
-          rows={7}
-          aria-label={`${label} persona`}
-          value={role.persona}
-          onChange={(e) => onChange({ ...role, persona: e.target.value })}
-        />
-      </Section>
-
-      <Section title="Runtime">
-        <SettingRow title="Backend">
-          <Select
-            variant="pill"
-            aria-label={`${label} backend`}
-            value={role.backend}
-            options={backendOptions}
-            onChange={(backend) =>
-              onChange({
-                ...role,
-                backend,
-                permissionMode: (modes[backend] ?? []).includes(role.permissionMode)
-                  ? role.permissionMode
-                  : '',
-                model: '',
-              })
-            }
-          />
-        </SettingRow>
-        <SettingRow title="Model">
-          {role.backend === 'claude' ? (
-            <Select
-              variant="pill"
-              aria-label={`${label} model`}
-              value={role.model ?? ''}
-              options={claudeModelOptions(role.model ?? '')}
-              onChange={(model) => onChange({ ...role, model })}
-            />
-          ) : (
-            <TextField
-              className="w-40"
-              aria-label={`${label} model`}
-              placeholder="Default"
-              value={role.model ?? ''}
-              onChange={(e) => onChange({ ...role, model: e.target.value })}
-            />
-          )}
-        </SettingRow>
-        <SettingRow title="Permission mode">
-          <Select
-            variant="pill"
-            aria-label={`${label} permission mode`}
-            value={role.permissionMode}
-            options={modeOptions(role)}
-            onChange={(permissionMode) => onChange({ ...role, permissionMode })}
-          />
-        </SettingRow>
-      </Section>
-
-      {role.backend === 'claude' && (
-        <Section>
-          <ToolPicker
-            label={label}
-            tools={role.tools}
-            write={role.write}
-            servers={role.mcp}
-            onChange={(tools) => onChange({ ...role, tools })}
+        <Section title="About">
+          <TextArea
+            className="w-full leading-normal"
+            rows={5}
+            aria-label={`${label} description`}
+            placeholder="What this Bot does, in plain words."
+            value={role.description}
+            onChange={(e) => onChange({ ...role, description: e.target.value })}
           />
         </Section>
-      )}
 
-      <Section>
-        <SkillPicker
-          label={label}
-          picked={role.skills}
-          available={role.backend === 'codex' ? skills?.codex : skills?.claude}
-          noProject={noProject}
-          limits={role.backend === 'claude'}
-          onChange={(next) => onChange({ ...role, skills: next })}
-        />
-      </Section>
+        <Section title="Runtime">
+          <Group>
+            <SettingRow title="Backend">
+              <Select
+                variant="pill"
+                aria-label={`${label} backend`}
+                value={role.backend}
+                options={backendOptions}
+                onChange={(backend) =>
+                  onChange({
+                    ...role,
+                    backend,
+                    provider: providerFor(role.provider, backend, providers),
+                    permissionMode: (modes[backend] ?? []).includes(role.permissionMode)
+                      ? role.permissionMode
+                      : '',
+                    model: '',
+                  })
+                }
+              />
+            </SettingRow>
+            <SettingRow title="Provider" hint="Add installs in Settings.">
+              <Select
+                variant="pill"
+                aria-label={`${label} provider`}
+                value={role.provider ?? ''}
+                options={providerOptions(role, providers)}
+                onChange={(provider) => onChange({ ...role, provider: provider || undefined })}
+              />
+            </SettingRow>
+            <SettingRow title="Model">
+              {role.backend === 'claude' ? (
+                <Select
+                  variant="pill"
+                  aria-label={`${label} model`}
+                  value={role.model ?? ''}
+                  options={claudeModelOptions(role.model ?? '')}
+                  onChange={(model) => onChange({ ...role, model })}
+                />
+              ) : (
+                <TextField
+                  className="w-40"
+                  aria-label={`${label} model`}
+                  placeholder="Default"
+                  value={role.model ?? ''}
+                  onChange={(e) => onChange({ ...role, model: e.target.value })}
+                />
+              )}
+            </SettingRow>
+            <SettingRow title="Permission mode">
+              <Select
+                variant="pill"
+                aria-label={`${label} permission mode`}
+                value={role.permissionMode}
+                options={modeOptions(role)}
+                onChange={(permissionMode) => onChange({ ...role, permissionMode })}
+              />
+            </SettingRow>
+            <SettingRow title="Can edit code" hint="Off keeps the Bot read-only.">
+              <Toggle
+                label={`${label} write`}
+                checked={role.write}
+                onChange={(write) => onChange({ ...role, write })}
+              />
+            </SettingRow>
+          </Group>
+        </Section>
 
-      <Section>
-        <ChipList
-          label="MCP servers"
-          empty="None. Add them with reef team apply."
-          values={role.mcp.map((m) => (m.label ? `${m.name} · ${m.label}` : m.name))}
-          onRemove={(i) =>
-            onChange({
-              ...role,
-              mcp: role.mcp.filter((_, j) => j !== i),
-              mcpRemove: [...(role.mcpRemove ?? []), role.mcp[i]],
-            })
-          }
-        />
-      </Section>
+        <Section title="Access">
+          <Group>
+            {role.backend === 'claude' && (
+              <div className="py-2.5">
+                <ToolPicker
+                  label={label}
+                  tools={role.tools}
+                  write={role.write}
+                  servers={(connections ?? [])
+                    .filter((c) => role.connections.includes(c.id))
+                    .map((c) => ({ name: c.name, label: connectionLabel(c) }))}
+                  onChange={(tools) => onChange({ ...role, tools })}
+                />
+              </div>
+            )}
+            <div className="py-2.5">
+              <ConnectionPicker
+                label={label}
+                selected={role.connections}
+                available={connections}
+                onChange={(next) => onChange({ ...role, connections: next })}
+              />
+            </div>
+            <div className="py-2.5">
+              <SkillPicker
+                label={label}
+                picked={role.skills}
+                available={skills}
+                backend={role.backend}
+                noProject={noProject}
+                limits={role.backend === 'claude'}
+                onChange={(next) => onChange({ ...role, skills: next })}
+              />
+            </div>
+          </Group>
+        </Section>
 
-      <Section>
-        <Button variant="ghost" type="button" className="text-danger!" onClick={onRemove}>
-          Remove role
-        </Button>
-      </Section>
+        {extra}
+      </div>
+      <footer className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-hairline px-5 py-3.5">
+        {children}
+      </footer>
     </aside>
   );
 }

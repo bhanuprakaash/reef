@@ -2,22 +2,34 @@ import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '@/types/api';
 import { itemPath } from './anchors';
 
-const base = { channelId: 4, featureId: null, text: '', at: '2026-10-14T08:00:00Z' };
+const base = { spaceId: 4, workItemId: null, text: '', at: '2026-10-14T08:00:00Z' };
 
 describe('itemPath', () => {
-  it('points each kind of item at its element in the channel', () => {
+  it('points each kind of item at its element in the Space', () => {
     const items: InboxItem[] = [
-      { ...base, kind: 'approval', approvalId: 9 },
-      { ...base, kind: 'failed', turnId: 12 },
-      { ...base, kind: 'paused' },
-      { ...base, kind: 'waiting' },
+      { ...base, kind: 'failed', group: 'needs_you', turnId: 12 },
+      { ...base, kind: 'paused', group: 'needs_you' },
+      { ...base, kind: 'held', group: 'needs_you' },
+      { ...base, kind: 'reply', group: 'fyi' },
     ];
 
     expect(items.map(itemPath)).toEqual([
-      '/channels/4#approval-9',
-      '/channels/4#failed-turn-12',
-      '/channels/4#paused',
-      '/channels/4#latest-message',
+      '/spaces/4#failed-turn-12',
+      '/spaces/4#paused',
+      '/spaces/4#paused',
+      '/spaces/4#latest-message',
     ]);
+  });
+
+  it('points an item of a Work item at its page', () => {
+    const review: InboxItem = {
+      ...base,
+      kind: 'review',
+      group: 'needs_you',
+      spaceId: 0,
+      workItemId: 7,
+    };
+
+    expect(itemPath(review)).toBe('/work-items/7');
   });
 });

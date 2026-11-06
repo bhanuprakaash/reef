@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -17,50 +16,45 @@ const (
 	ProposalRejected = "rejected"
 )
 
-// Proposal kinds. A wrap ends the channel; a brief only updates the feature's brief.
+// Proposal kinds. A wrap ends the Space; a brief only updates the item's brief.
 const (
 	ProposalWrap  = "wrap"
 	ProposalBrief = "brief"
 )
 
-const (
-	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
-		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
-		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ? AND retired_at IS NULL)"
-	_proposalCols = "id, channel_id, role, kind, brief, notes, decisions, retire, status, " +
-		"created_at, decided_at"
-)
+const _proposalCols = "id, space_id, role, kind, brief, items, retire, status, " +
+	"created_at, decided_at, bot_id"
 
-// ProposedDecision is a decision that approving its proposal records. Replaces are the
-// live decisions it retires; they are skipped when the feature already has the body.
-type ProposedDecision struct {
+// ProposedItem is a memory item that approving its proposal saves. Scope is the memory scope
+// kind: work_item, project, bot or team. Replaces are the memory items it replaces.
+type ProposedItem struct {
+	Kind     string  `json:"kind"`
 	Body     string  `json:"body"`
-	Why      string  `json:"why"`
+	Why      string  `json:"why,omitempty"`
+	Scope    string  `json:"scope,omitempty"`
 	Replaces []int64 `json:"replaces,omitempty"`
 }
 
-// Proposal is what a role suggests: at wrap-up the new brief, its notes and the
-// decisions it noticed, and approving it applies all three. Retire lists live decisions
-// that are stale or duplicate. A brief proposal has only the brief.
+// Proposal is what a role suggests: at wrap-up the new brief, the memory items it noticed and
+// the ids of those to retire; a brief proposal has only the brief.
 type Proposal struct {
-	ID        int64              `json:"id"`
-	ChannelID int64              `json:"channelId"`
-	Role      string             `json:"role"`
-	Kind      string             `json:"kind"`
-	Brief     string             `json:"brief"`
-	Notes     string             `json:"notes"`
-	Decisions []ProposedDecision `json:"decisions"`
-	Retire    []int64            `json:"retire"`
-	Status    string             `json:"status"`
-	CreatedAt time.Time          `json:"createdAt"`
-	DecidedAt *time.Time         `json:"decidedAt"`
+	ID        int64          `json:"id"`
+	SpaceID   int64          `json:"spaceId"`
+	BotID     *int64         `json:"botId,omitempty"`
+	Role      string         `json:"role"`
+	Kind      string         `json:"kind"`
+	Brief     string         `json:"brief"`
+	Items     []ProposedItem `json:"items"`
+	Retire    []int64        `json:"retire"`
+	Status    string         `json:"status"`
+	CreatedAt time.Time      `json:"createdAt"`
+	DecidedAt *time.Time     `json:"decidedAt"`
 }
 
-// CreateProposal adds p as pending, of kind wrap unless p.Kind says otherwise. The channel
-// must belong to a feature. A wrap's Retire and Replaces ids must be live decisions of that
-// feature. The channel has one pending proposal at most: a wrap rejects the older
-// pending ones of any kind, and a brief rejects the older pending briefs but is refused
-// while a wrap is pending.
+// CreateProposal adds p as pending, of kind wrap unless p.Kind says otherwise. The Space
+// must belong to a work item. The Space has one pending proposal at most: a wrap rejects the
+// older pending ones of any kind, and a brief rejects the older pending briefs but is
+// refused while a wrap is pending.
 func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error) {
 	if p.Kind == "" {
 		p.Kind = ProposalWrap
@@ -74,9 +68,9 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	if p.Brief == "" {
 		return Proposal{}, fmt.Errorf("%w: proposal brief is required", ErrInvalid)
 	}
-	for _, d := range p.Decisions {
-		if d.Body == "" {
-			return Proposal{}, fmt.Errorf("%w: decision body is required", ErrInvalid)
+	for _, it := range p.Items {
+		if it.Body == "" {
+			return Proposal{}, fmt.Errorf("%w: item body is required", ErrInvalid)
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -84,30 +78,21 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 		return Proposal{}, fmt.Errorf("begin proposal: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	c, err := scanChannel(tx.QueryRowContext(ctx,
-		"SELECT "+_channelCols+" FROM channel WHERE id = ?", p.ChannelID))
+	c, err := scanSpace(tx.QueryRowContext(ctx,
+		"SELECT "+_spaceCols+" FROM space WHERE id = ?", p.SpaceID))
 	if errors.Is(err, sql.ErrNoRows) {
-		return Proposal{}, fmt.Errorf("channel %d: %w", p.ChannelID, ErrNotFound)
+		return Proposal{}, fmt.Errorf("space %d: %w", p.SpaceID, ErrNotFound)
 	}
 	if err != nil {
 		return Proposal{}, err
 	}
-	if c.FeatureID == nil {
-		return Proposal{}, fmt.Errorf("%w: channel %d has no feature", ErrInvalid, c.ID)
-	}
-	if p.Kind == ProposalWrap {
-		ids := slices.Clone(p.Retire)
-		for _, d := range p.Decisions {
-			ids = append(ids, d.Replaces...)
-		}
-		if err := requireLiveDecisions(ctx, tx, *c.FeatureID, ids); err != nil {
-			return Proposal{}, err
-		}
+	if c.WorkItemID == nil {
+		return Proposal{}, fmt.Errorf("%w: Space %d has no work item", ErrInvalid, c.ID)
 	}
 	dedupeRetired(&p)
-	decisions, err := json.Marshal(p.Decisions)
+	items, err := json.Marshal(p.Items)
 	if err != nil {
-		return Proposal{}, fmt.Errorf("encode decisions: %w", err)
+		return Proposal{}, fmt.Errorf("encode items: %w", err)
 	}
 	retire, err := json.Marshal(p.Retire)
 	if err != nil {
@@ -115,18 +100,18 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
-	reject := "UPDATE proposal SET status = ?, decided_at = ? WHERE channel_id = ? AND status = ?"
-	args := []any{ProposalRejected, at, p.ChannelID, ProposalPending}
+	reject := "UPDATE proposal SET status = ?, decided_at = ? WHERE space_id = ? AND status = ?"
+	args := []any{ProposalRejected, at, p.SpaceID, ProposalPending}
 	if p.Kind == ProposalBrief {
 		var wraps int
 		if err := tx.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM proposal WHERE channel_id = ? AND kind = ? AND status = ?",
-			p.ChannelID, ProposalWrap, ProposalPending).Scan(&wraps); err != nil {
+			"SELECT COUNT(*) FROM proposal WHERE space_id = ? AND kind = ? AND status = ?",
+			p.SpaceID, ProposalWrap, ProposalPending).Scan(&wraps); err != nil {
 			return Proposal{}, fmt.Errorf("check pending wrap: %w", err)
 		}
 		if wraps > 0 {
-			return Proposal{}, fmt.Errorf("%w: channel %d has a wrap-up waiting for approval",
-				ErrInvalid, p.ChannelID)
+			return Proposal{}, fmt.Errorf("%w: Space %d has a wrap-up waiting for approval",
+				ErrInvalid, p.SpaceID)
 		}
 		reject, args = reject+" AND kind = ?", append(args, ProposalBrief)
 	}
@@ -134,12 +119,12 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 		return Proposal{}, fmt.Errorf("reject older proposals: %w", err)
 	}
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, retire, created_at) "+
+		"INSERT INTO proposal (space_id, role, kind, brief, items, retire, created_at, bot_id) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		p.ChannelID, p.Role, p.Kind, p.Brief, p.Notes, string(decisions), string(retire), at)
+		p.SpaceID, p.Role, p.Kind, p.Brief, string(items), string(retire), at, p.BotID)
 	if err != nil {
 		return Proposal{}, s.writeErr(ctx, "insert proposal", err, ErrNotFound,
-			parent{table: "channel", id: &p.ChannelID})
+			parent{table: "space", id: &p.SpaceID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -152,8 +137,6 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	return p, nil
 }
 
-// dedupeRetired makes the decision ids p retires unique, so each is retired once. The first
-// claim wins: a decision's Replaces in order, then Retire.
 func dedupeRetired(p *Proposal) {
 	seen := map[int64]bool{}
 	claim := func(ids []int64) []int64 {
@@ -166,22 +149,22 @@ func dedupeRetired(p *Proposal) {
 		}
 		return kept
 	}
-	decisions := make([]ProposedDecision, len(p.Decisions))
-	for i, d := range p.Decisions {
-		d.Replaces = claim(d.Replaces)
-		decisions[i] = d
+	items := make([]ProposedItem, len(p.Items))
+	for i, it := range p.Items {
+		it.Replaces = claim(it.Replaces)
+		items[i] = it
 	}
-	p.Decisions, p.Retire = decisions, claim(p.Retire)
+	p.Items, p.Retire = items, claim(p.Retire)
 }
 
-// PendingProposal returns the channel's newest pending proposal, or ErrNotFound.
-func (s *Store) PendingProposal(ctx context.Context, channelID int64) (Proposal, error) {
+// PendingProposal returns the Space's newest pending proposal, or ErrNotFound.
+func (s *Store) PendingProposal(ctx context.Context, spaceID int64) (Proposal, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT "+_proposalCols+" FROM proposal WHERE channel_id = ? AND status = ? "+
-			"ORDER BY id DESC LIMIT 1", channelID, ProposalPending)
+		"SELECT "+_proposalCols+" FROM proposal WHERE space_id = ? AND status = ? "+
+			"ORDER BY id DESC LIMIT 1", spaceID, ProposalPending)
 	p, err := scanProposal(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Proposal{}, fmt.Errorf("pending proposal of channel %d: %w", channelID, ErrNotFound)
+		return Proposal{}, fmt.Errorf("pending proposal of Space %d: %w", spaceID, ErrNotFound)
 	}
 	return p, err
 }
@@ -196,18 +179,18 @@ func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
 	return p, err
 }
 
-// PendingProposals returns every pending proposal, oldest first. With featureID
-// set, only those of that feature's channels. With projectID set, only that project's.
+// PendingProposals returns every pending proposal, oldest first. With workItemID
+// set, only those of that item's Spaces. With projectID set, only that project's.
 func (s *Store) PendingProposals(
-	ctx context.Context, featureID, projectID *int64,
+	ctx context.Context, workItemID, projectID *int64,
 ) ([]Proposal, error) {
 	query, args := "SELECT "+_proposalCols+" FROM proposal WHERE status = ?", []any{ProposalPending}
-	if featureID != nil {
-		query += " AND channel_id IN (SELECT id FROM channel WHERE feature_id = ?)"
-		args = append(args, *featureID)
+	if workItemID != nil {
+		query += " AND space_id IN (SELECT id FROM space WHERE work_item_id = ?)"
+		args = append(args, *workItemID)
 	}
 	if projectID != nil {
-		query += " AND channel_id IN (SELECT id FROM channel WHERE project_id = ?)"
+		query += " AND space_id IN (SELECT space_id FROM space_project WHERE project_id = ?)"
 		args = append(args, *projectID)
 	}
 	rows, err := s.db.QueryContext(ctx, query+" ORDER BY id", args...)
@@ -229,79 +212,46 @@ func (s *Store) PendingProposals(
 	return ps, nil
 }
 
-// ApproveProposal applies the pending proposal in one transaction: a new brief
-// version and the role's notes, both authored by the proposal's role, and each
-// proposed decision whose body no live decision of the feature has, retiring the decisions it
-// replaces, then retires the proposal's Retire decisions. It closes the channel and
-// returns how many decisions it added. A brief proposal adds only the brief version, and
-// is refused once its channel is closed.
-// Nothing is applied if any step fails, such as a retired id that is not a live decision
-// of the feature.
-func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, error) {
+// ApproveProposal saves the pending proposal's brief, closes the Space of a wrap, gives the
+// direct requests waiting in it a stopped response and marks the proposal approved, in one
+// transaction. A brief proposal is refused once the Space is
+// closed.
+func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Proposal{}, 0, fmt.Errorf("begin approve: %w", err)
+		return Proposal{}, fmt.Errorf("begin approve: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	p, err := pendingProposal(ctx, tx, id)
 	if err != nil {
-		return Proposal{}, 0, err
+		return Proposal{}, err
 	}
-	var featureID int64
+	var workItemID int64
 	var closed sql.NullString
 	err = tx.QueryRowContext(ctx,
-		"SELECT feature_id, closed_at FROM channel WHERE id = ?", p.ChannelID).
-		Scan(&featureID, &closed)
+		"SELECT work_item_id, closed_at FROM space WHERE id = ?", p.SpaceID).
+		Scan(&workItemID, &closed)
 	if err != nil {
-		return Proposal{}, 0, fmt.Errorf("read feature of proposal %d: %w", id, err)
+		return Proposal{}, fmt.Errorf("read work item of proposal %d: %w", id, err)
 	}
 	if p.Kind == ProposalBrief && closed.Valid {
-		return Proposal{}, 0, fmt.Errorf("%w: channel %d is closed", ErrInvalid, p.ChannelID)
+		return Proposal{}, fmt.Errorf("%w: Space %d is closed", ErrInvalid, p.SpaceID)
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, _insertBrief, featureID, p.Brief, p.Role, at); err != nil {
-		return Proposal{}, 0, fmt.Errorf("insert brief: %w", err)
+	if _, err := tx.ExecContext(ctx, _insertBrief, workItemID, p.Brief, p.Role, at); err != nil {
+		return Proposal{}, fmt.Errorf("insert brief: %w", err)
 	}
-	if p.Kind == ProposalBrief {
-		p, err = decideProposal(ctx, tx, p, ProposalApproved, now)
-		return p, 0, err
-	}
-	if _, err := tx.ExecContext(ctx, _upsertRoleNotes, featureID, p.Role, p.Notes, at); err != nil {
-		return Proposal{}, 0, fmt.Errorf("upsert role notes: %w", err)
-	}
-	added := 0
-	for _, d := range p.Decisions {
-		res, err := tx.ExecContext(ctx, _insertNewDecision,
-			featureID, d.Body, d.Why, p.Role, at, featureID, d.Body)
-		if err != nil {
-			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
+	if p.Kind == ProposalWrap {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE space SET closed_at = ? WHERE id = ?", at, p.SpaceID); err != nil {
+			return Proposal{}, fmt.Errorf("close Space: %w", err)
 		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
-		}
-		if n == 0 {
-			continue
-		}
-		added++
-		newID, err := res.LastInsertId()
-		if err != nil {
-			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
-		}
-		if err := retireDecisions(ctx, tx, featureID, d.Replaces, &newID, at); err != nil {
-			return Proposal{}, 0, err
+		if err := s.stopWaitingDirects(ctx, tx, "space_id = ?", p.SpaceID); err != nil {
+			return Proposal{}, err
 		}
 	}
-	if err := retireDecisions(ctx, tx, featureID, p.Retire, nil, at); err != nil {
-		return Proposal{}, 0, err
-	}
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE channel SET closed_at = ? WHERE id = ?", at, p.ChannelID); err != nil {
-		return Proposal{}, 0, fmt.Errorf("close channel: %w", err)
-	}
-	p, err = decideProposal(ctx, tx, p, ProposalApproved, now)
-	return p, added, err
+	return decideProposal(ctx, tx, p, ProposalApproved, now)
 }
 
 // RejectProposal marks the pending proposal rejected and changes nothing else.
@@ -350,14 +300,14 @@ func decideProposal(
 
 func scanProposal(r interface{ Scan(...any) error }) (Proposal, error) {
 	var p Proposal
-	var decisions, retire, created string
+	var items, retire, created string
 	var decided sql.NullString
-	if err := r.Scan(&p.ID, &p.ChannelID, &p.Role, &p.Kind, &p.Brief, &p.Notes, &decisions,
-		&retire, &p.Status, &created, &decided); err != nil {
+	if err := r.Scan(&p.ID, &p.SpaceID, &p.Role, &p.Kind, &p.Brief, &items,
+		&retire, &p.Status, &created, &decided, &p.BotID); err != nil {
 		return Proposal{}, err
 	}
-	if err := json.Unmarshal([]byte(decisions), &p.Decisions); err != nil {
-		return Proposal{}, fmt.Errorf("proposal %d: bad decisions: %w", p.ID, err)
+	if err := json.Unmarshal([]byte(items), &p.Items); err != nil {
+		return Proposal{}, fmt.Errorf("proposal %d: bad items: %w", p.ID, err)
 	}
 	if err := json.Unmarshal([]byte(retire), &p.Retire); err != nil {
 		return Proposal{}, fmt.Errorf("proposal %d: bad retire: %w", p.ID, err)

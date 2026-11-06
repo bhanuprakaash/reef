@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -44,10 +44,14 @@ func seedRunningTurn(t *testing.T, dir string) {
 	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, Name: "main"}); err != nil {
+	if _, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "main"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "developer", Backend: "claude"}); err != nil {
+	one := int64(1)
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "developer", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -173,7 +177,7 @@ func TestRun_ServeKeepsTurnOfOpenChat(t *testing.T) {
 	if err := lock.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if channel.InUse(dir, 1) {
+	if space.InUse(dir, 1) {
 		t.Error("InUse after release = true, want false")
 	}
 }

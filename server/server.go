@@ -14,17 +14,29 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
 type server struct {
 	st      *store.Store
+	ms      *memory.Store
 	dataDir string
-	trees   *channel.Trees
-	open    func(ctx context.Context, channelID int64) (session, error)
+	trees   *space.Trees
+	open    func(ctx context.Context, spaceID int64) (session, error)
+	// name proposes a Space name from its first message, with the Space's backend.
+	name func(ctx context.Context, backend, message string) (string, error)
+	// now is the clock of the memory review. maintain runs that review for a Bot in a Space; with
+	// none set no review runs.
+	now      func() time.Time
+	maintain func(ctx context.Context, spaceID, botID int64, onEvent func(agent.Event)) error
+	// login signs the user in to an HTTP connection for one backend and returns its output.
+	login func(ctx context.Context, backend, name string, s agent.MCPServer) (string, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -35,19 +47,22 @@ type server struct {
 	closed   bool
 	lives    map[int64]*live
 	deleting map[int64]int
+	// reviews holds the cancel of each Bot's running memory review.
+	reviews map[int64]context.CancelFunc
+	// promptTimers holds the timer of each permission prompt that waits for an answer, and
+	// promptWait is how long it waits.
+	promptTimers map[int64]*time.Timer
+	promptWait   time.Duration
+
+	approveMu sync.Mutex
+	// admitMu makes one scan of the started items at a time, so an item gets its Space and its
+	// first turn once; starting holds the Spaces whose claimed start is still running. It is
+	// never held across git.
+	admitMu  sync.Mutex
+	starting map[int64]bool
 
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
-
-	// ghMu guards ghNoGhLogged and ghFeatureErrLogged: the first github poll runs on its
-	// own goroutine and can overlap a caller that polls the server right after construction.
-	ghMu sync.Mutex
-	// ghNoGhLogged is set once the github poll has logged that gh is not on PATH, so it
-	// logs that once, not every poll.
-	ghNoGhLogged bool
-	// ghFeatureErrLogged is the last gh error logged for a feature, so the poll logs a
-	// cause once and logs again only when it changes.
-	ghFeatureErrLogged map[int64]string
 }
 
 // Handler serves the API. Close it when done.
@@ -57,31 +72,49 @@ type Handler struct {
 }
 
 // New returns the API over st.
-func New(st *store.Store, dataDir, exe string) *Handler {
-	trees := channel.NewTrees(dataDir)
-	return newHandler(st, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
-		sess, err := channel.Open(ctx, st, dataDir, exe, channelID, trees)
+func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
+	trees := space.NewTrees(dataDir)
+	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, spaceID int64) (session, error) {
+		sess, err := space.Open(ctx, st, ms, dataDir, exe, spaceID, trees, space.NewAgent)
 		if err != nil {
 			return nil, err
 		}
 		return sess, nil
+	}, func(s *server) {
+		s.maintain = func(ctx context.Context, spaceID, botID int64, onEvent func(agent.Event)) error {
+			return space.Maintain(ctx, st, dataDir, exe, spaceID, botID, space.NewAgent, onEvent)
+		}
 	})
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeHTTP(w, r) }
 
+// SetPromptWait sets how long a permission prompt waits for an answer before it is denied, ten minutes
+// by default. Call it before serving.
+func (h *Handler) SetPromptWait(d time.Duration) {
+	h.s.mu.Lock()
+	defer h.s.mu.Unlock()
+	h.s.promptWait = d
+}
+
 // Close waits for running turns to be stored. A send after it gets 503.
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
-	st *store.Store, dataDir string, trees *channel.Trees,
-	open func(ctx context.Context, channelID int64) (session, error),
+	st *store.Store, ms *memory.Store, dataDir string, trees *space.Trees,
+	open func(ctx context.Context, spaceID int64) (session, error), opts ...func(*server),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, dataDir: dataDir, trees: trees, open: open, ctx: ctx, cancel: cancel,
-		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
-		inboxWake: make(chan struct{}), ghFeatureErrLogged: map[int64]string{},
+		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
+		ctx: ctx, cancel: cancel,
+		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{}, starting: map[int64]bool{},
+		inboxWake: make(chan struct{}), now: time.Now,
+		promptTimers: map[int64]*time.Timer{}, promptWait: _defaultPromptWait,
+		login: backendLogin,
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -97,23 +130,33 @@ func newHandler(
 	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
 	s.profileRoutes(mux)
-	s.featureRoutes(mux)
-	s.channelRoutes(mux)
+	s.workItemRoutes(mux)
+	s.spaceRoutes(mux)
 	s.teamRoutes(mux)
+	s.botRoutes(mux)
+	s.navigateRoutes(mux)
+	s.providerRoutes(mux)
+	s.repoRoutes(mux)
+	s.connectionRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)
+	s.promptRoutes(mux)
+	s.exchangeRoutes(mux)
+	s.memberRoutes(mux)
 	s.turnOpRoutes(mux)
 	s.proposalRoutes(mux)
-	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
+	s.memoryRoutes(mux)
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
-	s.startGitHubPoll()
+	s.resumeProjectDeletes()
+	s.startRepoTracking()
+	s.startQueue()
 	return &Handler{h: guard(s.notifyInbox(mux)), s: s}
 }
 
 // notifyInbox tells the inbox streams after each request that may write: it can add, clear or
-// delete an item that no channel event reports, such as the rejection of an approval.
+// delete an item that no Space event reports, such as dismissing a waiting item.
 func (s *server) notifyInbox(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
@@ -189,9 +232,9 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errStopping):
 		status, msg = http.StatusServiceUnavailable, err.Error()
-	case errors.Is(err, store.ErrInvalid):
+	case errors.Is(err, store.ErrInvalid), errors.Is(err, memory.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status, msg = http.StatusNotFound, err.Error()
 	case errors.Is(err, store.ErrConflict), errors.Is(err, worktree.ErrNoRepo):
 		status, msg = http.StatusConflict, err.Error()

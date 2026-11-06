@@ -2,11 +2,16 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -45,6 +50,9 @@ func projectDir(path string) (string, error) {
 
 func (s *server) listProjects(w http.ResponseWriter, r *http.Request) {
 	ps, err := s.st.Projects(r.Context())
+	if r.URL.Query().Get("deleted") == "1" {
+		ps, err = s.st.DeletedProjects(r.Context())
+	}
 	if err != nil {
 		writeError(w, err)
 		return
@@ -151,72 +159,135 @@ func (s *server) putProjectMemory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// deleteProject deletes the project, the worktrees of its features and the checkpoint refs of
-// the turns of all its channels, quick sessions included. A worktree with uncommitted changes
-// is 409 and nothing is removed; so is a channel with a turn running elsewhere, or open in
-// reef chat. Branches are kept. A running turn is stopped first, as for a feature delete. A
-// project folder that is gone is not git cleaned up: worktree folders, if any, are just
-// removed.
+const _projectDeletedReason = "project deleted: "
+
+func projectDeletedNote(name string) string {
+	return fmt.Sprintf("Project %s was deleted. Its repository, workspaces and unfinished changes stay as they are. "+
+		"Remove it from this Work item's repositories, then continue the Space.", name)
+}
+
+// deleteProject deletes the project in steps, each safe to run again. It first records that
+// deletion began, so no work is admitted against the Project from then on, then stops the
+// turns that run against it, pauses the Work items that still need it, retires its own memory
+// and last records it deleted. The repository folder, worktrees, workspace rows, checkpoint refs,
+// branches and every conversation stay. A crash between the steps is finished at the next start.
 func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	p, err := s.st.Project(r.Context(), id)
-	if err != nil {
+	if _, err := s.st.MarkProjectDeleting(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{ProjectID: &id})
-	if err != nil {
+	if err := s.finishProjectDelete(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// resumeProjectDeletes finishes each deletion a restart cut off. A Project that cannot be
+// finished stays deleting, so nothing is admitted against it, and is tried again at the next
+// start or delete.
+func (s *server) resumeProjectDeletes() {
+	ps, err := s.st.DeletingProjects(s.ctx)
+	if err != nil {
+		log.Printf("list deleting projects: %v", err)
+		return
+	}
+	for _, p := range ps {
+		if err := s.finishProjectDelete(s.ctx, p.ID); err != nil {
+			log.Printf("finish deleting project %d: %v", p.ID, err)
+		}
+	}
+}
+
+func (s *server) finishProjectDelete(ctx context.Context, id int64) error {
+	p, err := s.st.Project(ctx, id)
+	if err != nil {
+		return err
+	}
+	items, err := s.st.ItemsTargeting(ctx, id)
+	if err != nil {
+		return err
+	}
+	spaces, err := s.projectSpaces(ctx, id, items)
+	if err != nil {
+		return err
+	}
+	lift := s.stopForDelete(spaces...)
 	defer lift()
-	if err := s.channelsInUse(r.Context(), store.ChannelFilter{ProjectID: &id}); err != nil {
-		writeError(w, err)
-		return
+	for _, f := range items {
+		if err := s.holdItem(ctx, f, p.Name); err != nil {
+			return err
+		}
 	}
-	fs, err := s.st.Features(r.Context(), &id)
-	if err != nil {
-		writeError(w, err)
-		return
+	if err := s.ms.RetireScope(ctx, memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(id, 10)}); err != nil {
+		return err
 	}
-	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{ProjectID: &id})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	gone := projectGone(p.Path)
-	if !gone {
-		for _, f := range fs {
-			if err := s.checkFeatureTree(r.Context(), p, f); err != nil {
-				writeError(w, err)
-				return
+	_, err = s.st.MarkProjectDeleted(ctx, id)
+	return err
+}
+
+// projectSpaces lists the Spaces whose turns run against project id: the Spaces of the items and
+// their sub-items, and the Spaces holding a workspace in it.
+func (s *server) projectSpaces(ctx context.Context, id int64, items []store.WorkItem) ([]int64, error) {
+	var ids []int64
+	for _, f := range items {
+		tree := []int64{f.ID}
+		subs, err := s.st.WorkItems(ctx, store.WorkItemFilter{ParentID: &f.ID})
+		if err != nil {
+			return nil, err
+		}
+		for _, sub := range subs {
+			tree = append(tree, sub.ID)
+		}
+		for _, wid := range tree {
+			cs, err := s.st.Spaces(ctx, store.SpaceFilter{WorkItemID: &wid})
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range cs {
+				ids = append(ids, c.ID)
 			}
 		}
 	}
-	for _, f := range fs {
-		if gone {
-			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.Slug))
-		} else {
-			err = s.removeFeatureTree(r.Context(), p, f)
-		}
-		if err != nil {
-			writeError(w, err)
-			return
+	ws, err := s.st.ProjectWorkspaces(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, w := range ws {
+		if w.SpaceID != nil {
+			ids = append(ids, *w.SpaceID)
 		}
 	}
-	if err := s.st.DeleteProject(r.Context(), id); err != nil {
-		writeError(w, err)
-		return
-	}
-	if !gone {
-		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
-			writeError(w, err)
-			return
+	slices.Sort(ids)
+	return slices.Compact(ids), nil
+}
+
+// holdItem keeps item f from going on without the deleted Project, until the user adjusts its
+// repositories: its open Space is paused with a note, which puts the item in Needs you, and a
+// queued item with no Space goes back to the backlog, which withdraws its approval. Its target
+// and workspace rows stay as the record.
+func (s *server) holdItem(ctx context.Context, f store.WorkItem, name string) error {
+	reason := _projectDeletedReason + name
+	sp, err := s.st.WorkItemActiveSpace(ctx, f.ID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		if f.Status == "queued" {
+			_, err = s.st.MoveWorkItem(ctx, f.ID, "backlog", store.ByUser)
+			return err
 		}
+		return nil
+	case err != nil:
+		return err
+	case sp.Paused == reason:
+		return nil
+	case sp.Paused != "":
+		_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: projectDeletedNote(name)})
+		return err
 	}
-	w.WriteHeader(http.StatusNoContent)
+	return s.pauseWithNote(ctx, sp.ID, reason, projectDeletedNote(name))
 }

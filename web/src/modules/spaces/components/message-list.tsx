@@ -1,0 +1,244 @@
+import { Fragment } from 'react';
+import type { Chain } from '@/modules/spaces/utils/direct-chains';
+import type { Thread } from '@/modules/spaces/utils/group-threads';
+import type { Turn } from '@/types/api';
+import { Author } from '@/modules/spaces/components/author';
+import { Bubble } from '@/modules/spaces/components/bubble';
+import { CheckpointButton } from '@/modules/spaces/components/checkpoint-button';
+import { CoordinationItem } from '@/modules/spaces/components/coordination-item';
+import { ExchangeLink } from '@/modules/spaces/components/exchange-link';
+import { PullRequestIcon } from '@/modules/spaces/components/pull-request-icon';
+import { checkpointAnchor } from '@/modules/spaces/utils/checkpoint-anchor';
+import { messageTime, showTimestamp, timestampLabel } from '@/modules/spaces/utils/message-time';
+import { checkResult, pullRequestNote } from '@/modules/spaces/utils/pull-request';
+import { latestMessageAnchor } from '@/utils/anchors';
+import { Button } from '@/components/button';
+import { Creature, faceOf, GroupAvatar, type Faces } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
+import { StatusDot } from '@/components/status-dot';
+
+type Props = {
+  spaceId: number;
+  threads: Thread[];
+  chains: Chain[];
+  faces: Faces;
+  openId?: number;
+  openChainId?: number;
+  running?: boolean;
+  draft?: { author: string; botId?: number; text: string };
+  turns: Turn[];
+  checkpoints: Turn[];
+  onOpen: (rootId: number) => void;
+  onOpenChain: (chainId: number) => void;
+};
+
+const isBot = (author: string) => author !== 'user' && author !== 'reef';
+
+const icon = {
+  width: 15,
+  height: 15,
+  viewBox: '0 0 24 24',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+  'aria-hidden': true,
+} as const;
+
+export function MessageList({
+  spaceId,
+  threads,
+  chains,
+  faces,
+  openId,
+  openChainId,
+  running = false,
+  draft,
+  turns,
+  checkpoints,
+  onOpen,
+  onOpenChain,
+}: Props) {
+  if (threads.length === 0 && chains.length === 0) {
+    return (
+      <div className="py-16">
+        <EmptyState
+          title="Quiet water"
+          body="Say what you want to build. Lead answers first."
+          face="jellyfish"
+        />
+      </div>
+    );
+  }
+
+  const newest = Math.max(...threads.map(({ root, replies }) => (replies.at(-1) ?? root).id));
+  const firstId = new Map<number, number>();
+  for (const { root, replies } of threads) {
+    for (const m of [root, ...replies]) {
+      if (m.botId != null && m.exchangeId == null) {
+        firstId.set(m.botId, Math.min(m.id, firstId.get(m.botId) ?? m.id));
+      }
+    }
+  }
+  const founder = Math.min(...firstId.values());
+  const now = new Date();
+  const anchors = checkpointAnchor(turns, checkpoints, threads);
+  const before: Chain[][] = threads.map(() => []);
+  const after: Chain[] = [];
+  for (const chain of chains) {
+    const at = Date.parse(chain.messages[0].createdAt);
+    const i = threads.findIndex(({ root }) => Date.parse(root.createdAt) > at);
+    (i < 0 ? after : before[i]).push(chain);
+  }
+  const item = (chain: Chain) => (
+    <CoordinationItem
+      key={`direct-${chain.id}`}
+      chain={chain}
+      faces={faces}
+      open={chain.id === openChainId}
+      onOpen={() => onOpenChain(chain.id)}
+    />
+  );
+
+  return (
+    <ul className="flex flex-col gap-2.5">
+      {threads.map(({ root, replies }, i) => {
+        const previous = threads[i - 1]?.root;
+        const stamped = showTimestamp(previous?.createdAt, root.createdAt);
+        const joined =
+          root.botId != null && firstId.get(root.botId) === root.id && root.id !== founder;
+        const named =
+          isBot(root.author) &&
+          (stamped || joined || previous?.botId !== root.botId || root.botId == null);
+        const pullRequest = pullRequestNote(root);
+        const check = checkResult(root);
+        const repliers = [
+          ...new Set(replies.filter((r) => isBot(r.author)).map((r) => r.botId ?? null)),
+        ];
+        const anchor = anchors.get(root.id);
+        return (
+          <Fragment key={root.id}>
+            {before[i].map(item)}
+            {stamped && (
+              <li className="py-1 text-center text-[13px] text-faint">
+                {timestampLabel(root.createdAt, previous?.createdAt, now)}
+              </li>
+            )}
+            {joined && (
+              <li className="flex items-center justify-center gap-2 py-2.5 text-sm text-muted">
+                Joined
+                <Creature look={faceOf(faces, root.botId)} size={18} />
+                <span className="capitalize text-fg">{root.author}</span>
+              </li>
+            )}
+            <li
+              id={(replies.at(-1) ?? root).id === newest ? latestMessageAnchor : undefined}
+              className={`flex flex-col gap-2.5 ${root.author === 'user' ? 'items-end' : 'items-start'} ${named ? 'mt-2.5' : ''}`}
+            >
+              {pullRequest || root.author === 'reef' ? (
+                <>
+                  {pullRequest ? (
+                    <p className="flex w-full items-center justify-center gap-2 py-2 text-sm text-muted">
+                      <PullRequestIcon />
+                      GitHub
+                      <a
+                        href={pullRequest.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-fg"
+                      >
+                        PR #{pullRequest.number} {pullRequest.state}
+                      </a>
+                    </p>
+                  ) : (
+                    <p
+                      className={`flex w-full items-center justify-center gap-2 whitespace-pre-wrap text-center text-sm ${check ? 'py-1' : 'py-2.5'} ${check === 'failed' ? 'text-danger' : 'text-muted'}`}
+                    >
+                      {check && <StatusDot status={check === 'failed' ? 'failed' : 'done'} />}
+                      {root.body}
+                    </p>
+                  )}
+                  {(root.author !== 'reef' || replies.length > 0) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={`gap-2 px-1 ${root.id === openId ? 'bg-card' : ''}`}
+                      onClick={() => onOpen(root.id)}
+                    >
+                      {repliers.length > 0 && (
+                        <GroupAvatar roles={repliers} faces={faces} size={20} />
+                      )}
+                      {replies.length === 0
+                        ? 'Reply'
+                        : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'} in thread`}
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <>
+                  {named && <Author name={root.author} look={faceOf(faces, root.botId)} />}
+                  <Bubble own={root.author === 'user'} ringed={root.id === openId}>
+                    {root.body}
+                  </Bubble>
+                  <div
+                    className={`flex items-center gap-1.5 ${replies.length === 0 ? '-mt-2.5 pt-2.5' : ''}`}
+                  >
+                    {replies.length > 0 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className={`gap-2 px-1 ${root.id === openId ? 'bg-card' : ''}`}
+                        onClick={() => onOpen(root.id)}
+                      >
+                        <GroupAvatar roles={repliers} faces={faces} size={20} />
+                        {replies.length} {replies.length === 1 ? 'reply' : 'replies'} in thread
+                      </Button>
+                    )}
+                    <div
+                      className={`flex items-center gap-1 ${replies.length > 0 ? 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 max-md:opacity-100 pointer-coarse:opacity-100 transition-opacity motion-reduce:transition-none' : ''}`}
+                    >
+                      <span className="text-[13px] text-faint">
+                        {messageTime(root.createdAt, now)}
+                      </span>
+                      {replies.length === 0 && (
+                        <button
+                          type="button"
+                          aria-label="Reply in thread"
+                          title="Reply in thread"
+                          className="flex h-7 items-center justify-center gap-1.5 rounded-field px-1.5 text-[13px] text-soft hover:bg-card max-md:h-11 max-md:px-2.5"
+                          onClick={() => onOpen(root.id)}
+                        >
+                          <svg {...icon}>
+                            <path d="M9 17l-5-5 5-5" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                          Reply
+                        </button>
+                      )}
+                      {anchor && (
+                        <CheckpointButton spaceId={spaceId} turn={anchor} running={running} />
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+              {root.exchangeId != null && (
+                <ExchangeLink exchangeId={root.exchangeId} spaceId={spaceId} />
+              )}
+            </li>
+          </Fragment>
+        );
+      })}
+      {after.map(item)}
+      {draft && (
+        <li className="mt-2.5 flex flex-col items-start gap-2.5">
+          <Author name={draft.author} look={faceOf(faces, draft.botId)} />
+          <Bubble className="draft">{draft.text}</Bubble>
+        </li>
+      )}
+    </ul>
+  );
+}

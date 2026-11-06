@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,6 +56,18 @@ func writeRole(dir, sid, role string) {
 
 func sessionFilePath(dir, sid string) string { return filepath.Join(dir, sid+".jsonl") }
 
+// forkSession copies sid's session file, role and totals in dir to a new session id and returns
+// it, as claude --fork-session does: the copy starts with the history of sid and sid is left alone.
+func forkSession(dir, sid string) string {
+	forked := newUUID()
+	for _, ext := range []string{".jsonl", ".role", ".totals"} {
+		if b, err := os.ReadFile(filepath.Join(dir, sid+ext)); err == nil {
+			_ = os.WriteFile(filepath.Join(dir, forked+ext), b, 0o644)
+		}
+	}
+	return forked
+}
+
 func sessionFileExists(dir, sid string) bool {
 	_, err := os.Stat(sessionFilePath(dir, sid))
 	return err == nil
@@ -62,7 +75,7 @@ func sessionFileExists(dir, sid string) bool {
 
 // findSessionDir is the projects dir that already holds sid's session file, searching every
 // cwd's folder: a resumed session may have been started under a different cwd (reef moves a
-// role's session into its feature's worktree on promote).
+// role's session into its work item's worktree on attach).
 func findSessionDir(sid string) (string, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -73,6 +86,58 @@ func findSessionDir(sid string) (string, bool) {
 		return "", false
 	}
 	return filepath.Dir(matches[0]), true
+}
+
+// _sessionCounts are the modelUsage fields real claude keeps as session running totals.
+var _sessionCounts = []string{
+	"inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens", "costUSD",
+}
+
+type sessionTotals struct {
+	CostUSD    float64                       `json:"total_cost_usd"`
+	ModelUsage map[string]map[string]float64 `json:"modelUsage"`
+}
+
+// addSessionTotals turns a replayed result's total_cost_usd and modelUsage into the session's
+// running totals, as real claude reports them, also after a --resume: the totals kept in path
+// plus this recording's own numbers.
+func addSessionTotals(result map[string]any, path string) {
+	var tot sessionTotals
+	if b, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(b, &tot)
+	}
+	if tot.ModelUsage == nil {
+		tot.ModelUsage = map[string]map[string]float64{}
+	}
+	if c, ok := result["total_cost_usd"].(float64); ok {
+		tot.CostUSD += c
+		result["total_cost_usd"] = tot.CostUSD
+	}
+	if usage, ok := result["modelUsage"].(map[string]any); ok {
+		for model, v := range usage {
+			counts, _ := v.(map[string]any)
+			if tot.ModelUsage[model] == nil {
+				tot.ModelUsage[model] = map[string]float64{}
+			}
+			for _, k := range _sessionCounts {
+				n, _ := counts[k].(float64)
+				tot.ModelUsage[model][k] += n
+			}
+		}
+		for model, counts := range tot.ModelUsage {
+			m, _ := usage[model].(map[string]any)
+			if m == nil {
+				m = map[string]any{}
+				usage[model] = m
+			}
+			for k, n := range counts {
+				m[k] = n
+			}
+		}
+	}
+	if b, err := json.Marshal(tot); err == nil {
+		_ = os.WriteFile(path, b, 0o644)
+	}
 }
 
 // openFakeLog opens REEF_FAKE_LOG for append, or a discarded sink when it is unset.

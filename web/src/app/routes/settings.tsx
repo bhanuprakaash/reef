@@ -1,16 +1,21 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 import { ProfileFields } from '@/app/profile-fields';
 import { Button } from '@/components/button';
-import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 import { Toggle } from '@/components/toggle';
 import { useProfile } from '@/lib/api/get-profile';
+import { useProviders } from '@/lib/api/get-providers';
 import { useSkills } from '@/lib/api/get-skills';
 import { useCurrentProject } from '@/lib/current-project';
+import { setTerminalApp, useTerminalApp } from '@/lib/terminal-app';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { useConnections } from '@/modules/teams/api/connections';
+import { ConnectionLibrary } from '@/modules/teams/components/connection-library';
+import { SkillLibrary } from '@/modules/teams/components/skill-library';
+import { RepoConnectionList } from '@/modules/repo-connections/components/repo-connection-list';
+import { ProviderList } from '@/modules/providers/components/provider-list';
 import { usePutProfile } from '@/lib/api/put-profile';
-import type { SkillInfo } from '@/types/api';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 
@@ -41,75 +46,57 @@ const themes: { value: Theme; label: string; preview: ReactNode }[] = [
   },
 ];
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section
-      aria-label={title}
-      className="flex flex-col gap-3 rounded-card bg-sidebar px-[18px] py-4"
-    >
-      <h2 className="text-[13px] font-normal text-muted">{title}</h2>
-      {children}
-    </section>
-  );
+function Row({ children }: { children: ReactNode }) {
+  return <div className="flex min-h-[54px] items-center gap-4 py-2.5">{children}</div>;
 }
 
 function NameSection() {
   const profile = useProfile();
   const save = usePutProfile();
-  const [draft, setDraft] = useState<{ name: string; occupation: string; style: string[] } | null>(
-    null,
-  );
+  const [name, setName] = useState<string | null>(null);
   const saved = {
     name: profile.data?.name ?? '',
     occupation: profile.data?.occupation ?? '',
     style: profile.data?.style ?? [],
   };
-  const { name, occupation, style } = draft ?? saved;
-  const changed =
-    name.trim() !== saved.name ||
-    occupation !== saved.occupation ||
-    style.join('\n') !== saved.style.join('\n');
+  const shown = save.isPending ? save.variables : saved;
+  const put = (next: Partial<typeof saved>) => save.mutate({ ...shown, ...next });
 
   return (
-    <Section title="Profile">
-      <form
-        className="flex flex-col gap-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          save.mutate({ name, occupation, style }, { onSuccess: () => setDraft(null) });
-        }}
-      >
-        <div className="flex items-center gap-3">
-          <label htmlFor="profile-name" className="text-[13px] text-muted">
+    <>
+      <div className="flex flex-col divide-y divide-hairline">
+        <Row>
+          <label htmlFor="profile-name" className="flex-1 text-[13px] text-muted">
             Your name
           </label>
           <TextField
             id="profile-name"
-            className="min-w-0 flex-1"
-            value={name}
-            onChange={(e) => setDraft({ name: e.target.value, occupation, style })}
+            className="min-w-0 flex-1 md:w-[280px] md:flex-none"
+            value={name ?? saved.name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+            onBlur={() => {
+              const next = (name ?? saved.name).trim();
+              setName(null);
+              if (next !== '' && next !== saved.name) put({ name: next });
+            }}
+          />
+        </Row>
+        <div className="flex flex-col gap-3 py-3">
+          <ProfileFields
+            occupation={shown.occupation}
+            style={shown.style}
+            onOccupation={(occupation) => put({ occupation })}
+            onStyle={(style) => put({ style })}
           />
         </div>
-        <ProfileFields
-          occupation={occupation}
-          style={style}
-          onOccupation={(o) => setDraft({ name, occupation: o, style })}
-          onStyle={(s) => setDraft({ name, occupation, style: s })}
-        />
-        <div className="flex justify-end">
-          <Button
-            variant="primary"
-            size="md"
-            type="submit"
-            loading={save.isPending}
-            disabled={name.trim() === '' || !changed}
-          >
-            Save
-          </Button>
-        </div>
-      </form>
+        <Row>
+          <span className="flex-1 text-[13px] text-muted">Changes save as you make them.</span>
+          {save.isSuccess && <span className="text-[13px] text-done">Saved</span>}
+        </Row>
+      </div>
       {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
-    </Section>
+    </>
   );
 }
 
@@ -129,7 +116,7 @@ function UpdateSection() {
   }, []);
 
   return (
-    <Section title="Updates">
+    <>
       <div className="flex min-h-9 items-center gap-3">
         <span className="flex-1">Version {current ?? ''}</span>
         {update.status === 'ready' ? (
@@ -172,83 +159,7 @@ function UpdateSection() {
       <p className="text-[13px] text-muted">
         Restart into a downloaded update once no agent turn is running.
       </p>
-    </Section>
-  );
-}
-
-function SkillGroup({ title, skills }: { title: string; skills: SkillInfo[] }) {
-  return (
-    <div aria-label={title} role="group">
-      {skills.length === 0 && <p className="text-[13px] text-muted">None found.</p>}
-      <ul className="flex max-h-[min(480px,60vh)] flex-col divide-y divide-hairline overflow-y-auto">
-        {skills.map((s) => (
-          <li key={s.name} className="flex flex-col gap-0.5 py-2.5">
-            <span className="font-mono text-[13px]">{s.name}</span>
-            {s.description && (
-              <span title={s.description} className="line-clamp-1 text-[12.5px] text-muted">
-                {s.description}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function SkillsSection() {
-  const projects = useProjects();
-  const [project] = useCurrentProject(projects.data);
-  const skills = useSkills(project?.id);
-  const [backend, setBackend] = useState<'claude' | 'codex'>('claude');
-  const backends = [
-    { value: 'claude' as const, title: 'Claude Code' },
-    { value: 'codex' as const, title: 'Codex' },
-  ];
-  const shown = backends.find((b) => b.value === backend)!;
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const matching = (skills.data?.[backend] ?? []).filter(
-    (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
-  );
-
-  return (
-    <Section title="Skills">
-      <p className="text-[13px] text-muted">
-        Read from disk for {project ? project.name : 'the current project'}. Roles pick from the
-        list of their backend.
-      </p>
-      {!project && <p className="text-sm text-muted">Add a project to see its skills.</p>}
-      {skills.isError && <p className="text-sm text-danger">{skills.error.message}</p>}
-      {skills.data && (
-        <>
-          <div className="flex flex-wrap items-center gap-3">
-            <SegmentedControl
-              label="Backend"
-              options={backends.map((b) => ({
-                value: b.value,
-                label: (
-                  <>
-                    {b.title} <span className="text-muted">{skills.data[b.value].length}</span>
-                  </>
-                ),
-              }))}
-              value={backend}
-              onChange={setBackend}
-            />
-            <TextField
-              type="search"
-              aria-label="Filter skills"
-              placeholder="Filter skills"
-              className="min-w-[200px] flex-1"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <SkillGroup title={shown.title} skills={matching} />
-        </>
-      )}
-    </Section>
+    </>
   );
 }
 
@@ -256,7 +167,7 @@ function AppearanceSection() {
   const [theme, setChosen] = useState(getTheme);
 
   return (
-    <Section title="Appearance">
+    <>
       <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-2.5">
         {themes.map((t) => (
           <label key={t.value} className="flex flex-col gap-2 text-[13px]">
@@ -281,7 +192,7 @@ function AppearanceSection() {
           </label>
         ))}
       </div>
-    </Section>
+    </>
   );
 }
 
@@ -289,7 +200,7 @@ function NotificationsSection() {
   const { permission, request } = useNotificationPermission();
 
   return (
-    <Section title="Notifications">
+    <>
       <div className="flex min-h-9 items-center gap-3">
         <span className="flex-1">Mac notification when something needs you</span>
         {permission === 'default' && (
@@ -302,44 +213,199 @@ function NotificationsSection() {
           <span className="text-[13px] text-muted">Blocked in system settings</span>
         )}
       </div>
-    </Section>
+    </>
   );
 }
 
-const sections = [
-  { id: 'profile', title: 'Profile', pane: <NameSection /> },
-  { id: 'appearance', title: 'Appearance', pane: <AppearanceSection /> },
-  { id: 'notifications', title: 'Notifications', pane: <NotificationsSection /> },
-  { id: 'updates', title: 'Updates', pane: <UpdateSection />, desktopOnly: true },
-  { id: 'skills', title: 'Skills', pane: <SkillsSection /> },
+function TerminalSection() {
+  const app = useTerminalApp();
+  const [installed, setInstalled] = useState<string[] | null>(null);
+  const [custom, setCustom] = useState(false);
+  useEffect(() => {
+    void window.reef?.terminalApps().then(setInstalled);
+  }, []);
+  const isCustom = installed !== null && (custom || (app !== null && !installed.includes(app)));
+  const choices = [
+    { label: 'Built-in pane', checked: !isCustom && app === null, app: null },
+    ...(installed ?? []).map((name) => ({
+      label: name,
+      checked: !isCustom && app === name,
+      app: name,
+    })),
+  ];
+
+  return (
+    <>
+      {installed && (
+        <div role="radiogroup" aria-label="Terminal app" className="flex flex-col gap-2">
+          {choices.map((c) => (
+            <label key={c.label} className="flex items-center gap-1.5 text-[13px]">
+              <input
+                type="radio"
+                name="terminal-app"
+                checked={c.checked}
+                onChange={() => {
+                  setCustom(false);
+                  setTerminalApp(c.app);
+                }}
+                className="accent-fg"
+              />
+              {c.label}
+            </label>
+          ))}
+          <label className="flex items-center gap-1.5 text-[13px]">
+            <input
+              type="radio"
+              name="terminal-app"
+              checked={isCustom}
+              onChange={() => {
+                setCustom(true);
+                setTerminalApp(null);
+              }}
+              className="accent-fg"
+            />
+            Custom
+          </label>
+          {isCustom && (
+            <TextField
+              aria-label="Custom terminal app"
+              placeholder="App name, e.g. Kitty"
+              value={app ?? ''}
+              onChange={(e) => setTerminalApp(e.target.value || null)}
+            />
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+const sections: {
+  id: string;
+  title: string;
+  group: string;
+  lede: string;
+  desktopOnly?: boolean;
+}[] = [
+  { id: 'profile', title: 'Profile', group: 'You', lede: 'Reef tells your Bots who you are.' },
+  { id: 'appearance', title: 'Appearance', group: 'You', lede: 'Dark, light, or match macOS.' },
+  {
+    id: 'notifications',
+    title: 'Notifications',
+    group: 'You',
+    lede: 'Reef can tell you when a Work item needs you.',
+  },
+  {
+    id: 'terminal',
+    title: 'Terminal',
+    group: 'This Mac',
+    lede: 'Where the Terminal toggle opens a Work item’s worktree.',
+    desktopOnly: true,
+  },
+  {
+    id: 'updates',
+    title: 'Updates',
+    group: 'This Mac',
+    lede: 'Check for a new Reef, then restart to install it.',
+    desktopOnly: true,
+  },
+  {
+    id: 'providers',
+    title: 'Providers',
+    group: 'Agents',
+    lede: 'The claude and codex installs Reef can run. Add one from another folder, then pick it on a Bot.',
+  },
+  {
+    id: 'connections',
+    title: 'Connections',
+    group: 'Agents',
+    lede: 'Tools a Bot can use, such as a filesystem, GitLab or a database. Add one here, then give it to a Bot from its panel.',
+  },
+  {
+    id: 'skills',
+    title: 'Skills',
+    group: 'Agents',
+    lede: 'Reef’s library, plus the Claude Code and Codex skills Reef finds on disk. Importing never runs scripts. Neither gives a skill to a Bot.',
+  },
+  {
+    id: 'repositories',
+    title: 'Repositories',
+    group: 'Work',
+    lede: 'GitHub and GitLab, through the gh and glab logins on this Mac. Log in with the CLI, then connect here; Reef keeps the account name, never the token.',
+  },
 ];
 
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
+  const projects = useProjects();
+  const [project] = useCurrentProject(projects.data);
+  const skills = useSkills(project?.id);
+  const providers = useProviders();
+  const connections = useConnections();
+  const counts: Record<string, number | undefined> = {
+    providers: providers.data?.length,
+    connections: connections.data?.length,
+    skills: skills.data?.length,
+  };
+  const panes: Record<string, ReactNode> = {
+    profile: <NameSection />,
+    appearance: <AppearanceSection />,
+    notifications: <NotificationsSection />,
+    terminal: <TerminalSection />,
+    updates: <UpdateSection />,
+    providers: <ProviderList />,
+    repositories: <RepoConnectionList />,
+    connections: <ConnectionLibrary projectId={project?.id} />,
+    skills: <SkillLibrary disk={skills.data ?? []} />,
+  };
   const shown = sections.filter((s) => !s.desktopOnly || window.reef);
-  const current = shown.find((s) => s.id === params.get('section')) ?? shown[0];
+  const open = shown.find((s) => s.id === params.get('section'));
+  const current = open ?? shown[0];
 
   return (
-    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-[22px] py-6">
+    <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-[22px] py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Settings</h1>
-      <div className="flex flex-col gap-4 md:flex-row md:gap-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-9">
         <nav
           aria-label="Settings sections"
-          className="flex shrink-0 gap-1 overflow-x-auto md:w-[180px] md:flex-col"
+          className={`shrink-0 flex-col gap-px md:flex md:w-[176px] ${open ? 'hidden' : 'flex'}`}
         >
-          {shown.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              aria-current={s.id === current.id ? 'page' : undefined}
-              onClick={() => setParams({ section: s.id }, { replace: true })}
-              className={`shrink-0 rounded-lg px-3 py-2 text-left text-[14px] ${s.id === current.id ? 'bg-active text-fg' : 'text-muted hover:bg-hover/50'}`}
-            >
-              {s.title}
-            </button>
+          {shown.map((s, i) => (
+            <Fragment key={s.id}>
+              {s.group !== shown[i - 1]?.group && (
+                <div className="px-3 pt-3.5 pb-1.5 text-[11px] uppercase tracking-[0.08em] text-faint first:pt-0.5">
+                  {s.group}
+                </div>
+              )}
+              <button
+                type="button"
+                aria-current={s.id === current.id ? 'page' : undefined}
+                onClick={() => setParams({ section: s.id }, { replace: true })}
+                className={`flex h-11 items-center rounded-[10px] px-3 text-left text-[14px] md:h-[34px] ${s.id === current.id ? `text-fg ${open ? 'bg-active' : 'md:bg-active'}` : 'text-muted hover:bg-hover/50'}`}
+              >
+                {s.title}
+                {counts[s.id] !== undefined && (
+                  <span className="ml-auto text-[11.5px] text-faint">{counts[s.id]}</span>
+                )}
+              </button>
+            </Fragment>
           ))}
         </nav>
-        <div className="min-w-0 flex-1">{current.pane}</div>
+        <section
+          aria-label={current.title}
+          className={`min-w-0 flex-1 md:block ${open ? 'block' : 'hidden'}`}
+        >
+          <button
+            type="button"
+            className="mb-3 flex h-11 items-center text-[13px] text-muted md:hidden"
+            onClick={() => setParams({}, { replace: true })}
+          >
+            ‹ Settings
+          </button>
+          <h2 className="text-[20px] font-normal tracking-[-0.01em]">{current.title}</h2>
+          <p className="mt-[3px] text-[13px] text-muted">{current.lede}</p>
+          <div className="mt-3.5 flex flex-col gap-3">{panes[current.id]}</div>
+        </section>
       </div>
     </div>
   );

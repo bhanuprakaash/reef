@@ -1,30 +1,105 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
+// _migratedDB is the database file of a fresh store. Seeding a test store with it skips
+// the migrations, which are most of this package's test time.
+var _migratedDB = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "reef-store")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	st, err := store.Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := st.Close(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(dir, "reef.db"))
+})
+
+// openStore is store.Open on dir, seeded with a migrated database when dir has none.
+func openStore(dir string) (*store.Store, error) {
+	path := filepath.Join(dir, "reef.db")
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		db, err := _migratedDB()
+		if err != nil {
+			return nil, err
+		}
+		if err := os.WriteFile(path, db, 0o644); err != nil {
+			return nil, err
+		}
+	}
+	return store.Open(dir)
+}
+
+func testMemory(t *testing.T, st *store.Store) *memory.Store {
+	t.Helper()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
+}
+
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	ts, _ := newEmbedServer(t, nil)
+	return ts
+}
+
+// approveForSpace marks the backlog items ids approved, owned by bot 1 where they have no owner, so
+// POST /spaces takes them without the queue starting them.
+func approveForSpace(t *testing.T, st *store.Store, ids ...int64) {
+	t.Helper()
+	for _, id := range ids {
+		for _, q := range []string{
+			"UPDATE work_item SET owner_bot_id = COALESCE(owner_bot_id, 1), approved_at = '2026-01-01T00:00:00Z', " +
+				"approval_key = 'by-hand-' || id WHERE id = ?",
+			"INSERT OR IGNORE INTO work_item_participant (work_item_id, bot_id) " +
+				"SELECT id, owner_bot_id FROM work_item WHERE id = ?",
+		} {
+			if _, err := st.DB().Exec(q, id); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+// newEmbedServer is newTestServer with the embedder e, and the store it serves.
+func newEmbedServer(t *testing.T, e memory.Embedder) (*httptest.Server, *store.Store) {
+	t.Helper()
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	ms, err := memory.Open(st.DB(), e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, ms, t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
-	return ts
+	return ts, st
 }
 
 func do(t *testing.T, method, url, body string) (int, string) {
@@ -154,14 +229,14 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/projects",
 		fmt.Sprintf(`{"name":"reef","path":%q}`, firstPath))
 	if status != 201 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"baseBranch":"","createdAt":"`, firstPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"baseBranch":"","purpose":"","icon":"","colour":"","createdAt":"`, firstPath)) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
 		fmt.Sprintf(`{"name":"reef2","path":%q}`, secondPath))
 	if status != 200 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"","createdAt":"`, secondPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"","purpose":"","icon":"","colour":"","createdAt":"`, secondPath)) {
 		t.Fatalf("update = %d %s", status, body)
 	}
 
@@ -172,8 +247,29 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
 		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev"}`, secondPath))
 	if status != 200 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","createdAt":"`, secondPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","purpose":"","icon":"","colour":"","createdAt":"`, secondPath)) {
 		t.Fatalf("update with a base branch = %d %s", status, body)
+	}
+
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev","icon":"rocket","colour":"#2F72C0"}`, secondPath))
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","purpose":"","icon":"rocket","colour":"#2F72C0","createdAt":"`, secondPath)) {
+		t.Fatalf("update with an icon = %d %s", status, body)
+	}
+
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"colour":"blue"}`, secondPath)); status != 400 {
+		t.Fatalf("update with a bad colour = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"colour":"#000000"}`, secondPath)); status != 400 {
+		t.Fatalf("update with a colour outside the presets = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev","icon":"rocket","colour":"#2f72c0"}`, secondPath)); status != 200 ||
+		!strings.Contains(body, `"colour":"#2f72c0"`) {
+		t.Fatalf("update with a lower-case preset colour = %d %s", status, body)
 	}
 
 	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",

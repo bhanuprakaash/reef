@@ -1,25 +1,38 @@
 import { useEffect, useState } from 'react';
 import { useCurrentProject } from '@/lib/current-project';
-import { useCreateTask } from '@/modules/tasks/api/create-task';
+import { useBots } from '@/lib/api/get-bots';
+import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { Button } from '@/components/button';
 import { Logo } from '@/components/logo';
-import { SegmentedControl } from '@/components/segmented-control';
 import { Select } from '@/components/select';
+import { TextArea } from '@/components/text-area';
+import { Toggle } from '@/components/toggle';
+import type { WorkItemType } from '@/types/api';
 
-type Kind = 'idea' | 'todo' | 'bug';
-const KINDS: { value: Kind; label: string }[] = [
-  { value: 'idea', label: 'Idea' },
-  { value: 'todo', label: 'Todo' },
+const TYPES: { value: WorkItemType; label: string }[] = [
+  { value: 'task', label: 'Task' },
+  { value: 'feature', label: 'Feature' },
   { value: 'bug', label: 'Bug' },
+  { value: 'incident', label: 'Incident' },
+  { value: 'investigation', label: 'Investigation' },
+  { value: 'improvement', label: 'Improvement' },
 ];
 
 export function CapturePage() {
   const projects = useProjects();
-  const create = useCreateTask();
+  const bots = useBots();
+  const createItem = useCreateWorkItem();
+  const startConversation = useStartConversation();
   const [project, pickProject] = useCurrentProject(projects.data);
-  const [kind, setKind] = useState<Kind>('todo');
+  const [type, setType] = useState<WorkItemType>('task');
   const [text, setText] = useState('');
+  const [description, setDescription] = useState('');
+  const [talk, setTalk] = useState(false);
+  const [botId, setBotId] = useState('');
+  const bot = bots.data?.find((t) => String(t.id) === botId) ?? bots.data?.[0];
+  const create = talk ? startConversation : createItem;
   // A plain browser tab's window.close() does nothing, so show a status instead there;
   // the desktop capture window still closes on success.
   const isDesktop = typeof window !== 'undefined' && window.reef != null;
@@ -44,18 +57,24 @@ export function CapturePage() {
       className="app-drag flex flex-col gap-3 rounded-[22px] border border-line bg-main/92 p-4 text-sm"
       onSubmit={(e) => {
         e.preventDefault();
-        create.mutate(
-          { projectId: Number(project?.id), featureId: null, title: `${kind}: ${text}` },
-          {
-            onSuccess: () => {
-              if (isDesktop) {
-                window.close();
-              } else {
-                setText('');
-              }
-            },
+        const options = {
+          onSuccess: () => {
+            if (isDesktop) {
+              window.close();
+            } else {
+              setText('');
+              setDescription('');
+            }
           },
-        );
+        };
+        if (talk && bot) {
+          startConversation.mutate({ projectId: project?.id, bot, text }, options);
+        } else {
+          createItem.mutate(
+            { projectId: Number(project?.id), type, title: text, description },
+            options,
+          );
+        }
       }}
     >
       <div className="flex items-center gap-2.5">
@@ -69,14 +88,36 @@ export function CapturePage() {
           required
         />
       </div>
-      <div className="flex items-center gap-2">
-        <SegmentedControl
-          label="Capture kind"
-          options={KINDS}
-          value={kind}
-          onChange={setKind}
-          className="bg-bubble! [&_button]:h-7! [&_button]:px-3!"
+      {!talk && (
+        <TextArea
+          className="w-full bg-transparent"
+          rows={2}
+          aria-label="Capture description"
+          placeholder="Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
         />
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        {talk ? (
+          <Select
+            variant="pill"
+            className="max-w-36 min-w-0 [&>button]:h-[34px]!"
+            aria-label="Capture Bot"
+            value={bot ? String(bot.id) : ''}
+            onChange={setBotId}
+            options={(bots.data ?? []).map((t) => ({ value: String(t.id), label: t.name }))}
+          />
+        ) : (
+          <Select
+            variant="pill"
+            className="max-w-36 min-w-0 [&>button]:h-[34px]!"
+            aria-label="Capture type"
+            value={type}
+            onChange={(v) => setType(v as WorkItemType)}
+            options={TYPES}
+          />
+        )}
         <Select
           variant="pill"
           className="max-w-44 min-w-0 [&>button]:h-[34px]!"
@@ -91,12 +132,16 @@ export function CapturePage() {
             ...(projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
           ]}
         />
+        <label className="flex items-center gap-2 text-[13px] text-soft">
+          <Toggle checked={talk} onChange={setTalk} label="Talk to a Bot" />
+          Talk to a Bot
+        </label>
         <span className="ml-auto text-xs text-muted">↵ save · esc close</span>
         <Button
           type="submit"
           variant="primary"
           className="h-[34px]! text-[13.5px]!"
-          disabled={!project}
+          disabled={(!project && !talk) || (talk && !bot)}
           loading={create.isPending}
         >
           Capture
@@ -108,9 +153,11 @@ export function CapturePage() {
         <p className="text-[12.5px] text-muted">Captured</p>
       ) : (
         <p className="text-[12.5px] text-muted">
-          {project
-            ? `Lands in Tasks as "${kind}: ${text}" on ${project.name}, no feature.`
-            : 'Pick a project to capture into.'}
+          {talk
+            ? `Starts a conversation with ${bot?.name ?? 'a Bot'}${project ? ` in ${project.name}` : ''}.`
+            : !project
+              ? 'Pick a project to capture into.'
+              : `Lands in the ${project.name} Backlog as a ${type} titled "${text}".`}
         </p>
       )}
     </form>

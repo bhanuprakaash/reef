@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/server"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/web"
 )
@@ -27,19 +27,20 @@ const (
 commands:
   serve [--addr 127.0.0.1:7700]
   project add [--name N]
-  feature add <slug> <name> [--goal G]
-  brief <feature>
-  decide <feature> "<body>" [--why W]
-  task add [<feature>] "<title>"
-  task list [<feature>] [--status S]
-  memory show [--project P] | memory set FILE|- [--project P]
+  work-item add "<title>" [--type T] [--description D]
+  brief <work-item>
+  decide <work-item> "<body>" [--why W]
+  memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
+  memory recall "<q>" [--scope S] [--limit N]
+  memory show <id> | retire <id> | approve <id> | reject <id> | pending
+  memory embed [none|openai|voyage|gemini [--key K]]
   team apply FILE.json | team list
-  context <feature> --role R
-  wrap list [<feature>] | show <id> | approve <id> | reject <id>
-  token <feature> --role R
-  chat <feature> --role R --backend claude|codex | chat --channel ID
+  context <work-item> --role R
+  wrap list [<work-item>] | show <id> | approve <id> | reject <id>
+  token <work-item> --role R
+  chat <work-item> --backend claude|codex | chat --space ID
   mcp`
-	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
+	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR] [--prompt-wait 10m]"
 	_defaultAddr       = "127.0.0.1:7700"
 	_shutdownTimeout   = time.Second
 	_readHeaderTimeout = 10 * time.Second
@@ -64,18 +65,16 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return serve(ctx, args[1:], stderr)
 	case "project":
 		return projectCmd(ctx, args[1:], stdout)
-	case "feature":
-		return featureCmd(ctx, args[1:], stdout)
+	case "work-item":
+		return workItemCmd(ctx, args[1:], stdout)
 	case "brief":
 		return briefCmd(ctx, args[1:], stdout)
 	case "decide":
-		return decideCmd(ctx, args[1:], stdout)
+		return decideCmd(ctx, args[1:], stdout, stderr)
 	case "team":
 		return teamCmd(ctx, args[1:], stdout)
-	case "task":
-		return taskCmd(ctx, args[1:], stdout)
 	case "memory":
-		return memoryCmd(ctx, args[1:], stdin, stdout)
+		return memoryCmd(ctx, args[1:], stdout, stderr)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
 	case "wrap":
@@ -95,6 +94,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	fs.SetOutput(io.Discard)
 	addr := fs.String("addr", _defaultAddr, "")
 	flagData := fs.String("data", "", "")
+	promptWait := fs.Duration("prompt-wait", 10*time.Minute, "")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("%w\n%s", err, _serveUsage)
 	}
@@ -134,8 +134,8 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 
 	logger := log.New(logOut, "", log.LstdFlags)
-	failed, err := st.FailRunningTurns(ctx, func(channelID int64) bool {
-		return channel.InUse(data, channelID)
+	failed, err := st.FailRunningTurns(ctx, func(spaceID int64) bool {
+		return space.InUse(data, spaceID)
 	})
 	if err != nil {
 		return fmt.Errorf("recover turns: %w", err)
@@ -143,12 +143,55 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
+	paused, err := st.PauseInterrupted(ctx, failed)
+	if err != nil {
+		return fmt.Errorf("pause interrupted work: %w", err)
+	}
+	if err := server.NoteInterrupted(ctx, st, paused, failed); err != nil {
+		logger.Printf("note interrupted work: %v", err)
+	}
+	leaving, err := st.LeavingMembers(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("list pending removals: %w", err)
+	}
+	for _, p := range leaving {
+		if err := st.ApplyMemberRemoval(ctx, p); err != nil {
+			logger.Printf("remove Bot %d from Space %d: %v", p.BotID, p.SpaceID, err)
+		}
+	}
+	transfers, err := st.PendingOwnerTransfers(ctx, 0)
+	if err != nil {
+		return fmt.Errorf("list pending transfers: %w", err)
+	}
+	for _, id := range transfers {
+		if _, _, err := st.ApplyOwnerTransfer(ctx, id); err != nil {
+			logger.Printf("transfer work item %d: %v", id, err)
+		}
+	}
+	if err := st.PauseWaitingExchangeSpaces(ctx); err != nil {
+		return fmt.Errorf("pause Spaces with waiting exchanges: %w", err)
+	}
+	if err := st.ClearStaleActiveTurns(ctx, func(spaceID int64) bool {
+		return space.InUse(data, spaceID)
+	}); err != nil {
+		return fmt.Errorf("clear active turns: %w", err)
+	}
+	if err := st.ExpireWaitingPrompts(ctx, func(spaceID int64) bool {
+		return space.InUse(data, spaceID)
+	}, store.PromptRestartReason); err != nil {
+		return fmt.Errorf("expire permission prompts: %w", err)
+	}
 
 	ui, err := web.Dist()
 	if err != nil {
 		return fmt.Errorf("open web ui: %w", err)
 	}
-	api := server.New(st, data, exe)
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return fmt.Errorf("open memory: %w", err)
+	}
+	api := server.New(st, ms, data, exe)
+	api.SetPromptWait(*promptWait)
 	defer api.Close()
 	srv := &http.Server{
 		Handler:           web.Handler(ui, api),

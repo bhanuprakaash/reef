@@ -1,9 +1,19 @@
-import type { SkillInfo } from '@/types/api';
+import type { SkillInfo, SkillSource } from '@/types/api';
 
-export function addableSkills(available: SkillInfo[] | undefined, picked: string[]) {
-  return (available ?? []).map((s) => s.name).filter((name) => !picked.includes(name));
+const sourceLabels: Record<SkillSource, string> = {
+  reef: 'Reef',
+  claude: 'Claude',
+  codex: 'Codex',
+};
+
+export function sourceLabel(source: SkillSource) {
+  return sourceLabels[source];
 }
 
-export function isMissing(available: SkillInfo[] | undefined, name: string) {
-  return available !== undefined && !available.some((s) => s.name === name);
+export function isMissing(available: SkillInfo[] | undefined, ref: string) {
+  return available !== undefined && !available.some((s) => s.ref === ref);
+}
+
+export function incompatibility(skill: SkillInfo | undefined, backend: string | undefined) {
+  return (backend && skill?.compat?.[backend]) || '';
 }

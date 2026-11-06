@@ -1,9 +1,32 @@
+import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import pty from 'node-pty';
 
 const SCROLLBACK = 200_000;
+const TERMINAL_APPS = ['Ghostty', 'iTerm', 'Terminal', 'Warp'];
 
-// createTerminals makes the one shell per working tree the window opens: a feature's
-// worktree, or a project checkout for a quick session. cwd is the key, so a pane that
+// The terminal apps the settings page offers, the ones installed. Terminal itself lives in Utilities.
+export function installedTerminalApps() {
+  const dirs = ['/Applications', path.join(os.homedir(), 'Applications'), '/System/Applications/Utilities'];
+  return TERMINAL_APPS.filter((name) => dirs.some((dir) => fs.existsSync(path.join(dir, `${name}.app`))));
+}
+
+// Opens cwd in a terminal app with `open -a`. Resolves to the error text, empty when it launched.
+export function launchTerminalApp(app, cwd, PATH) {
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || !fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    return Promise.resolve(`${cwd} is not an absolute path to an existing folder`);
+  }
+  return new Promise((resolve) => {
+    execFile('open', ['-a', app, cwd], { env: { ...process.env, PATH } }, (error, _stdout, stderr) => {
+      resolve(error ? stderr.trim() || error.message : '');
+    });
+  });
+}
+
+// createTerminals makes the one shell per working tree the window opens: a Work item's
+// worktree, or a project checkout for a free Space. cwd is the key, so a pane that
 // reopens on the same tree reuses its shell and sees the output it missed. Shells run
 // until killAll, called on quit.
 export function createTerminals(win, path) {

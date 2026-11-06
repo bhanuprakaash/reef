@@ -10,7 +10,7 @@ import (
 
 // runToolUse applies the side effect of one recorded tool call in cwd, so the files and
 // git history a recipe checks after a replayed turn are the ones the real turn made. mcpConfig
-// is the current run's --mcp-config file, read for an mcp__<server>__<tool> call.
+// is the current run's --mcp-config content, used for an mcp__<server>__<tool> call.
 func runToolUse(name string, input json.RawMessage, cwd, mcpConfig string) {
 	switch {
 	case name == "Write":

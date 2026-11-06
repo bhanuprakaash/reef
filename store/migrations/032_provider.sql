@@ -1,0 +1,8 @@
+CREATE TABLE provider (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+ALTER TABLE role ADD COLUMN provider TEXT NOT NULL DEFAULT '';

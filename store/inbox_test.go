@@ -9,9 +9,10 @@ import (
 )
 
 type inboxEnv struct {
-	t   *testing.T
-	s   *Store
-	ctx context.Context
+	t    *testing.T
+	s    *Store
+	ctx  context.Context
+	bots map[string]*int64
 }
 
 func newInboxEnv(t *testing.T) *inboxEnv {
@@ -21,31 +22,31 @@ func newInboxEnv(t *testing.T) *inboxEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	e := &inboxEnv{t: t, s: s, ctx: context.Background()}
+	e := &inboxEnv{t: t, s: s, ctx: context.Background(), bots: identityTestBots(t, s)}
 	if _, err := s.CreateProject(e.ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(e.ctx, Channel{ProjectID: 1, Name: "one"}); err != nil {
+	if _, err := s.CreateSpace(e.ctx, Space{ProjectID: 1, Name: "one"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(e.ctx, Channel{ProjectID: 1, Name: "two"}); err != nil {
+	if _, err := s.CreateSpace(e.ctx, Space{ProjectID: 1, Name: "two"}); err != nil {
 		t.Fatal(err)
 	}
 	return e
 }
 
-func (e *inboxEnv) say(channel int64, author, body string) Message {
+func (e *inboxEnv) say(space int64, author, body string) Message {
 	e.t.Helper()
-	m, err := e.s.CreateMessage(e.ctx, Message{ChannelID: channel, Author: author, Body: body})
+	m, err := e.s.CreateMessage(e.ctx, Message{SpaceID: space, Author: author, Body: body})
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	return m
 }
 
-func (e *inboxEnv) turn(channel int64, role, wake, status string) Turn {
+func (e *inboxEnv) turn(space int64, role, wake, status string) Turn {
 	e.t.Helper()
-	t, err := e.s.CreateTurn(e.ctx, Turn{ChannelID: channel, Role: role, Backend: "claude", WakeText: wake})
+	t, err := e.s.CreateTurn(e.ctx, Turn{SpaceID: space, Role: role, BotID: e.bots[role], Backend: "claude", WakeText: wake})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -62,7 +63,7 @@ func (e *inboxEnv) turn(channel int64, role, wake, status string) Turn {
 	return t
 }
 
-// inbox returns the items as "kind channel text", newest first.
+// inbox returns the items as "kind Space text", newest first.
 func (e *inboxEnv) inbox() []string {
 	e.t.Helper()
 	items, err := e.s.Inbox(e.ctx)
@@ -71,7 +72,7 @@ func (e *inboxEnv) inbox() []string {
 	}
 	out := []string{}
 	for _, i := range items {
-		out = append(out, fmt.Sprintf("%s %d %s", i.Kind, i.ChannelID, i.Text))
+		out = append(out, fmt.Sprintf("%s %d %s", i.Kind, i.SpaceID, i.Text))
 	}
 	return out
 }
@@ -94,39 +95,15 @@ func TestInbox_Empty(t *testing.T) {
 	}
 }
 
-func TestInbox_Approval(t *testing.T) {
-	e := newInboxEnv(t)
-	m := e.say(1, "lead", "@architect plan")
-	a := Approval{ChannelID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
-	made, err := e.s.CreateApproval(e.ctx, a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.Kind = ApprovalHold
-	if _, err := e.s.CreateApproval(e.ctx, a); err != nil {
-		t.Fatal(err)
-	}
-	e.want("approval 1 lead wants to wake architect")
-	items, _ := e.s.Inbox(e.ctx)
-	if items[0].ApprovalID == nil || *items[0].ApprovalID != made.ID || items[0].TurnID != nil {
-		t.Errorf("item = %+v, want approval id %d and no turn id", items[0], made.ID)
-	}
-
-	if err := e.s.DecideApproval(e.ctx, made.ID, ApprovalRejected); err != nil {
-		t.Fatal(err)
-	}
-	e.want()
-}
-
 func TestInbox_Paused(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "user", "go")
-	if err := e.s.PauseChannel(e.ctx, 1, "hop cap: 6 agent hops without a user message"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 1, "hop cap: 6 agent hops without a user message"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("paused 1 hop cap: 6 agent hops without a user message")
 
-	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
+	if err := e.s.ContinueSpace(e.ctx, 1, TokenBudget); err != nil {
 		t.Fatal(err)
 	}
 	e.want()
@@ -140,8 +117,8 @@ func TestInbox_Failed(t *testing.T) {
 	first := e.turn(1, "lead", "build it", "failed")
 	e.want("failed 1 lead failed: boom")
 	items, _ := e.s.Inbox(e.ctx)
-	if items[0].TurnID == nil || *items[0].TurnID != first.ID || items[0].ApprovalID != nil {
-		t.Errorf("item = %+v, want turn id %d and no approval id", items[0], first.ID)
+	if items[0].TurnID == nil || *items[0].TurnID != first.ID {
+		t.Errorf("item = %+v, want turn id %d", items[0], first.ID)
 	}
 
 	e.turn(1, "lead", "build it again", "failed")
@@ -161,15 +138,15 @@ func TestInbox_Failed(t *testing.T) {
 	e.want()
 }
 
-func TestInbox_FailedTurnThatPausedItsChannelIsNotAlsoListedAsFailed(t *testing.T) {
+func TestInbox_FailedTurnThatPausedItsSpaceIsNotAlsoListedAsFailed(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(1, "lead", "build it", "failed")
-	if err := e.s.PauseChannel(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 
-	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
+	if err := e.s.ContinueSpace(e.ctx, 1, TokenBudget); err != nil {
 		t.Fatal(err)
 	}
 	e.want("failed 1 lead failed: boom")
@@ -202,7 +179,7 @@ func TestInbox_Waiting(t *testing.T) {
 	e.say(1, "lead", "done, what next?")
 	e.say(2, "architect", "plan posted")
 	e.say(2, "reef", "Turn 3 by architect failed: server restarted.")
-	e.want("waiting 1 done, what next?")
+	e.want("question 1 done, what next?")
 
 	e.say(1, "user", "ship it")
 	e.want()
@@ -214,38 +191,63 @@ func TestInbox_Waiting(t *testing.T) {
 	if _, err := e.s.EndTurn(e.ctx, run); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 shipped")
+	e.want("reply 1 shipped")
 
-	if err := e.s.PauseChannel(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 }
 
-func TestInbox_ClosedChannelIsNotAnItem(t *testing.T) {
+func TestInbox_QuestionEndsInAQuestionMark(t *testing.T) {
+	tests := []struct {
+		name string
+		give string
+		want string
+	}{
+		{"plain", "which one?", "question"},
+		{"emphasis and trailing space", "**which one?**  \n", "question"},
+		{"parenthesis", "(which one?)", "question"},
+		{"inline code", "`which one?`", "question"},
+		{"text after the mark", "which one? I can do both", "reply"},
+		{"no mark", "which one", "reply"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newInboxEnv(t)
+			e.say(1, "lead", tt.give)
+			items, err := e.s.Inbox(e.ctx)
+			if err != nil || len(items) != 1 || items[0].Kind != tt.want {
+				t.Errorf("Inbox after %q = %+v, %v, want one %s", tt.give, items, err, tt.want)
+			}
+		})
+	}
+}
+
+func TestInbox_ClosedSpaceIsNotAnItem(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "lead", "Wrap proposed.")
-	e.want("waiting 1 Wrap proposed.")
+	e.want("reply 1 Wrap proposed.")
 
-	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE channel SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
+	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE space SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
 	e.want()
 
-	if err := e.s.ReopenChannel(e.ctx, 1); err != nil {
+	if err := e.s.ReopenSpace(e.ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 Wrap proposed.")
+	e.want("reply 1 Wrap proposed.")
 }
 
 func TestInbox_NewestFirst(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(2, "lead", "a", "failed")
 	e.say(1, "lead", "hello")
-	if err := e.s.PauseChannel(e.ctx, 2, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 2, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 hello", "paused 2 token budget of 1000000 used: 1000312 tokens")
+	e.want("reply 1 hello", "paused 2 token budget of 1000000 used: 1000312 tokens")
 }
 
 func TestInbox_DismissWaiting(t *testing.T) {
@@ -253,34 +255,21 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	e.say(1, "user", "go")
 	reply := e.say(1, "lead", "done, your call")
 	other := e.say(2, "lead", "also done")
-	e.want("waiting 2 also done", "waiting 1 done, your call")
+	e.want("reply 2 also done", "reply 1 done, your call")
 	items, _ := e.s.Inbox(e.ctx)
 	if items[1].MessageID == nil || *items[1].MessageID != reply.ID {
 		t.Fatalf("item = %+v, want message id %d", items[1], reply.ID)
 	}
 
-	if err := e.s.DismissWaiting(e.ctx, 1, reply.ID); err != nil {
+	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "reply", SpaceID: 1, MessageID: &reply.ID}); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 2 also done")
+	e.want("reply 2 also done")
 
 	e.say(1, "lead", "one more thing")
-	e.want("waiting 1 one more thing", "waiting 2 also done")
+	e.want("reply 1 one more thing", "reply 2 also done")
 
-	if err := e.s.DismissWaiting(e.ctx, 1, other.ID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("DismissWaiting(message of another channel) = %v, want ErrNotFound", err)
+	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "reply", SpaceID: 1, MessageID: &other.ID}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DismissInbox(reply, message of another Space) = %v, want ErrNotFound", err)
 	}
-}
-
-func TestInbox_DismissLeavesApprovalsAlone(t *testing.T) {
-	e := newInboxEnv(t)
-	m := e.say(1, "lead", "@architect plan")
-	a := Approval{ChannelID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
-	if _, err := e.s.CreateApproval(e.ctx, a); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.s.DismissWaiting(e.ctx, 1, m.ID); err != nil {
-		t.Fatal(err)
-	}
-	e.want("approval 1 lead wants to wake architect")
 }

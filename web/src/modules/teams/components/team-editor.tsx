@@ -1,190 +1,240 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { Link } from 'react-router';
+import { useBots } from '@/lib/api/get-bots';
+import { useDismiss } from '@/lib/use-dismiss';
+import { useDeleteTeam } from '@/modules/teams/api/delete-team';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
-import { AddGateRow } from '@/modules/teams/components/add-gate-row';
-import { AddRoleRow } from '@/modules/teams/components/add-role-row';
-import { RolePanel } from '@/modules/teams/components/role-panel';
-import type { Gate, Role, Skills, Team } from '@/types/api';
-import { backendLabel } from '@/modules/teams/utils/backend-label';
+import type { Role, Team } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
-import { TextField } from '@/components/text-field';
-import { Toggle } from '@/components/toggle';
+import { Dialog } from '@/components/dialog';
+import { Menu, MenuItem } from '@/components/menu';
+import { SearchPicker } from '@/components/search-picker';
 
-const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
+type Props = { team: Team; onDeleted: () => void; onDuplicate: () => void };
 
-type Props = {
-  team: Team;
-  skills?: Skills;
-  noProject?: boolean;
-  onSaved: (name: string) => void;
-  onDuplicate: () => void;
-};
+const ghostField =
+  'w-full rounded-field border border-transparent bg-transparent px-2 -mx-2 outline-none hover:border-line focus-visible:border-fg focus-visible:ring-3 focus-visible:ring-ring';
 
-export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Props) {
-  const [loaded, setLoaded] = useState(team);
-  const [roles, setRoles] = useState<Role[]>(team.roles);
-  const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
-  const [gates, setGates] = useState<Gate[]>(team.gates ?? []);
-  const [selected, setSelected] = useState<number | null>(null);
+export function TeamEditor({ team, onDeleted, onDuplicate }: Props) {
+  const bots = useBots();
   const save = useUpdateTeam();
+  const remove = useDeleteTeam();
+  const [description, setDescription] = useState(team.responsibility);
+  const [menu, setMenu] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismiss(menu, menuRef, () => setMenu(false));
 
-  function load(t: Team) {
-    setLoaded(t);
-    setRoles(t.roles);
-    setGates(t.gates ?? []);
-    setKeys(t.roles.map((_, i) => i));
+  const shown = save.isPending ? save.variables.team : team;
+  const roles = shown.roles;
+  function put(next: { responsibility?: string; roles?: Role[] }) {
+    save.mutate({
+      name: team.name,
+      team: { name: team.name, responsibility: shown.responsibility, roles, ...next },
+    });
   }
-  const unsaved =
-    JSON.stringify([roles, gates]) !== JSON.stringify([loaded.roles, loaded.gates ?? []]);
-  if (team !== loaded && !unsaved) load(team);
-
-  const current = selected === null ? undefined : roles[selected];
-
-  function updateRole(i: number, role: Role) {
-    setRoles(roles.map((r, idx) => (idx === i ? role : r)));
-  }
-  function removeRole(i: number) {
-    setRoles(roles.filter((_, idx) => idx !== i));
-    setKeys(keys.filter((_, idx) => idx !== i));
-    setSelected(null);
-  }
-  function updateGate(i: number, gate: Gate) {
-    setGates(gates.map((g, idx) => (idx === i ? gate : g)));
-  }
-  function removeGate(i: number) {
-    setGates(gates.filter((_, idx) => idx !== i));
+  function toggle(id: number) {
+    const bot = bots.data?.find((b) => b.id === id);
+    if (roles.some((r) => r.botId === id)) put({ roles: roles.filter((r) => r.botId !== id) });
+    else if (bot) put({ roles: [...roles, { ...bot, botId: id, lead: false }] });
   }
 
   return (
-    <>
-      <div className="min-w-0 flex-1 basis-80 space-y-6">
-        <div className="space-y-2.5">
-          <div className="flex flex-wrap items-end gap-3">
-            <label className="block flex-1 basis-60">
-              <span className="mb-1.5 block text-xs text-muted">Team name</span>
-              <TextField className="w-full" readOnly value={team.name} />
-            </label>
-            <p className="basis-48 pb-2.5 text-xs text-muted">
-              Lead answers by default. Specialists sleep until @mentioned.
-            </p>
-            <Button type="button" onClick={onDuplicate}>
-              Duplicate
-            </Button>
-            <Button
-              variant="primary"
-              type="button"
-              disabled={save.isPending}
-              onClick={() =>
-                save.mutate(
-                  { name: team.name, team: { name: team.name, roles, gates } },
-                  {
-                    onSuccess: (saved) => {
-                      load(saved);
-                      onSaved(saved.name);
-                    },
-                  },
-                )
-              }
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-2">
+        <h2 className="min-w-0 flex-1 truncate text-2xl tracking-[-0.015em]">{team.name}</h2>
+        {save.isSuccess && (
+          <span className="flex items-center gap-1.5 text-[11.5px] text-done">
+            <svg
+              className="size-3"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              aria-hidden="true"
             >
-              Save team
-            </Button>
-          </div>
-          {save.isSuccess && <p className="text-sm text-muted">Saved</p>}
-          {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
-        </div>
-
-        <section aria-label="Roles" className="space-y-1.5">
-          <h2 className="mb-2.5 text-[11px] uppercase tracking-[0.08em] text-muted">Roles</h2>
-          {roles.map((role, i) => (
-            <button
-              key={keys[i]}
-              type="button"
-              aria-pressed={selected === i}
-              onClick={() => setSelected(i)}
-              className={`flex w-full flex-wrap items-center gap-3.5 rounded-xl border p-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring ${selected === i ? 'border-line bg-bubble' : 'border-transparent hover:bg-card'}`}
-            >
-              <Creature role={role.name} face={role.face} size={40} animate />
-              <span className="min-w-0 flex-1 basis-40">
-                <span className="flex items-center gap-2">
-                  <span>{role.name || 'role'}</span>
-                  {role.lead && (
-                    <span className="rounded-pill bg-lead px-2 text-[11px] leading-5 text-mark-ink">
-                      answers by default
-                    </span>
-                  )}
-                </span>
-                <span className="block truncate text-[12.5px] text-muted">{role.persona}</span>
-              </span>
-              <span className={`${badge} border-line text-soft`}>{backendLabel(role.backend)}</span>
-              <span
-                className={`${badge} ${role.write ? 'border-transparent bg-developer/15 text-developer' : 'border-line text-muted'}`}
+              <path d="M5 12l5 5 9-10" />
+            </svg>
+            Saved
+          </span>
+        )}
+        <div ref={menuRef} className="relative">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="Crew actions"
+            aria-haspopup="menu"
+            aria-expanded={menu}
+            onClick={() => setMenu(!menu)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.8" />
+              <circle cx="12" cy="12" r="1.8" />
+              <circle cx="19" cy="12" r="1.8" />
+            </svg>
+          </Button>
+          {menu && (
+            <Menu className="absolute top-full right-0 z-30 mt-1.5 w-48">
+              <MenuItem
+                onClick={() => {
+                  setMenu(false);
+                  onDuplicate();
+                }}
               >
-                {role.write ? 'edits code' : 'read-only'}
-              </span>
-              {role.backend === 'claude' && (
-                <span className={`${badge} border-line text-muted`}>{role.tools.length} tools</span>
+                Duplicate
+              </MenuItem>
+              {team.name !== 'solo' && (
+                <MenuItem
+                  destructive
+                  onClick={() => {
+                    setMenu(false);
+                    setConfirmDelete(true);
+                  }}
+                >
+                  Delete crew…
+                </MenuItem>
               )}
-            </button>
-          ))}
-          <AddRoleRow
-            onAdd={(role) => {
-              setRoles([...roles, role]);
-              setKeys([...keys, Math.max(-1, ...keys) + 1]);
-              setSelected(roles.length);
-            }}
-          />
-        </section>
-
-        <section aria-label="Gates">
-          <h2 className="mb-1 text-[11px] uppercase tracking-[0.08em] text-muted">
-            Approval gates
-          </h2>
-          <p className="mb-3 text-[12.5px] text-muted">
-            Work waits for you before it passes between these roles.
-          </p>
-          {gates.map((gate, i) => (
-            <div
-              key={`${gate.from}-${gate.to}`}
-              className="flex min-h-11 items-center gap-2 border-b border-hairline text-[13px] text-soft last:border-b-0"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {gate.from} → {gate.to}
-              </span>
-              <Toggle
-                label={`Gate ${gate.from} to ${gate.to}`}
-                checked={gate.on}
-                onChange={(on) => updateGate(i, { ...gate, on })}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                aria-label={`Remove gate ${gate.from} to ${gate.to}`}
-                onClick={() => removeGate(i)}
-              >
-                Remove
-              </Button>
-            </div>
-          ))}
-          <AddGateRow
-            roles={roles.map((r) => r.name).filter(Boolean)}
-            gates={gates}
-            onAdd={(gate) => setGates([...gates, gate])}
-          />
-        </section>
+            </Menu>
+          )}
+        </div>
       </div>
+      <input
+        aria-label="Description"
+        className={`${ghostField} mt-1 h-11 text-[13.5px] text-soft placeholder:text-faint md:h-8`}
+        value={description}
+        placeholder="Add a description (optional)"
+        onChange={(e) => setDescription(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+        onBlur={() => {
+          const next = description.trim();
+          setDescription(next);
+          if (next !== team.responsibility) put({ responsibility: next });
+        }}
+      />
+      {save.isError && <p className="mt-2 text-sm text-danger">{save.error.message}</p>}
 
-      {current && selected !== null && (
-        <RolePanel
-          key={keys[selected]}
-          role={current}
-          skills={skills}
-          noProject={noProject}
-          onChange={(r) => updateRole(selected, r)}
-          onRemove={() => removeRole(selected)}
-          onClose={() => setSelected(null)}
-        />
-      )}
-    </>
+      <section aria-label="Bots" className="mt-6">
+        <div className="mb-1.5 flex flex-wrap items-center gap-x-4 text-[13px] text-muted">
+          <h3 className="font-normal">Bots · {roles.length}</h3>
+          <span className="text-xs text-faint md:ml-auto">
+            The starred Bot answers when no one is @mentioned
+          </span>
+        </div>
+        <ul className="border-t border-hairline">
+          {roles.map((role) => (
+            <li
+              key={role.botId}
+              className="group flex min-h-14 items-center gap-3 border-b border-hairline px-2 py-1.5"
+            >
+              <Link
+                to={`/bots?bot=${role.botId}`}
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-lg outline-none focus-visible:ring-3 focus-visible:ring-ring"
+              >
+                <Creature look={role} size={34} animate />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{role.name}</span>
+                  <span className="block truncate text-[12.5px] text-muted">
+                    {role.description}
+                  </span>
+                </span>
+              </Link>
+              <button
+                type="button"
+                aria-pressed={role.lead}
+                aria-label={`${role.name} answers first`}
+                title="Answers first when you don't @mention anyone"
+                onClick={() =>
+                  put({
+                    roles: roles.map((r) => ({ ...r, lead: r.botId === role.botId && !r.lead })),
+                  })
+                }
+                className={`flex h-11 items-center gap-1.5 rounded-pill px-2 text-xs outline-none hover:bg-hover focus-visible:ring-3 focus-visible:ring-ring md:h-[30px] ${role.lead ? 'text-lead' : 'text-faint hover:text-soft'}`}
+              >
+                {role.lead ? (
+                  <span>Answers first</span>
+                ) : (
+                  <span className="hidden group-hover:inline">Make default</span>
+                )}
+                <svg
+                  className="size-4"
+                  viewBox="0 0 24 24"
+                  fill={role.lead ? 'currentColor' : 'none'}
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="m12 3 2.7 5.7 6.2.8-4.6 4.3 1.2 6.2L12 17l-5.5 3 1.2-6.2L3.1 9.5l6.2-.8z" />
+                </svg>
+              </button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Remove ${role.name}`}
+                onClick={() => toggle(role.botId)}
+              >
+                <svg
+                  className="size-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </Button>
+            </li>
+          ))}
+        </ul>
+        <div className="mt-2.5">
+          <SearchPicker
+            row
+            label="Add Bot"
+            options={(bots.data ?? []).map((b) => ({
+              value: String(b.id),
+              label: b.name,
+              hint: b.description,
+            }))}
+            selected={roles.map((r) => String(r.botId))}
+            onToggle={(id) => toggle(Number(id))}
+          />
+        </div>
+      </section>
+
+      <Dialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title={`Delete ${team.name}?`}
+      >
+        <p className="text-sm text-muted">Its Bots and the members of existing Spaces stay.</p>
+        {remove.isError && <p className="mt-3 text-sm text-danger">{remove.error.message}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" onClick={() => setConfirmDelete(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            loading={remove.isPending}
+            onClick={() =>
+              remove.mutate(team.name, {
+                onSuccess: () => {
+                  setConfirmDelete(false);
+                  onDeleted();
+                },
+              })
+            }
+          >
+            Delete crew
+          </Button>
+        </div>
+      </Dialog>
+    </div>
   );
 }

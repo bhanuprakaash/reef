@@ -71,14 +71,24 @@ function ProjectStep() {
         <label htmlFor="first-run-path" className="block text-[12.5px] text-muted">
           Repo folder
         </label>
-        <TextField
-          id="first-run-path"
-          className="w-full font-mono"
-          placeholder="/Users/you/code/project"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          required
-        />
+        <div className="flex gap-2">
+          <TextField
+            id="first-run-path"
+            className="min-w-0 flex-1 font-mono"
+            placeholder="/Users/you/code/project"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            required
+          />
+          {window.reef && (
+            <Button
+              type="button"
+              onClick={() => void window.reef?.chooseFolder().then((p) => p && setPath(p))}
+            >
+              Choose…
+            </Button>
+          )}
+        </div>
       </div>
       <div className="space-y-1.5">
         <label htmlFor="first-run-name" className="block text-[12.5px] text-muted">
@@ -114,19 +124,19 @@ export function FirstRun() {
       <div className="app-drag fixed inset-x-0 top-0 h-8" />
       <div className="flex w-full max-w-[520px] flex-col items-center gap-[22px] text-center">
         <div className="flex items-end gap-2.5">
-          <Creature role="architect" size={44} animate delay={0.4} />
-          <Creature role="lead" size={72} animate />
-          <Creature role="developer" size={44} animate delay={1.1} />
-          <Creature role="tester" size={44} animate delay={1.8} />
+          <Creature look={{ face: 'whale' }} size={44} animate delay={0.4} />
+          <Creature look={{ face: 'jellyfish' }} size={72} animate />
+          <Creature look={{ face: 'penguin' }} size={44} animate delay={1.1} />
+          <Creature look={{ face: 'shark' }} size={44} animate delay={1.8} />
         </div>
         {twoSteps && <p className="text-[13px] text-muted">Step {askName ? 1 : 2} of 2</p>}
         <h1 className="text-4xl font-normal tracking-[-0.02em]">
-          {askName ? 'What should the team call you?' : 'Welcome to the reef'}
+          {askName ? 'What should your Bots call you?' : 'Welcome to the reef'}
         </h1>
         <p className="text-base text-muted">
           {askName
-            ? 'Your team uses your name when they talk to you.'
-            : 'Point Reef at a repo. Every feature you start there keeps its own memory, and a team works on it with you.'}
+            ? 'Your Bots use your name when they talk to you.'
+            : 'Point Reef at a repo. Every Work item you start there keeps its own memory, and Bots work on it with you.'}
         </p>
         {askName ? <NameStep /> : <ProjectStep />}
         <p className="text-[13px] text-muted">

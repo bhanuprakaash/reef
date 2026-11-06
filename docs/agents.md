@@ -1,5 +1,7 @@
 # Agents
 
+> **Target contract:** [Product decisions 143–155](product.md#decisions) define Bots, roster-only Crews, global conversations and execution boundaries. This document describes the existing runtime until those changes are implemented; its Team term does not define the target. Use a fresh development data directory for the new model. No legacy migration or compatibility path is required, but preserve histories created by the new runtime.
+
 Reef drives coding agents through one Go interface, [`agent/agent.go`](../agent/agent.go).
 Two backends implement it: Claude Code ([`agent/claude`](../agent/claude/claude.go)) and
 Codex ([`agent/codex`](../agent/codex/codex.go)). The code is the source of truth. This doc
@@ -30,10 +32,16 @@ Interrupt() error                     // stop the turn and the process
   closes to count it. A second call is a no-op. Tool processes in their own process group
   may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
 - `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Model` (a model name,
-  passed through; empty is the backend's default), `Tools` (tools allowed
+  passed through; empty is the backend's default), `Bin` (the backend executable to run; empty
+  is `claude` or `codex` from `PATH`; `reef-agent` has no flag for it), `Instructions` (standing
+  instructions the backend keeps for the whole session: claude `--append-system-prompt`, codex
+  `developerInstructions` on `thread/start` and `thread/resume`; a resumed session gets them again
+  because they ride on the `Config`), `Tools` (tools allowed
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
-  them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
-  `Env` (`KEY=value`, added to `os.Environ`).
+  them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL` with optional `Headers` and `OAuth`; the session has these servers and no others, see MCP config injection below),
+  `AddDirs` (extra folders the backend may read: Claude gets one `--add-dir` each; Codex ignores it),
+  `Env` (`KEY=value`, added to `os.Environ`), `AskPermissions` (a tool call that needs permission
+  waits for an answer instead of being refused; Codex ignores it, see Permission prompts below).
 
 An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are left out.
 
@@ -46,16 +54,26 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 {"kind":"tool_call","toolId":"toolu_01B...","toolName":"Bash","parentToolId":"toolu_01R...","input":{"command":"echo sub-hello"}}
 {"kind":"usage","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}
 {"kind":"turn_end"}
+{"kind":"turn_end","costUsd":1.1,"sessionUsage":{"inputTokens":1184,"outputTokens":534,"cacheReadTokens":91382,"cacheWriteTokens":31940}}
+{"kind":"background","text":"The background command finished with exit code 0."}
+{"kind":"compacted"}
+{"kind":"permission","requestId":"9d1f7c4e-...","toolId":"toolu_01Q...","toolName":"Bash","input":{"command":"cat /x"},"rule":"Bash(cat /x)","text":"/x"}
+{"kind":"mcp","mcpServer":"slack","text":"needs_auth"}
 {"kind":"error","text":"No conversation found with session ID: ..."}
 ```
 
 `text` is a delta, not a whole message. A `tool_result` carries the `toolId` of its
 `tool_call`. `parentToolId` is the `toolId` of the `Agent` call whose subagent made a tool
-call or result (Claude only). Inside `usage`, no field is left out.
+call or result (Claude only). Inside `usage`, no field is left out. `costUsd` and `sessionUsage`
+on a `turn_end` or `error` are Claude's totals for the whole session so far, not for the turn
+(see the table below); the caller takes off what the session's earlier turns had. A
+`compacted` event says the backend shortened the session's history, by itself when the context
+filled or on request. It can come inside any turn, or between turns. The agent no longer holds
+what it was sent, so a caller that sent it a snapshot once sends it again.
 
 `reef-agent --backend claude|codex [--cwd DIR] [--resume ID] [--permission-mode MODE]
 [--mcp FILE] "prompt"` runs one backend and prints these lines. `FILE` is a JSON object of
-server name to `{command, args, env, url}`. Each stdin line is a
+server name to `{command, args, env, url, headers, oauth}`. Each stdin line is a
 follow-up prompt, sent after a `turn_end`. It exits 1 on an `error` event. On Ctrl-C it
 prints one `usage` line with the session total and exits 130.
 
@@ -65,7 +83,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--append-system-prompt TEXT] [--add-dir DIR]... [--mcp-config PATH --strict-mcp-config] [--allowedTools LIST] [--disallowedTools LIST] [--permission-prompt-tool stdio] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -90,8 +108,8 @@ Output: one JSON line per message, every line has `session_id`. Samples, trimmed
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01Q...","type":"tool_result","content":"hello-from-tool","is_error":false}]},"session_id":"..."}
 // message end: final usage of one model message (the assistant line's output_tokens is only the first few tokens)
 {"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"cache_creation_input_tokens":102,"cache_read_input_tokens":18307,"output_tokens":5}},"session_id":"..."}
-// turn end, usage is the turn total
-{"type":"result","subtype":"success","is_error":false,"result":"Output: ...","session_id":"...","usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123}}
+// turn end: usage leaves out subagents and side calls; modelUsage is the whole session so far, by model, also after a resume
+{"type":"result","subtype":"success","is_error":false,"result":"Output: ...","session_id":"...","total_cost_usd":0.0123,"usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123},"modelUsage":{"claude-opus-5-5":{"inputTokens":4,"outputTokens":123,"cacheReadInputTokens":22898,"cacheCreationInputTokens":10112}}}
 // subagent tool call and result: parent_tool_use_id is the toolu_ id of the Agent call
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01B...","name":"Bash","input":{"command":"echo sub-hello"}}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01B...","type":"tool_result","content":"sub-hello","is_error":false}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
@@ -109,8 +127,8 @@ answers the first prompt.
 ```
 
 A `task-notification` result's `total_cost_usd`, if any, rides on no `turn_end` or `error`
-event: the adapter keeps the earlier total it had, so the delta the next real turn reports
-includes the background turn's share too.
+event, and neither does its `modelUsage`: the next real turn's totals include the background
+turn's share.
 
 A background task that ends in a live session gives such a turn too, with real text and
 tool events. Its `system` `task_notification` (status `completed`) arrives wherever the task
@@ -130,7 +148,35 @@ already waiting. Sample, trimmed (`agent/claude/testdata/background-task.jsonl`)
 (its `content` is a plain string), right after the `init` of the turn that answers it. A turn
 with no echo is not an answer to any prompt: the adapter drops its `text`, `tool_call` and
 `tool_result` events, from `init` to its `result`. Its `usage` is still sent, so the spend
-counts; it lands in whichever turn is reading then.
+counts; it lands in whichever turn is reading then. Its text is sent once, as a `background`
+event just before the turn would have ended: the answer to the finished task. It belongs to
+no `Send` and ends no turn, so it waits in `Events` until a reader takes it. Reef's runner
+reads it during a turn, and for the lead, whose agent stays alive, between turns too. A
+specialist's agent is closed after its turn, so a background answer after that is never read.
+
+Compaction (claude 2.1.306, sonnet): a `system` line with subtype `compact_boundary`, one per
+compaction, after the new history is built. The adapter sends it as one `compacted` event.
+`compact_metadata.trigger` is `manual` for `/compact` sent as a user message, and `auto` when
+claude compacts on its own as the context fills; both give the same line. Seen with `/compact`
+as the second message of a stream-json session:
+
+```json
+{"type":"system","subtype":"compact_boundary","session_id":"b0004807-ecfb-4279-9d24-2d141f82fc92","uuid":"5518e24e-8d4f-4e59-bd03-30a924e62198","compact_metadata":{"trigger":"manual","pre_tokens":22971,"post_tokens":6703,"cumulative_dropped_tokens":16268,"duration_ms":7548},"logical_parent_uuid":"0655e870-b13a-46dc-853b-065844e62b21"}
+```
+
+and on its own, with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=20000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=1`
+and four one-word prompts (its attempts at the start of turns one and two gave
+`"compact_result":"failed"`, `"compact_error":"too_few_groups"` and no boundary line), at the
+start of the third turn:
+
+```json
+{"type":"system","subtype":"compact_boundary","uuid":"7f7ff5cd-74bf-4177-bdea-f55126062131","compact_metadata":{"trigger":"auto","pre_tokens":24769,"post_tokens":6674,"cumulative_dropped_tokens":18095,"duration_ms":5567,"preserved_segment":{...},"preserved_messages":{...}},"logical_parent_uuid":"c1179e84-5cf2-4be8-ac06-7f265bd6501b","session_id":"f786535e-1912-4e46-8d91-c63cc416a8af"}
+```
+
+The `system`/`status` lines around it (`"status":"compacting"`, then `"compact_result":"success"`
+or `"failed"`) are ignored: only the boundary line means the history was shortened. A manual
+`/compact` is a turn of its own: an `init` line (a `session` event), the boundary, and a `result`
+with `num_turns` 0.
 
 Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands_changed`,
 `status`, `task_notification`, `task_started`, `task_updated`, `background_tasks_changed`;
@@ -139,6 +185,47 @@ Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands
 ```json
 {"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"..."}
 ```
+
+### Permission prompts
+
+With `Config.AskPermissions` claude gets `--permission-prompt-tool stdio`. A tool call that needs
+permission is then not refused: claude prints a `control_request` line and waits. The turn stays
+open until the caller answers.
+
+```jsonc
+{"type":"control_request","request_id":"9d1f7c4e-...","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"cat /x"},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"localSettings"}],"blocked_path":"/x","tool_use_id":"toolu_01Q..."}}
+```
+
+The adapter maps it to one `permission` event: `requestId`, `toolId` (`tool_use_id`), `toolName`,
+`input`, `text` (`blocked_path`) and `rule`, the first rule of the first `addRules` suggestion as
+`Tool(ruleContent)`, or `Tool` when it has no content; empty when claude suggests none. The call's
+own `tool_call` event comes before it. A `control_request` of another subtype gives no event.
+
+`*claude.Agent` implements `agent.Asker`. `Answer(requestID, agent.Answer{Allow, Rule, Reason})`
+writes one `control_response` line on stdin, under the same lock as `Send`:
+
+```json
+{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-...","response":{"behavior":"allow","updatedInput":{"command":"cat /x"}}}}
+{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-...","response":{"behavior":"allow","updatedInput":{"command":"cat /x"},"updatedPermissions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"cat /x"}],"behavior":"allow","destination":"session"}]}}}
+{"type":"control_response","response":{"subtype":"success","request_id":"9d1f7c4e-...","response":{"behavior":"deny","message":"no answer from the user"}}}
+```
+
+- Allow runs the tool and the turn goes on. `updatedInput` is the request's own `input`. With
+  `Rule` set the rule is also allowed for the rest of the session (`updatedPermissions`).
+- Deny gives the tool call an error `tool_result` whose text is exactly `Reason`, and the
+  model answers. The adapter never sends `interrupt`: it loses the message and ends the turn
+  with an error.
+- `Answer` of a request id it has not seen, or already answered, returns an error.
+- `--add-dir` folders are readable without a prompt. A path outside them, and a command the
+  allow rules do not cover, prompt.
+- Checked on claude 2.1.316 with `--permission-mode default`; with the user's `auto` mode a
+  `cat` of a file outside the folder ran without a prompt.
+
+Codex has no equivalent: `approvalPolicy` is always `never`, so it never asks and `Answer` does
+not exist on its adapter.
+
+How a prompt reaches the user (the card, the wait, the REST calls) is in
+[server.md](server.md#permission-prompts).
 
 ## Codex
 
@@ -155,17 +242,19 @@ object per line:
 -> {"id":1,"method":"initialize","params":{"clientInfo":{"name":"reef","title":null,"version":"0"}}}
 <- {"id":1,"result":{"userAgent":"reef/0.162.1 ...","codexHome":"..."}}
 -> {"method":"initialized"}
--> {"id":2,"method":"thread/start","params":{"cwd":"/tmp/cx","approvalPolicy":"never",
+-> {"id":2,"method":"config/read","params":{"cwd":"/tmp/cx"}}
+<- {"id":2,"result":{"config":{"mcp_servers":{"user-one":{"command":"..."}},...},...}}
+-> {"id":3,"method":"thread/start","params":{"cwd":"/tmp/cx","approvalPolicy":"never",
      "sandbox":"workspace-write","config":{"mcp_servers":{...}}}}      // or thread/resume + threadId
-<- {"id":2,"result":{"thread":{"id":"01a133d7-...","cwd":"/tmp/cx"},...}}
+<- {"id":3,"result":{"thread":{"id":"01a133d7-...","cwd":"/tmp/cx"},...}}
 ```
 
-`sandbox`, `model` and `config` are set only when `PermissionMode` / `Model` / `MCPServers` are. One goroutine
+`sandbox`, `model` and `developerInstructions` are set only when `PermissionMode` / `Model` / `Instructions` are. `config.mcp_servers` holds the caller's `MCPServers` and, as `{"enabled":false}`, the servers `config/read` found that the caller did not pass. One goroutine
 owns stdout: it waits for each response, skipping other lines, then emits `session` once and
 the events, then calls `Wait`, so a process that exits on its own is reaped. Then each `Send`:
 
 ```
--> {"id":3,"method":"turn/start","params":{"threadId":"01a133d7-...","input":[{"type":"text","text":"<prompt>"}]}}
+-> {"id":4,"method":"turn/start","params":{"threadId":"01a133d7-...","input":[{"type":"text","text":"<prompt>"}]}}
 ```
 
 The response to `turn/start` carries no events. The events arrive as notifications.
@@ -196,6 +285,17 @@ A JSON-RPC `error` response after the handshake (for example to `turn/start`) be
 {"method":"turn/completed","params":{"turn":{"status":"failed","error":{"message":"{\"type\":\"error\",\"status\":400,...}"}}}}
 ```
 
+Compaction (codex 0.164.0, gpt-6-luna): an `item/started` and an `item/completed` notification
+for an item of type `contextCompaction`. The adapter sends the completed one as a `compacted`
+event. Seen both with the `thread/compact/start` request (its own turn) and on its own with
+`-c model_auto_compact_token_limit=8000` on `codex app-server`, at the start of the second of
+three one-word turns (11.5k tokens a call), before that turn's model call:
+
+```json
+{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","startedAtMs":1793075500544},"emittedAtMs":1793075500544}
+{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","completedAtMs":1793075503195},"emittedAtMs":1793075503196}
+```
+
 Noise, ignored: `thread/started`, `thread/status/changed`, `mcpServer/startupStatus/updated`,
 `turn/diff/updated`, the `error` notification, and `item/*` for `userMessage`, `reasoning`
 and `agentMessage`.
@@ -208,9 +308,13 @@ and `agentMessage`.
 | `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text`. The first delta of a later message (`message_start`) in the same turn is prefixed with `"\n\n"`, so messages around a tool call are separated. None in a turn claude ran by itself (no echoed prompt, see above); the same holds for `tool_call` and `tool_result`. | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
 | `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input`. A top-level call is sent right after its message's `usage` (the `assistant` line comes before the `message_delta`), so a turn stopped at that call has counted the model call that made it. A `tool_result` that arrives before that `message_delta` waits with them, so a call never follows its own result and the usage still comes first. A subagent's call (`parentToolId` set) is sent at once: its messages have no `message_delta`. | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
-| `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). The `result` line sends only its total minus what the messages already sent (nothing when equal), just before `turn_end` or `error`, so a finished turn adds up to the `result` total. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
-| `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification`, carries a cost. `total_cost_usd` is the cost of the whole process so far, not the turn: the adapter keeps the last total it saw and sends the difference. A `--resume` starts a new process, so its first turn's cost starts from zero again, not from the earlier process's total. | `turn/completed` with any status but `failed`; carries no cost |
-| `error` | `result` with `is_error` true (`result` and `errors[]` joined), carries a cost the same way as `turn_end`. Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
+| `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). These events are the turn's live count only: the `result` line sends no `usage` of its own. The messages' usage leaves out the subagents' model calls (their messages have no `message_delta`) and claude's own side calls (a small-model call for the session title, about 1.2k input tokens, once per session). The `turn_end` or `error` carries `sessionUsage`, the sum of the result's `modelUsage`, which counts all of it for the whole session so far, also after a `--resume` (checked: cache read 38,208 = 22,860 earlier + 15,348 this turn). The adapter sends it as it is, and the Space `Runner` stores the turn's usage as that total minus what the session's earlier turns had, replacing the sum of the events. A turn that has no `modelUsage` keeps the sum of its events. A background turn that starts before the result of the turn it runs inside has sent its usage already; the later total holds it. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
+| `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification`, carries a cost and `sessionUsage`. `total_cost_usd` is the running cost of the whole session, not the turn, and a `--resume` process continues the earlier total instead of starting from zero. The adapter sends it as it is, so it does not depend on where a process starts; the Space `Runner` stores the turn's own cost, that total minus the total the session's previous turn reported (kept on the turn as `session_cost_usd`; for a session stored before that, its largest cost plus the costs stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share). A background `task-notification` result sends no cost: the next turn's total holds it. | `turn/completed` with any status but `failed`; carries no cost |
+| `background` | The text of a turn claude ran by itself for a finished background task (no echoed prompt), sent at its `result` with `origin` `task-notification`. None when the turn wrote no text. | Never. |
+| `permission` | `control_request` line with `request.subtype` `can_use_tool`, only with `AskPermissions`, see Permission prompts. Sent after the call's `tool_call`. | Never. |
+| `compacted` | `system` line with subtype `compact_boundary`, see Compaction above. | `item/completed` of an item of type `contextCompaction`. |
+| `mcp` | `system`/`init` line, one event after `session` for each entry of `mcp_servers` whose `status` is `connected` (`text` `connected`) or `needs-auth` (`needs_auth`); `mcpServer` is the entry's `name`. Other statuses send none. | `mcpServer/startupStatus/updated` with `status` `ready` (`connected`), or `failed` with `failureReason` `reauthenticationRequired` or an `error` saying the server is "not logged in" (`needs_auth`); `name` is the server. Sent as codex reports it, after `session`. |
+| `error` | `result` with `is_error` true (`result` and `errors[]` joined), carries a cost and `sessionUsage` the same way as `turn_end`. Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 
 `parentToolId`: Claude sets it from `parent_tool_use_id` (null on top-level lines) on
 `tool_call` and `tool_result`. Subagent text is not streamed (no `stream_event` carries a
@@ -221,6 +325,29 @@ parent), so `text` has none. Codex links subagents by thread id (`parentThreadId
 Both: a tool id is the same in its call and result. Claude's tool input also streams as
 `input_json_delta` fragments; the adapter ignores them and uses the whole `tool_use` block.
 Codex item types not listed (`webSearch`, `reasoning` ...) give no event.
+
+## Skills
+
+Reef gives a Bot's adopted skills to Claude and Codex the same way: it copies each skill's folder
+under the data folder (`bot-sessions/<id>/skills/<source>/<name>/`) and lists the compatible ones
+in the session instructions, each with its description and the absolute path of its `SKILL.md`
+(see [memory.md](memory.md#the-context-prompt)). The backend reads a skill's files with its own file
+tools; supporting files are relative to `SKILL.md`. Claude also gets `--add-dir` for the skills
+folder. Codex needs nothing extra: its `read-only` and `workspace-write` sandboxes restrict
+writes, not reads (not run against a real Codex here). A skill that uses `CLAUDE_` plugin
+variables, such as `${CLAUDE_PLUGIN_ROOT}`, is incompatible with Codex: it is not listed to the
+session, and `GET /skills` and the Bot editor show why. Reef never edits a package to make it fit.
+
+Enforced by Reef: for a Claude Bot that picks skills, `--disallowedTools` gets `Skill(name)` for
+every Claude skill on disk, picked or not. Claude's own `Skill` tool would load the live file at each
+process start, while the session instructions point at the frozen copy; denying it makes the copy
+the only one the Bot uses. A copy keeps the execute bit of the files it came from (`0700`, else `0600`).
+Adoption is one transaction: the copy is written, then the BotSession is saved with its final skills,
+and if the copy fails the BotSession that was active stays active.
+
+Inherited from the backend, not enforced: Codex finds `~/.agents/skills` and the project's
+`.agents/skills` on its own, and Reef has no switch to stop that. A Codex Bot can therefore use a
+skill it did not pick. The picked list only adds the skills Reef supplies; it does not limit Codex.
 
 ## Gotchas
 
@@ -242,11 +369,14 @@ Permissions
   had `Write` and an unlisted `Bash` refused (claude 2.1.299).
 
 cwd
-- The process and, for Codex, `thread/start` get `cfg.Cwd`. Codex needs no git repo.
+- The process and, for Codex, `thread/start` get `cfg.Cwd`. Codex needs no git repo. For a Work
+  item's Space Reef sets it to the item's root folder, which is no repository and holds one
+  worktree per target, so the one process reaches each repository by a relative path and no
+  extra directory is passed.
 - Claude reports the real path (`/private/tmp` for `/tmp`). It files sessions per cwd
   (`~/.claude/projects/<cwd with each non-alphanumeric character as ->/`), but `Resume` from
   another `Cwd` still continues the session: on claude 2.1.299 a session started in a project
-  folder resumed in a feature's worktree with the same id, and the turns it added carry the new
+  folder resumed in a Work item's worktree with the same id, and the turns it added carry the new
   `cwd` in the first folder's file.
 
 Env
@@ -255,22 +385,50 @@ Env
   (tests use `sonnet`).
 
 MCP config injection
-- Claude: `--mcp-config PATH` to a 0600 temp file, removed after exit. This keeps MCP `env`
-  secrets off argv. The file is `{"mcpServers":{"name":{"command":..,"args":..,"env":..}}}`. HTTP
+- Claude: `--mcp-config PATH --strict-mcp-config`, with the file at a 0600 temp path, removed at claude's first output line (it
+  reads the file once at start-up) or at its exit, so a reef killed after that leaves none. This keeps MCP `env`
+  and `headers` secrets off argv. The file is `{"mcpServers":{"name":{"command":..,"args":..,"env":..}}}`. HTTP
   servers need `"type":"http"`; a bare `{"url":...}` is dropped silently. The adapter adds
-  it when `URL` is set. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so
-  the model may call `ToolSearch` first. The user's own MCP config still loads. Without
-  approval, a default-mode session gets an `isError` result ("requested permissions ... but
+  it when `URL` is set, and writes `headers` and `oauth` (`{"clientId":..,"callbackPort":..}`) as they are. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so
+  the model may call `ToolSearch` first. `--strict-mcp-config` makes the file the whole set:
+  claude then ignores the user's own servers (user scope in `~/.claude.json`, the project's `.mcp.json`),
+  those of enabled plugins and the claude.ai connectors, so a session has the servers its caller passed and no others
+  (`claude mcp list` still shows the user's). Without it, `claude -p` loaded all of those next to the file.
+  Without approval, a default-mode session gets an `isError` result ("requested permissions ... but
   you haven't granted it yet"). The adapter passes `--allowedTools`, one comma-joined value (the flag is
   variadic), for the `Tools` only: a caller that wants a server's tools approved lists
   `mcp__<name>__*` in `Tools` (`reef-agent --mcp` does so for every server in its file; a
-  channel's teammate does so for `reef` only). Other tools keep the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
+  Space's bot does so for `reef` only). Other tools keep the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
   inject extra patterns, and claude rewrites other characters in tool names (`reef.mem` never
   matches), so `Start` rejects them. `DisallowedTools` goes the same way as `--disallowedTools`:
   a deny beats an allow rule in the user's or the project's `.claude/settings.json`.
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
   fail with "requires approval" unless the server has
   `default_tools_approval_mode: "approve"`. The adapter sets it for the `reef` server only.
+  A server with `Headers` gets `http_headers`; one with `OAuth.ClientID` gets `oauth.client_id`
+  (`CallbackPort` is Claude's only). Codex merges the thread's `mcp_servers` into the ones in
+  its own `config.toml` (`CODEX_HOME` aware) and the project's `.codex/config.toml`; it does not
+  replace them. So after `initialize` the adapter sends `config/read`, which answers with
+  every server codex would load, and sets `{"enabled":false}` on the thread for each one the caller did not pass.
+  That covers only `mcp_servers`: enabled plugins bring servers of their own (`cua_repl` from
+  `unified-computer-use`) and the ChatGPT apps run as `codex_apps`. So the thread also gets
+  `plugins.<id>.enabled = false` for every plugin `config/read` shows enabled, and
+  `features.apps = false`. An `{"enabled":false}` entry for a name codex has no transport for fails
+  `thread/start` ("invalid transport"), so only names from `config/read` get one.
+  The user's servers stay in their config; the session just does not start them. A `config/read` that fails fails `Start`.
+- Sign-in (an HTTP server that answers 401 and needs OAuth). A session cannot sign in: headless
+  `claude -p` shows the server as `needs-auth`, and codex fails its startup with "not logged in".
+  Both keep the token outside the config they were given, keyed by the server's name and url
+  (claude: and headers; `~/.claude/.credentials.json` or the keychain; codex:
+  `$CODEX_HOME/.credentials.json` or the keyring). A session whose server has the same name, url
+  and headers as one signed in finds the token. `claude.Login` and `codex.Login` sign the user in
+  to one server that way, under a pseudo-terminal from `script(1)` (both refuse to run without
+  one), opening the browser: claude `--settings '{"enableAllProjectMcpServers":true}' mcp login
+  NAME` in a temporary folder whose `.mcp.json` holds only that server, encoded as a session's
+  file is (`mcp login` knows only configured servers and ignores `--mcp-config`; the settings
+  approve the project server); codex `mcp login NAME -c mcp_servers.NAME.url=...` with the client
+  id. Neither changes the user's config. A token from the user's own setup (the Slack plugin is
+  `plugin:slack:slack`) is under another name, so a Reef connection signs in once of its own.
 
 Session and thread ids
 - Claude `session_id` is on every line. `--resume ID` keeps the same id (no new id without
@@ -306,7 +464,7 @@ Interrupt and orphans
   ```
 
   The adapter keeps only that usage, drops the `interrupted` turn end, and puts the usage in
-  `Events`' one-event buffer, added to a usage already unread there. Without `turn/interrupt`
+  `Events`' one-event buffer, added to a usage already unread there. An event blocked on that full buffer is dropped, so a caller that stopped reading does not delay the stop. Without `turn/interrupt`
   (SIGTERM only) codex sent nothing, so the stopped turn counted 0. A turn stopped while a
   model call streams its text gets no usage even from `turn/interrupt` (12 s into a
   2000-word essay: 557 text events, then only the zero total): that call's tokens are lost.

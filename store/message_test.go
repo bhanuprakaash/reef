@@ -17,16 +17,16 @@ func TestMessages_Thread(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"a", "b"} {
-		if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: name}); err != nil {
+		if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: name}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	one := int64(1)
 	for _, m := range []Message{
-		{ChannelID: 1, Author: "user", Body: "root"},
-		{ChannelID: 1, Author: "user", Body: "other"},
-		{ChannelID: 1, ParentID: &one, Author: "lead", Body: "reply"},
-		{ChannelID: 1, Author: "architect", Body: "plan"},
+		{SpaceID: 1, Author: "user", Body: "root"},
+		{SpaceID: 1, Author: "user", Body: "other"},
+		{SpaceID: 1, ParentID: &one, Author: "lead", Body: "reply"},
+		{SpaceID: 1, Author: "architect", Body: "plan"},
 	} {
 		if _, err := s.CreateMessage(ctx, m); err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func TestMessages_Thread(t *testing.T) {
 	}
 
 	three, four, nine := int64(3), int64(4), int64(9)
-	reply := Message{ChannelID: 1, ParentID: &four, Author: "user", Body: "ok"}
+	reply := Message{SpaceID: 1, ParentID: &four, Author: "user", Body: "ok"}
 	if _, err := s.CreateMessage(ctx, reply); err != nil {
 		t.Fatal(err)
 	}
@@ -42,9 +42,9 @@ func TestMessages_Thread(t *testing.T) {
 		name string
 		give Message
 	}{
-		{"reply to a reply", Message{ChannelID: 1, ParentID: &three, Author: "user", Body: "x"}},
-		{"parent in another one", Message{ChannelID: 2, ParentID: &one, Author: "user", Body: "x"}},
-		{"unknown parent", Message{ChannelID: 1, ParentID: &nine, Author: "user", Body: "x"}},
+		{"reply to a reply", Message{SpaceID: 1, ParentID: &three, Author: "user", Body: "x"}},
+		{"parent in another one", Message{SpaceID: 2, ParentID: &one, Author: "user", Body: "x"}},
+		{"unknown parent", Message{SpaceID: 1, ParentID: &nine, Author: "user", Body: "x"}},
 	}
 	for _, tt := range creates {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,12 +99,13 @@ func TestDirectMessages_RequestAndResponse(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "work"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "work"}); err != nil {
 		t.Fatal(err)
 	}
 
+	bots := identityTestBots(t, s)
 	req, err := s.CreateDirectMessage(ctx, DirectMessage{
-		ChannelID: 1, From: "lead", To: "developer", Body: "build it",
+		SpaceID: 1, From: "lead", To: "developer", FromBotID: bots["lead"], ToBotID: bots["developer"], Body: "build it",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +116,7 @@ func TestDirectMessages_RequestAndResponse(t *testing.T) {
 	if req.Status != DirectSent {
 		t.Errorf("request status = %q, want %q", req.Status, DirectSent)
 	}
-	res, err := s.CreateDirectResponse(ctx, req.ID, "developer", "done")
+	res, err := s.CreateDirectResponse(ctx, req.ID, bots["developer"], "developer", "done")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,11 +128,11 @@ func TestDirectMessages_RequestAndResponse(t *testing.T) {
 	if err != nil || len(got) != 2 || got[0].Body != "build it" || got[1].Body != "done" {
 		t.Errorf("DirectMessages = %+v, %v, want request and response", got, err)
 	}
-	participated, err := s.DirectMessagesForRole(ctx, 1, "developer", 0)
+	participated, err := s.DirectMessagesForBot(ctx, 1, *bots["developer"], 0)
 	if err != nil || len(participated) != 2 {
 		t.Errorf("DirectMessagesForRole(developer) = %+v, %v, want both", participated, err)
 	}
-	other, err := s.DirectMessagesForRole(ctx, 1, "tester", 0)
+	other, err := s.DirectMessagesForBot(ctx, 1, *bots["tester"], 0)
 	if err != nil || len(other) != 0 {
 		t.Errorf("DirectMessagesForRole(tester) = %+v, %v, want none", other, err)
 	}
@@ -147,24 +148,25 @@ func TestDirectMessages_RequestGetsOnlyOneResponse(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "work"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "work"}); err != nil {
 		t.Fatal(err)
 	}
+	bots := identityTestBots(t, s)
 	req, err := s.CreateDirectMessage(ctx, DirectMessage{
-		ChannelID: 1, From: "lead", To: "developer", Body: "build it",
+		SpaceID: 1, From: "lead", To: "developer", FromBotID: bots["lead"], ToBotID: bots["developer"], Body: "build it",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failed, err := s.CreateFailedDirectResponse(ctx, req.ID, "developer", "par"); err != nil {
+	if failed, err := s.CreateFailedDirectResponse(ctx, req.ID, bots["developer"], "developer", "par"); err != nil {
 		t.Fatal(err)
 	} else if failed.Status != DirectFailed {
 		t.Errorf("failed response status = %q, want %q", failed.Status, DirectFailed)
 	}
-	if _, err := s.CreateDirectResponse(ctx, req.ID, "developer", "done"); err != nil {
+	if _, err := s.CreateDirectResponse(ctx, req.ID, bots["developer"], "developer", "done"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateDirectResponse(ctx, req.ID, "developer", "done again"); !errors.Is(err, ErrConflict) {
+	if _, err := s.CreateDirectResponse(ctx, req.ID, bots["developer"], "developer", "done again"); !errors.Is(err, ErrConflict) {
 		t.Errorf("second response error = %v, want ErrConflict", err)
 	}
 	msgs, err := s.DirectMessages(ctx, 1, 0)

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,9 +22,32 @@ func TestMessage_event(t *testing.T) {
 		want *agent.Event // nil: skipped
 	}{
 		{
+			name: "server not logged in",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"threadId":"t","name":"vendor","status":"failed","error":"The vendor MCP server is not logged in. Run ` + "`codex mcp login vendor`" + `.","failureReason":null}}`,
+			want: &agent.Event{Kind: agent.KindMCP, MCPServer: "vendor", Text: agent.MCPNeedsAuth},
+		},
+		{
+			name: "server signed in expired",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"name":"vendor","status":"failed","error":"token expired","failureReason":"reauthenticationRequired"}}`,
+			want: &agent.Event{Kind: agent.KindMCP, MCPServer: "vendor", Text: agent.MCPNeedsAuth},
+		},
+		{
+			name: "server failing for another reason is skipped",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"name":"vendor","status":"failed","error":"connection refused","failureReason":null}}`,
+		},
+		{
 			name: "text delta",
 			give: `{"method":"item/agentMessage/delta","params":{"threadId":"01a133d7","turnId":"01a133d7","itemId":"msg_057e","delta":"I"}}`,
 			want: &agent.Event{Kind: agent.KindText, Text: "I"},
+		},
+		{
+			name: "compaction start is skipped",
+			give: `{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","startedAtMs":1793075500544},"emittedAtMs":1793075500544}`,
+		},
+		{
+			name: "compaction done",
+			give: `{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","completedAtMs":1793075503195},"emittedAtMs":1793075503196}`,
+			want: &agent.Event{Kind: agent.KindCompacted},
 		},
 		{
 			name: "command start",
@@ -69,6 +93,11 @@ func TestMessage_event(t *testing.T) {
 			name: "mcp done",
 			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb96","server":"reef-ping","tool":"reef_ping","status":"completed","arguments":{},"result":{"content":[{"type":"text","text":"pong"}],"structuredContent":null},"error":null}}}`,
 			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb96", Output: "pong"},
+		},
+		{
+			name: "mcp image",
+			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb97","server":"reef-ping","tool":"reef_shot","status":"completed","arguments":{},"result":{"content":[{"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"}],"structuredContent":null},"error":null}}}`,
+			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb97", Output: "[image]"},
 		},
 		{
 			name: "mcp refused",
@@ -126,8 +155,9 @@ func TestMessage_event(t *testing.T) {
 			give: `{"method":"item/completed","params":{"item":{"type":"reasoning","id":"rs_02b4","summary":[],"content":[]}}}`,
 		},
 		{
-			name: "mcp status",
+			name: "mcp status ready",
 			give: `{"method":"mcpServer/startupStatus/updated","params":{"threadId":"01a133d1","name":"codex_apps","status":"ready","error":null}}`,
+			want: &agent.Event{Kind: agent.KindMCP, MCPServer: "codex_apps", Text: agent.MCPConnected},
 		},
 		{
 			name: "response",
@@ -219,10 +249,20 @@ func TestThreadParams_Model(t *testing.T) {
 	}
 }
 
+func TestThreadParams_Instructions(t *testing.T) {
+	if got := threadParams(agent.Config{Instructions: "Be brief."})["developerInstructions"]; got != "Be brief." {
+		t.Errorf("threadParams developerInstructions = %v, want Be brief.", got)
+	}
+	if _, ok := threadParams(agent.Config{})["developerInstructions"]; ok {
+		t.Error("threadParams has developerInstructions without instructions")
+	}
+}
+
 func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{
 		"reef": {Command: "reef-mcp"},
-		"mcp1": {Command: "other-mcp"},
+		"x":    {Command: "other-mcp"},
+		"web":  {URL: "http://127.0.0.1:9/mcp"},
 	}})
 	body, err := json.Marshal(params)
 	if err != nil {
@@ -239,8 +279,68 @@ func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	if got.Config.MCPServers["reef"]["default_tools_approval_mode"] != "approve" {
 		t.Errorf("reef approval mode = %v, want approve", got.Config.MCPServers["reef"])
 	}
-	if _, ok := got.Config.MCPServers["mcp1"]["default_tools_approval_mode"]; ok {
-		t.Errorf("mcp1 has approval mode: %v", got.Config.MCPServers["mcp1"])
+	if got.Config.MCPServers["x"]["default_tools_approval_mode"] != "approve" {
+		t.Errorf("x approval mode = %v, want approve", got.Config.MCPServers["x"])
+	}
+	if got.Config.MCPServers["web"]["url"] != "http://127.0.0.1:9/mcp" || got.Config.MCPServers["x"]["command"] != "other-mcp" {
+		t.Errorf("mcp_servers = %v, want web by url and x by command", got.Config.MCPServers)
+	}
+}
+
+func TestThreadParams_HeadersAndOAuth(t *testing.T) {
+	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{"slack": {
+		URL:     "https://mcp.slack.com/mcp",
+		Headers: map[string]string{"X-Key": "k"},
+		OAuth:   &agent.OAuth{ClientID: "id1", CallbackPort: 3118},
+	}}})
+	body, err := json.Marshal(params["config"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"mcp_servers":{"slack":{"url":"https://mcp.slack.com/mcp","http_headers":{"X-Key":"k"},` +
+		`"oauth":{"client_id":"id1"},"default_tools_approval_mode":"approve"}}}`
+	if string(body) != want {
+		t.Errorf("config = %s, want %s", body, want)
+	}
+}
+
+func TestAgent_DisablesUserServers(t *testing.T) {
+	thread := filepath.Join(t.TempDir(), "thread.json")
+	a := fake(t, "hang")
+	t.Setenv("FAKE_CODEX_THREAD", thread)
+	cfg := agent.Config{Cwd: t.TempDir(), MCPServers: map[string]agent.MCPServer{"user-two": {Command: "x"}}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(thread)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Params struct {
+			Config struct {
+				MCPServers map[string]map[string]any `json:"mcp_servers"`
+				Plugins    map[string]map[string]any `json:"plugins"`
+				Features   map[string]any            `json:"features"`
+			} `json:"config"`
+		} `json:"params"`
+	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	servers := got.Params.Config.MCPServers
+	if servers["user-one"]["enabled"] != false || len(servers["user-one"]) != 1 {
+		t.Errorf("user-one = %v, want only enabled=false", servers["user-one"])
+	}
+	if servers["user-two"]["command"] != "x" || servers["user-two"]["enabled"] != nil {
+		t.Errorf("user-two = %v, want the selected command and not disabled", servers["user-two"])
+	}
+	plugins := got.Params.Config.Plugins
+	if len(plugins) != 1 || plugins["on@x"]["enabled"] != false {
+		t.Errorf("plugins = %v, want only on@x with enabled=false", plugins)
+	}
+	if got.Params.Config.Features["apps"] != false {
+		t.Errorf("features = %v, want apps=false", got.Params.Config.Features)
 	}
 }
 
@@ -527,6 +627,25 @@ func TestAgent_InterruptKeepsStoppedTurnUsage(t *testing.T) {
 	}
 }
 
+func TestAgent_InterruptWithUnreadEvents(t *testing.T) {
+	a := fake(t, "stopfull")
+	startTurn(t, a)
+	collect(t, a, agent.KindToolCall)
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Errorf("Interrupt took %v, want under 500ms", d)
+	}
+	got := collect(t, a, "")
+	want := []agent.Event{{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 6, OutputTokens: 5, CacheReadTokens: 1}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events after Interrupt = %+v, want %+v", got, want)
+	}
+}
+
 func TestAgent_BreakBetweenMessages(t *testing.T) {
 	a := fake(t, "twomsgs")
 	startTurn(t, a)
@@ -547,5 +666,13 @@ func TestAgent_BreakBetweenMessages(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestBin(t *testing.T) {
+	a := fake(t, "")
+	err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir(), Bin: "/nonexistent/codex"})
+	if err == nil || !strings.Contains(err.Error(), "/nonexistent/codex") {
+		t.Errorf("Start error = %v, want it to name /nonexistent/codex, not the codex on PATH", err)
 	}
 }

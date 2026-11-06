@@ -1,6 +1,6 @@
 ---
 name: verify-reef
-description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, channel/, server/, store/ or desktop/, or when asked "does reef-agent / reef serve / reef chat / the Reef app still work". The window (the web UI) is driven in Chrome through `verify-reef ui`; the desktop app (Electron shell, browser pane, terminal pane) under xvfb-run through `verify-reef desktop`.
+description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, space/, server/, store/ or desktop/, or when asked "does reef-agent / reef serve / reef chat / the Reef app still work". The window (the web UI) is driven in Chrome through `verify-reef ui`; the desktop app (Electron shell, browser pane, terminal pane) under xvfb-run through `verify-reef desktop`.
 ---
 
 # Verify Reef
@@ -10,17 +10,28 @@ Five user surfaces exist so far:
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
-  REST API. It also runs a channel's team: it routes messages between teammates, holds
-  gated wakes and caps hops. Contract: `docs/server.md`.
-- The memory loop (`cmd/reef`): the CLI (`reef project`, `feature`, `brief`, `decide`,
-  `task`, `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
-  chat` (one role in one channel, in the terminal). Contract: `docs/memory.md`.
+  REST API. It also runs a Space's team: it routes messages between bots, holds
+  caps hops. Contract: `docs/server.md`.
+- The memory loop (`cmd/reef`): the CLI (`reef project`, `work-item`, `brief`, `decide`,
+  `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one bot) and `reef
+  chat` (one role in one space, in the terminal). Contract: `docs/memory.md`.
 - The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
 - The desktop app (`desktop/`): Electron around its own `reef serve` and the window, with a
   browser pane agents drive through `reef mcp` and a terminal pane. Contract: `docs/desktop.md`.
 
-The feature map is in [`features/README.md`](features/README.md). Read the matching feature
+The map of recipe files is in [`features/README.md`](features/README.md). Read the matching
 file before a run.
+
+## The model
+
+Recipes use the server's own nouns:
+
+- **Project**: a name and a repo folder.
+- **Work item**: a title, a description, acceptance lines, a type that is only a label (`feature`, `bug`, `incident`, `investigation`, `task`, `improvement`) and a status (`backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done`, `dropped`). A top-level item has a Team, a brief and a worktree `<data folder>/worktrees/<project id>/<work item id>` on the branch `work-item/<id>`. A sub-item has a parent, shares its Space and worktree, has no brief, and only the lead moves it.
+- **Bot**: a description, skills, a backend, a model, a face and default access rules. A **Team** is a lead and members copied from Bots, with a responsibility text; the seeded `solo` Team has the seeded `lead` Bot. No Team or Bot limits how many top-level items run: the queue starts every approved item at once, and one with no ready repository waits in `needs_you`.
+- **Space**: free (no work item), a work item's (one active Space per item) or a conversation (one Bot, one session). A Space with no work item has zero or more associated Projects (context only, `features/global-chats.md`) and runs in `<data folder>/chats/<Space id>`, a folder that is no git repo. Its members are Bots; `@name` or Add Bot moves a conversation to a new Space. A Space pauses at a cap and the work item goes to `needs_you`.
+- **Review**: the lead sets sub-items done and calls `submit_for_review` with proof (ticked acceptance lines with notes, test commands and output, screenshots); the user sends the item back with a note (to the top of the queue) or sets it `done`, which approves the lead's wrap-up.
+- **Memory items** live in the scopes `work_item`, `space`, `conversation`, `project` and `bot`. Agents also have `create_sub_item`, `set_sub_item_status` (lead only), `submit_for_review` (lead only) and `propose_work_item`.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
 Each Bash call starts a new shell, so pass `REEF_VERIFY_RUN=<id>` on every call.
@@ -42,7 +53,7 @@ the scratch cwd `<scratch>/cwd/`, and writes
 printed an id and exited 0.
 
 `<scratch>` is `/tmp/reef-verify/<id>` on Linux and `/private/tmp/reef-verify/<id>` on macOS: the
-helper resolves `/tmp` with `pwd -P`. This skill and its feature files write `<scratch>` for it.
+helper resolves `/tmp` with `pwd -P`. This skill and its recipe files write `<scratch>` for it.
 `<key>` is `<scratch>/cwd` with every character outside A-Z a-z 0-9 turned into `-`: claude keeps
 the scratch cwd's sessions in `~/.claude/projects/<key>/`.
 
@@ -59,7 +70,11 @@ helper puts `<scratch>/fake` first on `PATH` for `run`, `interrupt`, `serve-star
 the system `claude` runs for real; use it (or `record`) only for claude's own behaviour, on
 `ANTHROPIC_MODEL=sonnet`: a read-only role's edit refused, `--disallowedTools` holds, parallel
 tool-call event order (see `features/full-team.md`'s `write-claude-refused`, `write-settings` and
-`agent/claude`'s own fixtures), and when `agent/claude` changes.
+`agent/claude`'s own fixtures), and when `agent/claude` changes. In `real` and `record` mode the
+helper also sets `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and
+`CLAUDE_CODE_SUBAGENT_MODEL` to `sonnet`: claude's session-title call and its subagents do not
+follow `ANTHROPIC_MODEL` and would run on haiku. The `result` line's `modelUsage` then names only
+sonnet.
 
 ```sh
 REEF_VERIFY_RUN=<id> $H run -- --backend claude "Say hi, reply with one word."       # fake, default
@@ -68,19 +83,36 @@ REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --
 ```
 
 In `fake` mode the binary reads one stdin line (one turn) at a time: it picks a scenario from
-the role (read off the first prompt, `You are the <role> on feature` / `in project`) and the
-prompt's text (after its last `[channel N, message N]` header), by a table of name/role/regexp in
+the role (read off the first prompt, `You are <role> on work item` / `in project`) and the
+newest message of the prompt's last wake block (after its `[Space N, message N]` header, reef's
+notes, `Asked together:` and the `New in the Space:` list: `<role> wrote: <body>` or the
+user's text), by a table of name/role/regexp in
 `fake/scenario.go`, matched in order, and replays `fake/recordings/<name>.jsonl`: a header line
 (`cwd`, `session`, `role`, `prompt`, `args`), then `{"t":seconds,"out":"<raw claude stdout
 line>"}` lines, cwd and session swapped to the run's, sleeping the recorded gaps (capped at 1s).
+A `result` line's `total_cost_usd` and `modelUsage` become the session's running totals, as real
+claude reports them, also after a `--resume`: the recording's numbers plus the session's earlier
+ones, kept in `<sid>.totals` beside the session file.
 It runs the side effects itself: a `Write`, `Edit`, `MultiEdit` or `Bash` tool call whose recorded
 `tool_result` was not an error, writes or runs for real in the turn's cwd; an `mcp__<server>__<tool>`
-call starts that server from the current `--mcp-config` file and makes one real `tools/call`. A
+call starts that server from the `--mcp-config` it read at start-up (Reef removes the file at
+claude's first output line) and makes one real `tools/call`. A
 prompt with no scenario, or a scenario with no recording, answers `is_error:true` naming the role
 and prompt (or the scenario and the missing file) on stderr and in the result, and the turn keeps
 going. `--resume` of a missing session answers `No conversation found` and exits 1, the way real
 claude does. The session file goes to `~/.claude/projects/<key>/<sid>.jsonl` like real claude's,
 so existing `grep` checks still work.
+With `--permission-prompt-tool stdio` in its args (Reef's `AskPermissions`), a recorded
+`control_request` line is printed and the fake reads stdin until the `control_response` with its
+`request_id`; other lines that arrive meanwhile (a new user message) wait for a later turn. An
+allow replays on as recorded, running the call's side effect then, not before. A deny prints an
+`is_error` `tool_result` with the answer's message, drops the recorded lines up to the turn's
+`result` and prints it. Without the flag the same `tool_result` reads `This command requires
+approval`. `record` mode forwards every stdin line, `control_response` too, to the real claude and
+saves its `control_request` line like any other. The `prompt-outside` and `read-chat-folder`
+scenarios (`read the file outside`, which also takes the retry wake `I allowed your Read call that
+got no answer`, and `read the file in your folder`) are for these prompts; their recordings come from
+a `record` run (`features/permissions.md`).
 
 Add a scenario: a line in `fake/scenario.go`'s table (`{name, role, pattern}`, `role: ""` for
 any). Record or refresh its recording: run the same prompt once in `record` mode (a short one,
@@ -102,7 +134,9 @@ REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef doctor
 ```
 
 It checks `go` and `codex` versions and `codex login status` (each limited to 20 s, so a hung
-CLI is a `FAIL` line); in `fake` mode (the default) it checks the fake `claude` binary instead of
+CLI is a `FAIL` line); when `codex login status` fails, `codex-auth` is still `ok` if one
+`codex exec` on `gpt-6-luna` answers through the configured provider (a proxy needs no login);
+in `fake` mode (the default) it checks the fake `claude` binary instead of
 `claude --version`/`claude auth status` (see Fake claude, above), in `record` or `real` mode it
 checks those too. It also checks that `sqlite3`
 and `curl` exist, and that the HEAD `build` recorded in `build.txt` equals `git rev-parse HEAD`
@@ -161,17 +195,17 @@ Rules for live runs:
 ## Server
 
 `reef serve` is long-lived, so it is the one thing that stays up between Bash calls. One
-server per run, driven serially. Read the matching feature file first.
+server per run, driven serially. Read the matching recipe file first.
 
 Launch:
 
 ```sh
-REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME]
+REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME] [--prompt-wait DUR]
 # serve: ready pid=... addr=127.0.0.1:PORT data=<scratch>/NAME in 0.4 s
 ```
 
 It picks a free 127.0.0.1 port, starts `reef serve --addr ... --data <scratch>/NAME` (default
-`data`), and waits up to 10 s for `GET /health` to answer 200. Otherwise it fails and prints the
+`data`; `--prompt-wait` is passed on), and waits up to 10 s for `GET /health` to answer 200. Otherwise it fails and prints the
 tail of `serve.log`. It refuses if this run's server is already up. While a server runs,
 `pgrep -fl 'reef serve'` also lists a `bash ... verify-reef serve-start` line: that is the
 wrapper that records the exit code, and it ends with the server.
@@ -204,7 +238,7 @@ REEF_VERIFY_RUN=<id> $H serve-stop --kill
 Rules:
 - One long-lived server per run, driven serially. Never drive a `reef serve` this run did not start.
 - Every write sends JSON. A body that is not JSON is only for the 415 check.
-- Ids start at 1 on a fresh data folder and are never reused. Each feature file says which
+- Ids start at 1 on a fresh data folder and are never reused. Each recipe file says which
   state it assumes.
 - Quote lines of `api.log` (`> METHOD PATH body`, `< status body`) as proof, plus the
   `sql.log` rows for side effects.
@@ -214,19 +248,19 @@ Rules:
 
 The CLI, `reef mcp` and `reef chat` open the data folder themselves, so they need no
 server. They share the run's data folder with `serve-start` and `sql`. Read the matching
-feature file first.
+recipe file first.
 
 ```sh
 REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
 REEF_VERIFY_RUN=<id> $H reef -- decide login "Use sessions, not JWT"
-REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call record_decision '{"body":"Rate limit by IP"}'
+REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call remember '{"kind":"decision","body":"Rate limit by IP"}'
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y \
-  --timeout 300 -- chat login --role developer --backend claude
+  --timeout 300 -- chat login --backend claude
 ```
 
 - `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]]
   [--timeout S] -- ARGS` runs the `reef` binary in the scratch cwd with `--data <folder>`
-  right after the command words (`task add --data <folder> 1 -- "--why not"`), so a `--` in
+  right after the command words (`decide --data <folder> 1 -- "--why not"`), so a `--` in
   ARGS still ends the flags.
   `--data-name` picks `<scratch>/NAME`. It refuses
   while this run's server uses another folder. Without it, the call uses the last folder that
@@ -246,15 +280,15 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
   N` and stderr. An image in the result (`browser_screenshot`) is saved to
   `~/.reef-verify/<id>/mcp-<tool>-<ns>.png` and shows as `image/png N bytes saved to PATH`. It
   exits 0 when a tool result came back.
-- The project folder is the scratch cwd, so `reef chat` runs its agent there and `cleanup`
-  removes claude's session state for it. A channel on a feature runs in the feature's worktree,
-  `<data folder>/worktrees/<project id>/<slug>`, so the scratch cwd must be a git repo with a
+- The project folder is the scratch cwd, so `reef chat` on a work item's Space starts from it and `cleanup`
+  removes claude's session state for it. A Space with no work item runs in `<data folder>/chats/<Space id>`, not in the project folder. A Space on a work item runs in the work item's worktree,
+  `<data folder>/worktrees/<project id>/<work item id>`, so the scratch cwd must be a git repo with a
   commit first (`features/full-team.md`, Preconditions). `cleanup` does not remove claude's
   state for those folders (the command to remove it is in `features/full-team.md`, Gotchas).
 
 Rules:
 - Every `--backend claude` `reef chat` drive sets `ANTHROPIC_MODEL=sonnet`. Keep chats to the
-  lines of the feature file.
+  lines of the recipe file.
 - Quote `reef.log` and `reef-mcp.log` lines as proof, plus the `sql.log` rows for side effects.
 
 ## Window
@@ -266,13 +300,27 @@ server, so launch as in Server. Read `features/window.md` first.
 On Linux there is no system Chrome (the launch fails with `Chromium distribution 'chrome' is not
 found`). Install Playwright's Chromium once, with its system libraries, and set
 `REEF_VERIFY_CHROME` to its binary on every `ui` call (each Bash call is a new shell). `ui` then
-launches that binary with `--no-sandbox`:
+launches that binary with `--no-sandbox`. When `REEF_VERIFY_CHROME` is unset and there is no system
+Chrome, `ui` uses the newest `~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome` itself, so
+the export is only needed to pick another binary:
 
 ```sh
 PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev npx playwright@1.64.0 install chromium
 npx playwright@1.64.0 install-deps chromium   # or the same libraries with apt
 export REEF_VERIFY_CHROME=$(ls $HOME/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | tail -1)  # chrome-linux/ on x64, chrome-linux-arm64/ on arm64
 ```
+
+Chromium crashes (SIGTRAP) on a box with no system fonts. `ui` and `doctor` therefore prefer
+the newest `~/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-*/chrome-headless-shell`
+(install it with `npx playwright@1.64.0 install chromium-headless-shell`) and, when `fc-list` finds
+no fonts and `FONTCONFIG_FILE` is unset, write `~/.reef-verify/fonts/fonts.conf` over copies of
+the fonts the t3 client ships. `doctor` prints the `browser:` and `fontconfig:` it chose. Set
+`REEF_VERIFY_CHROME` or `FONTCONFIG_FILE` to override. No fonts live in the repo.
+
+`verify-reef one SCENARIO [TEAM...]` is the one-command check: it makes its own run, runs
+`build`, `doctor`, `serve-start --data-name ui`, `team-apply teams/TEAM.json` for each TEAM and
+`ui SCENARIO`, prints the `PASS`/`FAIL` lines and `rc=<n> run=<id>`, then `serve-stop` and
+`cleanup`. Example: `verify-reef one team full`. It builds `web/` when `web/dist` is missing.
 
 `1.64.0` is the `playwright-core` version in `scripts/ui/package.json`. The default download host
 may be blocked, hence `PLAYWRIGHT_DOWNLOAD_HOST`. `<rev>` is the folder `install` made; `ls` it
@@ -291,37 +339,65 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=$id $H serve-start --data-name ui
 Drive: one scenario per call. The first call runs `npm ci` in `scripts/ui`.
 
 ```sh
-REEF_VERIFY_RUN=<id> $H ui live      # claude channel on a feature, tool rows mid-turn, stored reply
-REEF_VERIFY_RUN=<id> $H ui brief     # new channel on a feature with a brief, ask the goal
-REEF_VERIFY_RUN=<id> $H ui promote   # quick session, two exchanges, promote, approve, brief version 1
-REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Continue, next message runs
-REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, stage survives reload, task marked done and filtered
+REEF_VERIFY_RUN=<id> $H ui live      # claude Space on a Work item, tool rows mid-turn, stored reply
+REEF_VERIFY_RUN=<id> $H ui brief     # new Space on a Work item with a brief, ask the goal
+REEF_VERIFY_RUN=<id> $H ui attach    # free Space, two exchanges, attach to a work item
+REEF_VERIFY_RUN=<id> $H ui cap       # the Work item's token_budget=1, banner with reason, Continue, next message runs
+REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, a work item added from the sidebar
 REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, next message resumes
-REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1, Wrapped + Reopen, Close feature
-REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, gate Approve
+REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1, Wrapped + Reopen, Close Work item
+REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, lead hands off to the developer with no approval
+REEF_VERIFY_RUN=<id> $H ui team-management # create/edit/delete a Team, responsibility, run a Space, 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn row, new turn ends done
 REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
-REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one notification, Approve from the list, item opens its channel
-REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lists it as A with its line; the channel Diff side panel scrolls a 400-line file and a 35-file list at 1280x800; the feature page's header meta line and the panel's expand button lead there; the file list opens flat, Tree view merges web/src/modules/deep with folders first, folder rows collapse, a tree file opens its diff, the diff still scrolls, the mode survives a reload and carries to the review page, phone keeps the full-path chips without the toggle
-REEF_VERIFY_RUN=<id> $H ui memory    # project page editor saves a project's memory, stored in the database and surviving a reload; New feature and New quick session work from the page
+REEF_VERIFY_RUN=<id> $H ui inbox     # a reply shows in the inbox, one notification, Dismiss, item opens its Space; then `inbox-groups`
+REEF_VERIFY_RUN=<id> $H ui inbox-groups # the causes in Needs you and FYI at 1280x800 and 390x844, each Needs you row's action, rows open in place, unread dots and Dismiss all seen, Dismiss only on FYI rows, REST refuses a Needs you dismiss
+REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lists it as A with its line; the Space Diff side panel scrolls a 400-line file and a 35-file list at 1280x800; the Work item page's header meta line and the panel's expand button lead there; the file list opens flat, Tree view merges web/src/modules/deep with folders first, folder rows collapse, a tree file opens its diff, the diff still scrolls, the mode survives a reload and carries to the review page, phone keeps the full-path chips without the toggle
+REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New Work item and New free Space work from the page
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
-REEF_VERIFY_RUN=<id> $H ui board      # tasks page board view, drag a card between columns, project and feature filters apply
-REEF_VERIFY_RUN=<id> $H ui fixes     # Fixes feature: no stage bar, two tasks, one done shows "1 of 2 done" on the page and the Today card, "1/2" in the sidebar and the channel header
-REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
-REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
+REEF_VERIFY_RUN=<id> $H ui skills    # /bots skills library: New skill editor and Edit save versions 1 and 2, the supporting file's contents open, a Bot's draft (scenario skill-draft) shows in its Space and in the library, Save and Reject, a saved skill is picked for a Bot
+REEF_VERIFY_RUN=<id> $H ui workshop  # /bots panel edits the developer's description, creature and skills, keeps its selected connections, saves tools, shows the unrestricted-Bash error and the adopted-settings hint in the Bots panel; /teams copies a Crew; next developer wake uses the new description
+REEF_VERIFY_RUN=<id> $H ui first-run # the browser project step has no Choose…; a stub desktop bridge's Choose… fills the repo folder (needs a server with no profile and no project)
+REEF_VERIFY_RUN=<id> $H ui theme     # Settings Appearance: Dark, Light and Match macOS restyle the page, survive a reload; text contrast of the Space, inbox and Work item page in both themes (needs `duo`)
+REEF_VERIFY_RUN=<id> $H ui phone     # below 768 px the tab bar replaces the sidebar; each tab one column with 44 px targets; a Space, thread, team and inspector sheets and the review page at 390x844 (needs `duo`)
+REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, picks a type, types, Enter shows Captured and clears the box, a Backlog Work item is stored; "Talk to a Bot" opens a conversation with the text as its first message; a failing request shows its error
+REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (working, completed, stopped, failed, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `duo`)
+REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing Space width; Escape, outside click and X close it (needs `full`)
+REEF_VERIFY_RUN=<id> $H ui prompts # a permission prompt card with Allow once, Allow always and Deny, waiting on you, Allow once goes on to the reply; an expired card keeps Allow once, which runs the retry (needs `serve-start --prompt-wait 15s`, fake claude only)
+REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the Space member row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
+REEF_VERIFY_RUN=<id> $H ui subagent  # a claude Agent call shows as a subagent row with its nested tool calls, collapsed once it is done, and the same in the inspector (fake claude replay of `subagent-read`)
+REEF_VERIFY_RUN=<id> $H ui composer  # message box: one corner radius from 1 line to the height cap, no wrap of the placeholder, dropped or pasted files insert their path (stub desktop bridge) or their name, the clipboard chip, resize 1280 to 390
+REEF_VERIFY_RUN=<id> $H ui naming  # a Space started with its default name is renamed by the provider after the first message, in the sidebar and header; a typed name, a rename, a failed proposal keep theirs (needs `name-login`, `name-fail` fake scenarios)
+REEF_VERIFY_RUN=<id> $H ui sidebar # Search, Inbox, Board, Spaces, Conversations top to bottom and Bots, Teams, Settings at the foot, each link opens its page; the sections' + create a Work item, a free Space and a conversation and opens each; a Space leaves the Spaces section when its Work item is in Review; the phone Menu opens the sidebar as a sheet with no horizontal scroll, at 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui conversation-move # `@kit` at the start of a line and the Add Bot button each move a conversation with `sam` to a new Space with `kit`: read-only conversation with a link, kit's first prompt has the summary only, at 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui consult # sam is asked `CONSULT kit about the login plan.` in a conversation: the chat stays one conversation with one member, its Asked and reply messages carry an `Open consultation` link, the link opens the `Consultation from sam` Space, kit's own chat has no message (needs `consult-ask`, `consult-answer`, `consult-relay` fake scenarios)
+REEF_VERIFY_RUN=<id> $H ui send-space # sam's chat refers to the Login Space with `kit` in it: `ASK kit in #[Login](space:1)…` gets one linked answer from kit's existing session there (receipt Answered, no new session); `TELL kit…` to a paused Space shows `Waiting for Space to resume` and no turn until Continue, then Delivered once with no wake of sam; to a closed Space it shows Failed (needs `send-question-ask`, `send-question-answer`, `send-question-relay`, `send-instruction-ask`, `send-instruction-noted`, `say-ok-one-word` fake scenarios)
+REEF_VERIFY_RUN=<id> $H ui conversation # two conversations with a Bot (`sam` is made through the API), the sidebar lists them newest first, continuing the older one moves it up and resumes its session, the phone Spaces tab lists both, at 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui hovercard # sidebar Space hovercard: delay, branch, changes and roles against REST, dismiss on leave, Escape, click and navigation, keyboard focus, light and dark, none at 390 px (needs the team `full`)
+REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a bot in a Space: role, backend and model, description, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
+REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs (an opened row shows path and version), adds the fake claude folder as a second install through the Add provider dialog (bad folder, wrong kind, taken name show the server error in the dialog), a Bot picks it in the Bot panel and it round-trips through REST, Remove is refused while a Bot uses it, at 1280x800 and 390x844 in dark and light
+REEF_VERIFY_RUN=<id> $H ui bots # create a Bot on the Bots page, add it to a Team from the team editor, change its write access in that Team only (REST: Bot default unchanged), no horizontal scroll at 390x844
+REEF_VERIFY_RUN=<id> $H ui creatures # a Bot's creature and colour round-trip through POST/PUT/GET /bots and the New bot dialog and panel; Sam as lead in one Team and developer in another is one creature with two role badges; a Bot with no creature is a pebble whatever its role is called; 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui bot  # a Bot's profile page: the Teams it sits in with their own write access, its conversations newest first, its bot-scope memory against `reef memory recall`, Start conversation opens a new one, empty states, 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui board     # /board: each status in its column, the type and Team filters, drag Backlog <-> Queued, reorder Queued (REST positions), a drop into Review or Done, or an item with no Team into Queued, is refused, no horizontal scroll at 390x844
+REEF_VERIFY_RUN=<id> $H ui work-item # a work item's page: acceptance lines and a sub-item added from the page match REST, the Team chip, brief, proof (a row inserted in SQLite, there is no REST write) shown read-only; editing the title and adding a line keeps a lead tick and note (REST); a sub-item's page has no brief, sub-items, proof or New Space, shows its parent's branch and Spaces, links to its parent, and POST /spaces for it is 400; 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui work-item-review # a top-level item in review: Review panel with proof and wrap-up proposal; Send back with a note wakes the lead with it; Done saves the memory items and sets Done in one click; a sub-item in review is not offered Done; 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui space-header # the Space header by kind: a Work item Space shows the item's title, status and budget used (= REST tokensUsed) with Open Work item; a free Space has Attach to Work item and Add Bot; a conversation shows its Bot's creature and Add Bot; the member list against GET /spaces/{id}/members; Attach moves the Space onto the item's page; 1280x800 and 390x844 (no agent turn runs)
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
+REEF_VERIFY_RUN=<id> $H ui global-chats # All projects in the switcher; a Bot's New chat starts an unassociated chat in <data>/chats/<id> (no git repo, no project path in its prompt), Resume chat starts nothing, a second New chat keeps the first, under a Project a chat is associated at once, and switching the Project filter changes nothing of a reopened chat (REST); needs no sqlite3
+REEF_VERIFY_RUN=<id> $H ui navigate # a Bot, a chat and a Space pin from the Bot page and the rows' More actions menu, sort to the top of their own section with no Pinned section (a pinned older chat is the first Conversations row), the row menu renames a Space and deletes one with confirm (its page closes), a Bot pinned from its sidebar row sorts first, sidebar search finds a Bot, a chat, a Space and a Work item and each result opens its resource, a Bot with no chat opens its page and starts none, Unpin, `PUT /spaces/{id}/coordinator` (REST); needs no team applied
 ```
 
-`teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
-`$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
-files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector`, `review` and `workshop`
-need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
+`teams` needs the teams `duo` and `full` (`team-management` needs `full`; `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
+`$H team-apply FILE.json` for each after `serve-start --data-name ui` (the
+files are `teams/duo.json` and `teams/full.json`; both define `lead` and `architect`, so apply the one a scenario needs last). `inbox` counts every item of the server, so run it first, or
+on a folder of its own (`--data-name inbox`, with `duo` applied). `team-management`, `inspector`, `review` and `workshop`
+need the team `full` applied: `$H team-apply "$PWD/teams/full.json"` (the server must run; it makes the four Bots, then `reef team apply`).
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
-is not one, because a channel on a feature runs in a git worktree. Its feature slug gets a
-suffix, since one branch cannot be checked out in two worktrees.
+is not one, because a Space on a work item runs in a git worktree. Each scenario adds its own work item,
+so its branch `work-item/<id>` is never checked out in two worktrees.
 
 `ui` runs `node scripts/ui/drive.mjs SCENARIO http://<serve.addr>` with the run's data folder, the
 scratch cwd as the project folder and `~/.reef-verify/<id>/ui` for screenshots. Each scenario adds
@@ -331,7 +407,7 @@ its own project through the form, so any order works on one server. Without the 
 
 Proof: `PASS <scenario>: ...` and `FAIL ...` lines (exit 1 on any `FAIL`), screenshots
 `ui/<scenario>-<step>.png` that you open and look at, and `$H sql` rows (`message`, `turn`, `brief`,
-`proposal`, `channel`).
+`proposal`, `space`).
 
 Rules:
 - Runs on the fake `claude` by default (see Fake claude, above); real claude only with
@@ -360,9 +436,9 @@ What it does, in order:
 - Setup: HOME is `<scratch>/home`, so the app's data folder is `<scratch>/home/.config/Reef`
   (Linux) or `<scratch>/home/Library/Application Support/Reef` (Mac). The scratch cwd becomes a
   git repo with one commit, then `$H reef --data-name home/.config/Reef` adds it as a project
-  with the feature `term` and a `developer` token. In fake or record mode it writes
+  with the Work items `Terminal` and `Bare` and a `developer` token for `Terminal`. In fake or record mode it writes
   `<scratch>/home/.bash_profile` and `.zprofile` with `<scratch>/fake` first on `PATH`: the app
-  reads `PATH` from the login shell, so this is how its `reef serve`, and any channel turn,
+  reads `PATH` from the login shell, so this is how its `reef serve`, and any Space turn,
   gets the fake `claude`. A `python3 -m http.server` on a free port serves a test page: a form
   (`Name` textbox, `Send` button), `console.log`/`console.error` lines and a fetch of
   `/missing.json` (404).
@@ -375,7 +451,7 @@ What it does, in order:
   the socket, as an agent's would. The window is driven over the DevTools port with
   `scripts/cdp.mjs PORT APP_PORT EXPRESSION`, which evaluates in the main window (the page on
   `127.0.0.1:APP_PORT`, 10 s limit; `cdp` fails at once when the app is gone), where the preload's `window.reef` lives: `setTakeOver(true|false)` for the
-  Take over button, `history.pushState` plus a `popstate` event to open `/features/<id>`, and
+  Take over button, `history.pushState` plus a `popstate` event to open `/work-items/<id>`, and
   `writeTerminal(cwd, 'pwd; git branch --show-current\r')` to type into the terminal pane.
 - Quit: SIGTERM to the Electron main process (a quit request, like Cmd+Q), then every process
   the app had (sampled before quit) must be gone, and `browser.sock` too.
@@ -395,13 +471,41 @@ Rules:
 
 ## Feature scripts
 
+Run several at once with `scripts/verify-parallel feature:queue-and-review feature:work-item-flow ui:bots`:
+each job gets its own run (build, ports, data), so they do not wait on each other, and passed
+runs are cleaned. Never run two features in one run id: the second finds the first's server
+and every wait times out.
+
 `REEF_VERIFY_RUN=<id> $H feature NAME` runs `features/NAME.sh` (needs `build` and `doctor`
 done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
-`~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
-`features/full-team.sh`, which drives every line of `full-team.md` and prints one
-`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id, in the order of its Sub-features list.
-It works the same whichever `claude` is on `PATH` (fake, record or real). Its six sections
-(`full`, `cx`, `inbox`, `ui2`, `google`, `fu`) run at the same time, each as its own run
+`~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. Each script prints one
+`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id of its recipe file:
+
+| Script | Drives |
+| --- | --- |
+| `work-item-flow.sh` | the `flow-*` lines of `queue-and-review.md`, `work-items.md` and `conversations.md` and the `hop-*` lines of `caps.md`: two work items queued on a Team, the lead's sub-items, developer and tester, submit for review, send back, Done, a conversation with a Bot added, a proposed work item, the hop cap |
+| `queue-and-review.sh` | the `queue-*` lines of `queue-and-review.md` |
+| `full-team.sh` | every line of `full-team.md` |
+
+Give each feature its own run id (`build`, `doctor`, `feature`, `cleanup`): two features
+chained in one run share its scratch cwd, so the second one's `work-item/1` branch is already
+checked out in the first one's worktree.
+
+`work-item-flow` runs on the fake `claude`: its `flow-*`, `work-*` and `talk-*` recordings in
+`fake/recordings/` come from one `REEF_VERIFY_CLAUDE=record` run of it on real claude (sonnet),
+whose team descriptions and prompts name every answer and tool call. Record it again the same way
+after a change to those prompts, then `git checkout` the recordings it also overwrote that other
+recipes own (`queue-lead`, `wrap-propose`, `sam-*`, `kit-takeover`). Its three sections (`flow`, `conv`, `caps`) run at the same time, each as its
+own run `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes
+about a minute. Name sections after it to run only those (`$H feature work-item-flow conv`); an
+unknown section name exits 2. Each section's output is in `~/.reef-verify/<id>/<section>/work-item-flow.log`.
+
+```sh
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature work-item-flow
+```
+
+`full-team.sh` works the same whichever `claude` is on `PATH` (fake, record or real). Its five sections
+(`full`, `cx`, `ui2`, `google`, `fu`) run at the same time, each as its own run
 `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes about
 as long as its longest section (`google`, about 3.5 minutes on the fake). Each section's full output is in
 `~/.reef-verify/<id>/<section>/full-team.log`, next to that section's `serve.log`, `api.log` and
@@ -411,10 +515,13 @@ as long as its longest section (`google`, about 3.5 minutes on the fake). Each s
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
 ```
 
+Name sections after `full-team` to run only those (`$H feature full-team ui2 fu`); it prints
+the `PASS`/`FAIL` lines of those sections only. An unknown section name exits 2.
+
 ## Real-claude set
 
 `REEF_VERIFY_RUN=<id> $H real` forces real `claude` (`REEF_VERIFY_CLAUDE=real`,
-`ANTHROPIC_MODEL=sonnet`), drives its own data folders and server, prints one
+`ANTHROPIC_MODEL=sonnet`, and sonnet for the side calls and subagents, see Fake claude), drives its own data folders and server, prints one
 `PASS <id>: ...` or `FAIL <id>: ...` per id, tees to `~/.reef-verify/<id>/real.log`, and exits
 1 on any `FAIL`. It is the set of lines that test claude's own behavior, not Reef's: a tester
 without `write` is refused Write then Bash, with `--permission-mode default` and
@@ -437,7 +544,7 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `build.txt` | repo, HEAD sha, dirty file count, binary paths (`reef-agent`, `reef`, the fake `claude`) |
 | `doctor.txt` | the doctor lines |
 | `pre-pids.txt` | `claude`/`codex`/`reef-agent` pids before any drive |
-| `fake-claude.log` | fake mode: one line per turn (role, scenario, cwd, session); record mode: `recorded <name>` or `not recorded` per prompt |
+| `fake-claude.log` | fake mode: one line per turn (role, scenario, cwd, session, args); record mode: `recorded <name>` or `not recorded` per prompt |
 | `<name>.jsonl` | `reef-agent` stdout, one Event per line |
 | `<name>.stderr` | `reef-agent` stderr (`reef-agent: agent error: ...`, usage text) |
 | `<name>.meta` | args, cwd, `ANTHROPIC_MODEL`, exit, elapsed, SIGINT time, event kind counts, last line, child count, orphans, new pids since doctor |
@@ -479,7 +586,8 @@ kills by name: other claude sessions and a managed `codex app-server --listen` d
 run on this machine. It removes `<scratch>/` and claude's state for
 the scratch cwd (`~/.claude/projects/<key>` and its task
 folder under `claude-<uid>/` beside `reef-verify/`), then
-lists the evidence dir it kept. The server's data folder goes with the scratch dir; `sql.log`
+lists the evidence dir it kept. It also stops any process still running this run's scratch
+binaries, whatever data folder it was started on. The server's data folder goes with the scratch dir; `sql.log`
 keeps what you read from it. Run it after every run, failed ones too. Codex threads stay
 in `~/.codex/sessions`; cleanup leaves them.
 
@@ -496,15 +604,17 @@ claude, above).
 | `run [--name N] [--stdin FILE] [--timeout S] -- ARGS` | one `reef-agent` drive, records evidence |
 | `interrupt --after S [--name N] -- ARGS` | drive with stdin held open, SIGINT after S seconds |
 | `mcp-server` | writes the test MCP server and `mcp.json`, prints its path |
-| `serve-start [--data-name NAME]` | starts `reef serve` on a free port, waits for `/health` |
+| `serve-start [--data-name NAME] [--prompt-wait DUR]` | starts `reef serve` on a free port, waits for `/health` |
 | `serve-stop [--kill]` | SIGINT (or SIGKILL) to the recorded server, prints exit code and seconds |
 | `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
 | `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |
+| `team-apply FILE` | needs the running server: each role of FILE with a profile (`teams/*.json` shape) makes its Bot through `POST /bots`, or updates the Bot of that name with `PUT /bots/{id}`; then `reef team apply` stores the roster of Bot ids. Bots are global and unique by name, so a later file replaces an earlier file's Bot of that name |
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|bot|space-header\|global-chats\|navigate` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
+| `cleanup-all` | `cleanup` for every run under the scratch root that no live process drives (a driver has `REEF_VERIFY_RUN=<id>` in its environment); a run with a live driver is left alone; a run between two Bash calls has no live driver, so run it only when no other agent is mid-run |

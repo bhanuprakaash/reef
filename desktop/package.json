@@ -4,13 +4,14 @@
   "private": true,
   "type": "module",
   "main": "main.js",
-  "description": "Reef: a personal app where every feature keeps its own memory, built by a team of AI agents.",
+  "description": "Reef: a personal app where every Work item keeps its own memory, built by a team of AI agents.",
   "homepage": "https://github.com/bhanuprakaash/reef",
   "author": {
     "name": "Bhanu Prakash Sai Potteri",
     "email": "bhanuprakashsai7@gmail.com"
   },
   "scripts": {
+    "test": "node --test",
     "postinstall": "node postinstall.js",
     "start": "go build -o bin/reef ../cmd/reef && electron .",
     "build:web": "npm --prefix ../web ci && npm --prefix ../web run build",

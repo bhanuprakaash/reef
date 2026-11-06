@@ -2,31 +2,40 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/skill"
 )
 
-// SoloTeam is the lead-only team a channel gets when none is named.
+// SoloTeam is the lead-only team a Space gets when none is named.
 const SoloTeam = "solo"
 
-// Team is a named set of roles, exactly one of them the lead, and the gates between them.
+// Team is a named roster of Bots, at most one of them the suggested coordinator.
 type Team struct {
-	Name  string `json:"name"`
-	Roles []Role `json:"roles"`
-	Gates []Gate `json:"gates,omitempty"`
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Responsibility string `json:"responsibility"`
+	Roles          []Role `json:"roles"`
 }
 
-// Gate switches approval on or off for the wakes one role sends another.
-type Gate struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	On   bool   `json:"on"`
+// Member places an existing Bot in a Team, and Lead marks the coordinator.
+type Member struct {
+	BotID int64 `json:"botId"`
+	Lead  bool  `json:"lead"`
+}
+
+// TeamSpec is the Team to create or replace: a name, a responsibility and the Bots in it. A
+// Team holds no configuration of its own; each Bot keeps its one profile.
+type TeamSpec struct {
+	Name           string   `json:"name"`
+	Responsibility string   `json:"responsibility"`
+	Roles          []Member `json:"roles"`
 }
 
 func faces() []string {
@@ -36,22 +45,32 @@ func faces() []string {
 	}
 }
 
-// Role is one teammate's setup. Face picks the creature the window draws for the role; empty
-// means the default for its name. Model names the model the backend runs the role on; empty is
-// the backend's default. Tools are the backend's allowed tools. Write says whether the
+func colours() []string {
+	return []string{"orange", "red", "yellow", "green", "teal", "blue", "violet", "pink"}
+}
+
+// Role is a Bot as it sits in a Team or Space: its profile, read from the Bot, and Lead from its
+// membership. Face picks the creature the window draws for the role and Colour
+// its body colour; empty Colour is the creature's own. Model names the model the backend runs the role on; empty is
+// the backend's default. Provider names an added install (see Provider) whose binary the role
+// runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
-	Name           string            `json:"name"`
-	Lead           bool              `json:"lead"`
-	Write          bool              `json:"write"`
-	Backend        string            `json:"backend"`
-	PermissionMode string            `json:"permissionMode"`
-	Persona        string            `json:"persona"`
-	Skills         []string          `json:"skills"`
-	Face           string            `json:"face,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	Tools          []string          `json:"tools"`
-	MCPServers     []agent.MCPServer `json:"mcpServers"`
+	BotID          int64        `json:"botId,omitempty"`
+	Name           string       `json:"name"`
+	Lead           bool         `json:"lead"`
+	Leaving        bool         `json:"leaving,omitempty"`
+	Write          bool         `json:"write"`
+	Backend        string       `json:"backend"`
+	PermissionMode string       `json:"permissionMode"`
+	Description    string       `json:"description"`
+	Skills         []string     `json:"skills"`
+	Face           string       `json:"face,omitempty"`
+	Colour         string       `json:"colour,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Provider       string       `json:"provider,omitempty"`
+	Tools          []string     `json:"tools"`
+	Connections    []Connection `json:"connections"`
 }
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -61,37 +80,22 @@ func UnrestrictedBash(tool string) bool {
 	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
 }
 
-// _defaultGates apply to an edge the team does not list.
-var _defaultGates = []Gate{
-	{From: "lead", To: "developer", On: true},
-	{From: "architect", To: "developer", On: true},
-	{From: "developer", To: "tester", On: true},
-	{From: "tester", To: "developer", On: true},
-}
-
-// ApplyTeam creates team t, or replaces the roles of the team with that name.
-func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
+// ApplyTeam creates team t, or replaces the members of the team with that name. Every member
+// names an existing Bot.
+func (s *Store) ApplyTeam(ctx context.Context, t TeamSpec) (Team, error) {
 	return s.applyTeam(ctx, t, false)
 }
 
 // CreateTeam creates team t, failing with ErrConflict when a team with that name already
 // exists. The check and the insert are one statement, so two concurrent calls for the same
 // name cannot both succeed.
-func (s *Store) CreateTeam(ctx context.Context, t Team) (Team, error) {
+func (s *Store) CreateTeam(ctx context.Context, t TeamSpec) (Team, error) {
 	return s.applyTeam(ctx, t, true)
 }
 
-func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, error) {
+func (s *Store) applyTeam(ctx context.Context, t TeamSpec, createOnly bool) (Team, error) {
 	if err := t.validate(); err != nil {
 		return Team{}, err
-	}
-	t.Roles = slices.Clone(t.Roles)
-	for i, r := range t.Roles {
-		names, err := cleanSkills(r)
-		if err != nil {
-			return Team{}, err
-		}
-		t.Roles[i].Skills = names
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -99,14 +103,17 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 	}
 	defer func() { _ = tx.Rollback() }()
 	if createOnly {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO team (name) VALUES (?)", t.Name); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO team (name, responsibility) VALUES (?, ?)",
+			t.Name, t.Responsibility); err != nil {
 			if isUnique(err) {
 				return Team{}, fmt.Errorf("%w: a team named %q already exists", ErrConflict, t.Name)
 			}
 			return Team{}, fmt.Errorf("insert team: %w", err)
 		}
 	} else if _, err := tx.ExecContext(ctx,
-		"INSERT INTO team (name) VALUES (?) ON CONFLICT (name) DO NOTHING", t.Name); err != nil {
+		"INSERT INTO team (name, responsibility) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "+
+			"SET responsibility = excluded.responsibility", t.Name, t.Responsibility); err != nil {
 		return Team{}, fmt.Errorf("insert team: %w", err)
 	}
 	var id int64
@@ -114,38 +121,30 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		Scan(&id); err != nil {
 		return Team{}, fmt.Errorf("read team: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM role WHERE team_id = ?", id); err != nil {
-		return Team{}, fmt.Errorf("delete roles: %w", err)
+	if _, err := tx.ExecContext(ctx, "DELETE FROM team_member WHERE team_id = ?", id); err != nil {
+		return Team{}, fmt.Errorf("delete members: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM gate WHERE team_id = ?", id); err != nil {
-		return Team{}, fmt.Errorf("delete gates: %w", err)
+	for _, m := range t.Roles {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO team_member (team_id, bot_id, lead) SELECT ?, id, ? FROM bot WHERE id = ?",
+			id, m.Lead, m.BotID)
+		if err != nil {
+			return Team{}, fmt.Errorf("insert member %d: %w", m.BotID, err)
+		}
+		if n, err := res.RowsAffected(); err == nil && n == 0 {
+			return Team{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, m.BotID)
+		}
 	}
-	for _, g := range t.Gates {
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO gate (team_id, from_role, to_role, enabled) VALUES (?, ?, ?, ?)",
-			id, g.From, g.To, g.On); err != nil {
-			return Team{}, fmt.Errorf("insert gate %s to %s: %w", g.From, g.To, err)
+	if t.Name == SoloTeam {
+		var leads int
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM team_member JOIN bot ON bot.id = bot_id "+
+				"WHERE team_id = ? AND lead = 1 AND bot.name = 'lead'", id).Scan(&leads); err != nil {
+			return Team{}, fmt.Errorf("read lead: %w", err)
 		}
-	}
-	for _, r := range t.Roles {
-		tools, err := json.Marshal(nonNil(r.Tools))
-		if err != nil {
-			return Team{}, fmt.Errorf("encode tools: %w", err)
-		}
-		skills, err := json.Marshal(nonNil(r.Skills))
-		if err != nil {
-			return Team{}, fmt.Errorf("encode skills: %w", err)
-		}
-		servers, err := json.Marshal(nonNil(r.MCPServers))
-		if err != nil {
-			return Team{}, fmt.Errorf("encode mcp servers: %w", err)
-		}
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO role (team_id, name, persona, skills, face, tools, mcp_servers, backend, "+
-				"permission_mode, lead, write, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			id, r.Name, r.Persona, string(skills), r.Face, string(tools), string(servers), r.Backend,
-			r.PermissionMode, r.Lead, r.Write, r.Model); err != nil {
-			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
+		if leads != 1 || len(t.Roles) != 1 {
+			return Team{}, fmt.Errorf("%w: team %s must have exactly one lead, the bot named lead",
+				ErrInvalid, SoloTeam)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -156,34 +155,72 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, face, model, tools, mcp_servers "+
-			"FROM role JOIN team ON team.id = team_id WHERE team.name = ? ORDER BY lead DESC, role.id",
-		name)
-	if err != nil {
+	var teamID int64
+	var responsibility string
+	switch err := s.db.QueryRowContext(ctx,
+		"SELECT id, responsibility FROM team WHERE name = ?", name).
+		Scan(&teamID, &responsibility); {
+	case errors.Is(err, sql.ErrNoRows):
+		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
+	case err != nil:
 		return Team{}, fmt.Errorf("read team %s: %w", name, err)
 	}
-	roles, err := scanAll(rows, scanRole)
+	roles, err := s.roles(ctx, "team_member", "team_id", teamID)
 	if err != nil {
-		return Team{}, err
+		return Team{}, fmt.Errorf("read team %s: %w", name, err)
 	}
 	if len(roles) == 0 {
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
-	rows, err = s.db.QueryContext(ctx,
-		"SELECT from_role, to_role, enabled FROM gate JOIN team ON team.id = team_id "+
-			"WHERE team.name = ? ORDER BY gate.id", name)
-	if err != nil {
-		return Team{}, fmt.Errorf("read gates of team %s: %w", name, err)
+	return Team{ID: teamID, Name: name, Responsibility: responsibility, Roles: roles}, nil
+}
+
+// TeamByID returns the team with the id, lead first, or ErrNotFound.
+func (s *Store) TeamByID(ctx context.Context, id int64) (Team, error) {
+	var name string
+	switch err := s.db.QueryRowContext(ctx, "SELECT name FROM team WHERE id = ?", id).
+		Scan(&name); {
+	case errors.Is(err, sql.ErrNoRows):
+		return Team{}, fmt.Errorf("team %d: %w", id, ErrNotFound)
+	case err != nil:
+		return Team{}, fmt.Errorf("read team %d: %w", id, err)
 	}
-	gates, err := scanAll(rows, func(r interface{ Scan(...any) error }) (Gate, error) {
-		var g Gate
-		return g, r.Scan(&g.From, &g.To, &g.On)
+	return s.Team(ctx, name)
+}
+
+// roles lists the members in table (team_member or space_member) whose key column is id, lead
+// first, with the Bot's configuration.
+func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT bot.id, bot.name, member.lead, bot.write, bot.backend, "+
+			"bot.permission_mode, bot.description, bot.skills, bot.face, bot.colour, bot.model, "+
+			"bot.provider, bot.tools, bot.connections "+
+			"FROM "+table+" member JOIN bot ON bot.id = member.bot_id "+
+			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
+	if err != nil {
+		return nil, err
+	}
+	type pick struct {
+		role Role
+		ids  []int64
+	}
+	picks, err := scanAll(rows, func(r interface{ Scan(...any) error }) (pick, error) {
+		ro, ids, err := scanRole(r)
+		return pick{role: ro, ids: ids}, err
 	})
 	if err != nil {
-		return Team{}, err
+		return nil, err
 	}
-	return Team{Name: name, Roles: roles, Gates: gates}, nil
+	all, err := s.Connections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Role, len(picks))
+	for i, p := range picks {
+		out[i] = p.role
+		out[i].Connections = pickConnections(all, p.ids)
+	}
+	return out, nil
 }
 
 // Teams lists all teams by name.
@@ -202,6 +239,9 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	teams := make([]Team, 0, len(names))
 	for _, n := range names {
 		t, err := s.Team(ctx, n)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -210,67 +250,90 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
-// Gated reports whether a wake from role from to role to waits for approval: the team's
-// gate for that edge when it lists one, else the default.
-func (t Team) Gated(from, to string) bool {
-	for _, g := range slices.Concat(t.Gates, _defaultGates) {
-		if g.From == from && g.To == to {
-			return g.On
-		}
+// DeleteTeam removes the named Team. Its Bots, its Spaces and their members stay.
+func (s *Store) DeleteTeam(ctx context.Context, name string) error {
+	if name == SoloTeam {
+		return fmt.Errorf("%w: team %s is the default team and cannot be deleted", ErrInvalid, SoloTeam)
 	}
-	return false
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete team: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", name).Scan(&id)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("team %s: %w", name, ErrNotFound)
+	case err != nil:
+		return fmt.Errorf("read team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE space SET team_id = NULL WHERE team_id = ?", id); err != nil {
+		return fmt.Errorf("detach Spaces from team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM team WHERE id = ?", id); err != nil {
+		return fmt.Errorf("delete team %s: %w", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete team %s: %w", name, err)
+	}
+	return nil
 }
 
-func (t Team) validate() error {
+func (t TeamSpec) validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: team name is required", ErrInvalid)
 	}
 	if !_roleName.MatchString(t.Name) {
 		return fmt.Errorf("%w: team name %q must be letters, digits, _ or -", ErrInvalid, t.Name)
 	}
-	if t.Name == SoloTeam && (len(t.Roles) != 1 || t.Roles[0].Name != "lead" || !t.Roles[0].Lead) {
-		return fmt.Errorf("%w: team %s must have exactly one lead role named lead",
-			ErrInvalid, SoloTeam)
-	}
-	leads, seen := 0, make(map[string]bool, len(t.Roles))
-	for _, r := range t.Roles {
-		if r.Name == "" {
-			return fmt.Errorf("%w: role name is required", ErrInvalid)
+	leads, seen := 0, make(map[int64]bool, len(t.Roles))
+	for _, m := range t.Roles {
+		if m.BotID == 0 {
+			return fmt.Errorf("%w: every member needs a botId", ErrInvalid)
 		}
-		if r.Name == "user" || r.Name == ReefAuthor || !_roleName.MatchString(r.Name) {
-			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user or reef",
-				ErrInvalid, r.Name)
+		if seen[m.BotID] {
+			return fmt.Errorf("%w: bot %d appears twice", ErrInvalid, m.BotID)
 		}
-		if seen[r.Name] {
-			return fmt.Errorf("%w: role %s appears twice", ErrInvalid, r.Name)
-		}
-		seen[r.Name] = true
-		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
-			return fmt.Errorf("role %s: %w", r.Name, err)
-		}
-		if r.Face != "" && !slices.Contains(faces(), r.Face) {
-			return fmt.Errorf("%w: role %s: face %q must be one of %s",
-				ErrInvalid, r.Name, r.Face, strings.Join(faces(), ", "))
-		}
-		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
-			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
-				"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
-		}
-		if r.Lead {
+		seen[m.BotID] = true
+		if m.Lead {
 			leads++
 		}
 	}
-	for _, g := range t.Gates {
-		if !seen[g.From] || !seen[g.To] {
-			return fmt.Errorf("%w: gate %s to %s names a role team %s does not have",
-				ErrInvalid, g.From, g.To, t.Name)
-		}
-	}
-	if leads != 1 {
-		return fmt.Errorf("%w: team %s needs exactly one lead role, has %d",
-			ErrInvalid, t.Name, leads)
+	if leads > 1 {
+		return fmt.Errorf("%w: team %s has %d coordinator suggestions, at most one", ErrInvalid, t.Name, leads)
 	}
 	return nil
+}
+
+func validateRole(r Role) error {
+	if r.Name == "" {
+		return fmt.Errorf("%w: role name is required", ErrInvalid)
+	}
+	if r.Name == "user" || r.Name == ReefAuthor || !_roleName.MatchString(r.Name) {
+		return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user or reef",
+			ErrInvalid, r.Name)
+	}
+	if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
+		return fmt.Errorf("role %s: %w", r.Name, err)
+	}
+	if r.Face != "" && !slices.Contains(faces(), r.Face) {
+		return fmt.Errorf("%w: role %s: face %q must be one of %s",
+			ErrInvalid, r.Name, r.Face, strings.Join(faces(), ", "))
+	}
+	if r.Colour != "" && !slices.Contains(colours(), r.Colour) {
+		return fmt.Errorf("%w: role %s: colour %q must be one of %s",
+			ErrInvalid, r.Name, r.Colour, strings.Join(colours(), ", "))
+	}
+	if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
+		return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
+			"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
+	}
+	return nil
+}
+
+func hasSkillSource(ref string) bool {
+	return strings.HasPrefix(ref, "reef:") || strings.HasPrefix(ref, "claude:") || strings.HasPrefix(ref, "codex:")
 }
 
 func cleanSkills(r Role) ([]string, error) {
@@ -282,6 +345,9 @@ func cleanSkills(r Role) ([]string, error) {
 			return nil, fmt.Errorf("%w: role %s has an empty skill name", ErrInvalid, r.Name)
 		case !skill.ValidName(name):
 			return nil, fmt.Errorf("%w: role %s: skill %q must be letters, digits, :, _ or -",
+				ErrInvalid, r.Name, name)
+		case !hasSkillSource(name):
+			return nil, fmt.Errorf("%w: role %s: skill %q must start with reef:, claude: or codex:",
 				ErrInvalid, r.Name, name)
 		case slices.Contains(names, name):
 			return nil, fmt.Errorf("%w: role %s lists skill %q twice", ErrInvalid, r.Name, name)
@@ -309,23 +375,24 @@ func ValidateAgent(backend, permissionMode string) error {
 	return nil
 }
 
-func scanRole(r interface{ Scan(...any) error }) (Role, error) {
+func scanRole(r interface{ Scan(...any) error }) (Role, []int64, error) {
 	var ro Role
-	var skills, tools, servers string
-	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&skills, &ro.Face, &ro.Model, &tools, &servers); err != nil {
-		return Role{}, err
+	var skills, tools, connections string
+	if err := r.Scan(&ro.BotID, &ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Description,
+		&skills, &ro.Face, &ro.Colour, &ro.Model, &ro.Provider, &tools, &connections); err != nil {
+		return Role{}, nil, err
 	}
 	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad skills: %w", ro.Name, err)
+		return Role{}, nil, fmt.Errorf("role %s: bad skills: %w", ro.Name, err)
 	}
 	if err := json.Unmarshal([]byte(tools), &ro.Tools); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
+		return Role{}, nil, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
 	}
-	if err := json.Unmarshal([]byte(servers), &ro.MCPServers); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad mcp servers: %w", ro.Name, err)
+	var ids []int64
+	if err := json.Unmarshal([]byte(connections), &ids); err != nil {
+		return Role{}, nil, fmt.Errorf("role %s: bad connections: %w", ro.Name, err)
 	}
-	return ro, nil
+	return ro, ids, nil
 }
 
 // nonNil makes a nil slice encode as [] rather than null.

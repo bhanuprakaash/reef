@@ -1,0 +1,323 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/store"
+)
+
+func TestGetSpaceTokensUsed(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1}`)
+	if _, err := st.ApproveWorkItem(ctx, 1, nil, nil, nil, "k"); err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth"}`)
+	for _, u := range []agent.Usage{
+		{InputTokens: 100, OutputTokens: 20, CacheReadTokens: 9999},
+		{InputTokens: 30, CacheWriteTokens: 4},
+	} {
+		tr, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "lead", Backend: "claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr.Status, tr.Usage = "done", u
+		if _, err := st.EndTurn(ctx, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1", "")
+	if status != 200 || !strings.Contains(body, `"tokenBudget":1000000`) || !strings.Contains(body, `"tokensUsed":154}`) {
+		t.Fatalf("GET /spaces/1 = %d %s, want tokensUsed 154", status, body)
+	}
+}
+
+func TestCreateSpaceOfWorkItemIsTheOwnersAndParticipants(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	cy, err := st.CreateBot(ctx, store.Bot{Name: "cy", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1,"participantBotIds":[`+
+		strconv.FormatInt(cy.ID, 10)+`]}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Form"}`)
+
+	for _, c := range []struct{ name, body string }{
+		{"a Bot", `{"projectId":1,"workItemId":1,"name":"a","botId":1}`},
+		{"a backlog item", `{"projectId":1,"workItemId":1,"name":"a"}`},
+		{"a sub-item", `{"projectId":1,"workItemId":2,"name":"a"}`},
+	} {
+		if status, body := do(t, http.MethodPost, ts.URL+"/spaces", c.body); status != 400 {
+			t.Errorf("Space for %s = %d %s, want 400", c.name, status, body)
+		}
+	}
+	if _, err := st.ApproveWorkItem(ctx, 1, nil, nil, nil, "k"); err != nil {
+		t.Fatal(err)
+	}
+	status, out := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"a"}`)
+	if status != 201 || !strings.Contains(out, `"workItemId":1`) {
+		t.Fatalf("Space of the approved item = %d %s, want 201", status, out)
+	}
+	var sp store.Space
+	if err := json.Unmarshal([]byte(out), &sp); err != nil {
+		t.Fatal(err)
+	}
+	team, err := st.SpaceTeam(ctx, sp.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range team.Roles {
+		got = append(got, fmt.Sprintf("%d:%t", r.BotID, r.Lead))
+	}
+	if want := fmt.Sprintf("[1:true %d:false]", cy.ID); fmt.Sprint(got) != want {
+		t.Errorf("members of the Space = %v, want %s", got, want)
+	}
+}
+
+func TestSpaceTakesNoBackendOrPermissionMode(t *testing.T) {
+	env := newLiveEnv(t)
+	for _, body := range []string{
+		`{"name":"scratch","permissionMode":"acceptEdits"}`,
+		`{"name":"scratch","backend":"codex"}`,
+	} {
+		if status, out := do(t, http.MethodPut, env.url+"/spaces/1", body); status != 400 ||
+			!strings.Contains(out, "unknown field") {
+			t.Errorf("PUT /spaces/1 %s = %d %s, want 400 unknown field", body, status, out)
+		}
+	}
+	for _, body := range []string{
+		`{"projectId":1,"name":"x","backend":"codex"}`,
+		`{"projectId":1,"name":"x","permissionMode":"read-only"}`,
+	} {
+		if status, out := do(t, http.MethodPost, env.url+"/spaces", body); status != 400 ||
+			!strings.Contains(out, "unknown field") {
+			t.Errorf("POST /spaces %s = %d %s, want 400 unknown field", body, status, out)
+		}
+	}
+}
+
+func TestSpaceStatus(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		give       string
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "unknown project",
+			method:     http.MethodPost,
+			path:       "/spaces",
+			give:       `{"projectId":9,"name":"c"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: unknown project 9"}`,
+		},
+		{
+			name:       "work item of another project",
+			method:     http.MethodPost,
+			path:       "/spaces",
+			give:       `{"projectId":2,"workItemId":1,"name":"c"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: work item 1 is not in project 2"}`,
+		},
+		{
+			name:       "unknown work item",
+			method:     http.MethodPost,
+			path:       "/spaces",
+			give:       `{"projectId":1,"workItemId":9,"name":"c"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: unknown work item 9"}`,
+		},
+		{
+			name:       "unknown field",
+			method:     http.MethodPost,
+			path:       "/spaces",
+			give:       `{"projectId":1,"feature_id":1,"name":"c"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: bad JSON: json: unknown field \"feature_id\""}`,
+		},
+		{
+			name:       "role other than lead",
+			method:     http.MethodPost,
+			path:       "/spaces",
+			give:       `{"projectId":1,"name":"c","role":"architect"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: role must be lead"}`,
+		},
+		{
+			name:       "missing name",
+			method:     http.MethodPost,
+			path:       "/spaces",
+			give:       `{"projectId":1}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: Space name is required"}`,
+		},
+		{
+			name:       "messages need a space",
+			method:     http.MethodGet,
+			path:       "/messages",
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: Space is required"}`,
+		},
+		{
+			name:       "message to unknown space",
+			method:     http.MethodPost,
+			path:       "/messages",
+			give:       `{"spaceId":9,"author":"user","body":"hi"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: unknown space 9"}`,
+		},
+		{
+			name:       "message update",
+			method:     http.MethodPut,
+			path:       "/messages/1",
+			wantStatus: 405,
+			wantBody:   `{"error":"method not allowed"}`,
+		},
+		{
+			name:       "message delete",
+			method:     http.MethodDelete,
+			path:       "/messages/1",
+			wantStatus: 405,
+			wantBody:   `{"error":"method not allowed"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := newTestServer(t)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/"}`)
+			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
+			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
+			if status != tt.wantStatus {
+				t.Errorf("status = %d, want %d", status, tt.wantStatus)
+			}
+			if !strings.Contains(body, tt.wantBody) {
+				t.Errorf("body = %s, want it to contain %s", body, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestListSpacesLastMessage(t *testing.T) {
+	ts := newTestServer(t)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"talk"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"empty"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"long"}`)
+	for _, m := range []string{
+		`{"spaceId":1,"author":"user","body":"hi"}`,
+		`{"spaceId":1,"author":"lead","body":"hello there"}`,
+		`{"spaceId":1,"parentId":1,"author":"user","body":"in a thread"}`,
+		`{"spaceId":3,"author":"user","body":"` + strings.Repeat("a", 250) + `"}`,
+	} {
+		if status, body := do(t, http.MethodPost, ts.URL+"/messages", m); status != 201 {
+			t.Fatalf("post message = %d %s", status, body)
+		}
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces", "")
+	if status != 200 {
+		t.Fatalf("list = %d %s", status, body)
+	}
+	var got []struct {
+		Name        string `json:"name"`
+		LastMessage *struct {
+			Author    string `json:"author"`
+			Body      string `json:"body"`
+			CreatedAt string `json:"createdAt"`
+		} `json:"lastMessage"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0].Name != "talk" || got[1].Name != "empty" || got[2].Name != "long" {
+		t.Fatalf("spaces = %s", body)
+	}
+	if m := got[0].LastMessage; m == nil || m.Author != "user" || m.Body != "in a thread" || m.CreatedAt == "" {
+		t.Errorf("talk lastMessage = %+v, want user: in a thread", m)
+	}
+	if m := got[2].LastMessage; m == nil || m.Body != strings.Repeat("a", 200) {
+		t.Errorf("long lastMessage = %+v, want the first 200 characters", m)
+	}
+	if got[1].LastMessage != nil || !strings.Contains(body, `"lastMessage":null`) {
+		t.Errorf("empty lastMessage = %+v, want null in %s", got[1].LastMessage, body)
+	}
+}
+
+func TestSpaceRoundTrip(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","ownerBotId":1}`)
+	if _, err := st.ApproveWorkItem(context.Background(), 1, nil, nil, nil, "k"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"scratch","role":"lead"}`)
+	if status != 201 || !strings.HasPrefix(body,
+		`{"id":1,"kind":"free","projectId":1,"workItemId":null,"name":"scratch","role":"lead","botId":1,`+
+			`"paused":"","tokenBudget":1000000,"team":"solo","createdAt":"`) {
+		t.Fatalf("quick session = %d %s", status, body)
+	}
+	status, body = do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth"}`)
+	if status != 201 || !strings.Contains(body, `"workItemId":1,"name":"auth"`) {
+		t.Fatalf("work item Space = %d %s", status, body)
+	}
+
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces?project=1", "")
+	if status != 200 || strings.Count(body, `"projectId":1`) != 2 {
+		t.Fatalf("by project = %d %s", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces?workItem=1", "")
+	if status != 200 || strings.Count(body, `"projectId":1`) != 1 || !strings.Contains(body, `"name":"auth"`) {
+		t.Fatalf("by work item = %d %s", status, body)
+	}
+
+	status, body = do(t, http.MethodPut, ts.URL+"/spaces/1", `{"name":"renamed"}`)
+	if status != 200 || !strings.Contains(body, `"projectId":1,"workItemId":null,"name":"renamed"`) {
+		t.Fatalf("rename quick session = %d %s", status, body)
+	}
+	status, body = do(t, http.MethodPut, ts.URL+"/spaces/2", `{"name":"renamed"}`)
+	if status != 200 || !strings.Contains(body, `"projectId":1,"workItemId":1,"name":"renamed"`) {
+		t.Fatalf("rename work item Space = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/spaces/2", `{"projectId":9,"name":"x"}`); status != 400 {
+		t.Fatalf("ignored field update = %d %s, want 400", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/spaces/9", `{"name":"x"}`); status != 404 {
+		t.Fatalf("rename unknown = %d %s, want 404", status, body)
+	}
+
+	for _, b := range []string{"one", "two", "three"} {
+		status, body = do(t, http.MethodPost, ts.URL+"/messages", `{"spaceId":1,"author":"user","body":"`+b+`"}`)
+		if status != 201 {
+			t.Fatalf("post %s = %d %s", b, status, body)
+		}
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/messages?space=1&after=1", "")
+	two, three := strings.Index(body, `"body":"two"`), strings.Index(body, `"body":"three"`)
+	if status != 200 || strings.Contains(body, `"body":"one"`) || two < 0 || three < two {
+		t.Fatalf("after = %d %s", status, body)
+	}
+
+	if status, _ = do(t, http.MethodDelete, ts.URL+"/spaces/1", ""); status != 204 {
+		t.Fatalf("delete Space = %d", status)
+	}
+	if status, body = do(t, http.MethodGet, ts.URL+"/messages?space=1", ""); status != 404 {
+		t.Errorf("messages after Space delete = %d %s, want 404", status, body)
+	}
+}

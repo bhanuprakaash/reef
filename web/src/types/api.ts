@@ -2,8 +2,34 @@ export type Project = {
   id: number;
   name: string;
   path: string;
+  purpose: string;
   baseBranch: string;
+  icon: string;
+  colour: string;
   createdAt: string;
+  repoConnectionId: number | null;
+  remotePath: string;
+  deletingAt: string | null;
+  deletedAt: string | null;
+};
+
+export type RepoProvider = 'github' | 'gitlab';
+
+export type RepoConnection = {
+  id: number;
+  provider: RepoProvider;
+  host: string;
+  account: string;
+  state: 'connected' | 'disconnected';
+  reason: string;
+  checkedAt: string;
+};
+
+export type DetectedRemote = {
+  provider: RepoProvider;
+  host: string;
+  path: string;
+  connectionId: number | null;
 };
 
 export type Profile = {
@@ -13,150 +39,408 @@ export type Profile = {
   updatedAt: string;
 };
 
-export type ProjectMemory = {
-  projectId: number;
+export type MemoryItem = {
+  id: number;
+  kind: string;
   body: string;
+  why: string;
+  scope: string;
+  author: string;
+  botId: number | null;
+  createdAt: string;
 };
 
-export type FeatureKind = 'journey' | 'fixes';
+export type PendingMemory = MemoryItem & { links?: { rel: string; to: string }[] };
 
-export type Feature = {
+export type MemoryAdded = MemoryItem & {
+  similar?: { id: number; body: string }[];
+  embedError?: string;
+};
+
+export type WorkItemType =
+  'feature' | 'bug' | 'incident' | 'investigation' | 'task' | 'improvement';
+
+export type WorkItemStatus =
+  'backlog' | 'queued' | 'in_progress' | 'needs_you' | 'review' | 'done' | 'dropped';
+
+export type AcceptanceLine = {
+  position: number;
+  text: string;
+  checked: boolean;
+  note: string;
+};
+
+export type Target = {
+  projectId: number;
+  projectName: string;
+  proposedBy: string;
+  authorizedBy: string;
+  createdAt: string;
+};
+
+export type WorkItem = {
   id: number;
   projectId: number;
-  slug: string;
-  name: string;
-  goal: string;
-  stage: string;
-  kind: FeatureKind;
+  parentId: number | null;
+  type: WorkItemType;
+  title: string;
+  description: string;
+  status: WorkItemStatus;
+  proposedBy: string;
+  queuePosition: number | null;
+  tokenBudget: number;
   createdAt: string;
   closedAt: string | null;
+  approvedAt: string | null;
+  approvalKey: string | null;
+  sentBack: boolean;
+  acceptanceLines: AcceptanceLine[];
+  ownerBotId: number | null;
+  pendingOwnerBotId: number | null;
+  participantBotIds: number[];
+  targets: Target[];
+};
+
+export type ProofCommand = { command: string; output: string; project?: string };
+
+export type ProofRepository = {
+  workspaceId: number;
+  projectId: number;
+  projectName: string;
+  branch: string;
+  head: string;
+  baseRef: string;
+  dir: string;
+  dirty: boolean;
+  checks: ProofCommand[];
+};
+
+export type Proof = {
+  spaceId: number;
+  acceptanceLines: AcceptanceLine[];
+  commands: ProofCommand[];
+  repositories: ProofRepository[];
+  screenshots: string[];
+  submittedAt: string;
 };
 
 export type Brief = {
   id: number;
-  featureId: number;
+  workItemId: number;
   body: string;
   author: string;
   createdAt: string;
 };
 
-export type Decision = {
+export type Space = {
   id: number;
-  featureId: number;
-  messageId: number | null;
-  body: string;
-  why: string;
-  author: string;
-  createdAt: string;
-  retiredAt: string | null;
-  replacedBy: number | null;
-};
-
-export type Channel = {
-  id: number;
+  kind: 'work_item' | 'free' | 'conversation' | 'consultation';
   projectId: number;
-  featureId: number | null;
+  workItemId: number | null;
   name: string;
   team: string;
   role: string;
-  backend: string;
-  permissionMode: string;
+  botId: number | null;
   paused: string;
   createdAt: string;
   closedAt: string | null;
+  movedTo: number | null;
 };
 
-export type ChannelPreview = Channel & {
+export type SpaceDetail = Space & { tokenBudget: number; tokensUsed: number };
+
+export type SpacePreview = Space & {
+  members: number[];
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
-export type ProposedDecision = {
+export type ChatOrigin = { spaceId: number; label: string };
+
+export type BotChat = {
+  kind: 'chat' | 'space' | 'consultation';
+  spaceId: number;
+  botId: number;
+  label: string;
+  origin?: ChatOrigin;
+  active: boolean;
+  closed: boolean;
+  lastActivity: string;
+};
+
+export type ActivityToolCall = {
+  id: number;
+  name: string;
+  input: string;
+  result: string;
+  parentId?: number;
+};
+
+export type BotActivity = {
+  space: Space;
+  botId: number;
+  label: string;
+  origin?: ChatOrigin;
+  messages: Message[];
+  exchanges: DirectMessage[];
+  turns: (Turn & { toolCalls: ActivityToolCall[] })[];
+};
+
+export type PinKind = 'bot' | 'chat' | 'space';
+
+export type Pin = { kind: PinKind; id: number; title: string; createdAt: string };
+
+export type FindResult = {
+  kind: PinKind | 'workItem';
+  id: number;
+  title: string;
+  projectId?: number;
+};
+
+export type ProposedItem = {
+  kind: string;
   body: string;
-  why: string;
+  why?: string;
+  scope: string;
   replaces?: number[];
 };
 
 export type Proposal = {
   id: number;
-  channelId: number;
+  spaceId: number;
   role: string;
+  botId?: number | null;
   kind: 'wrap' | 'brief';
   brief: string;
-  notes: string;
-  decisions: ProposedDecision[];
+  items: ProposedItem[];
   retire: number[];
+  status: string;
+  createdAt: string;
+};
+
+export type MemberProposal = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  botName: string;
+  proposedBy: string;
+  reason: string;
   status: string;
   createdAt: string;
 };
 
 export type Message = {
   id: number;
-  channelId: number;
+  spaceId: number;
   parentId: number | null;
   author: string;
+  botId?: number | null;
   body: string;
   createdAt: string;
+  exchangeId?: number | null;
+};
+
+export type Exchange = {
+  request: DirectMessage;
+  response: DirectMessage | null;
 };
 
 export type Turn = {
   id: number;
-  channelId: number;
+  spaceId: number;
   role: string;
+  botId?: number | null;
   status: string;
   error: string;
   wakeText: string;
+  directMessageId?: number | null;
   retried: boolean;
-  checkpoint: string | null;
+  checkpoints: { workspaceId: number; projectId: number; ref: string }[];
   startedAt: string;
 };
 
+export type Prompt = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  turnId: number;
+  tool: string;
+  input: { command?: string; file_path?: string; path?: string };
+  rule: string;
+  path: string;
+  status: 'waiting' | 'expired';
+  reason: string;
+  createdAt: string;
+};
+
 export type Role = {
+  botId: number;
   name: string;
   lead: boolean;
+  leaving?: boolean;
   write: boolean;
   backend: string;
+  provider?: string;
   permissionMode: string;
-  persona: string;
+  description: string;
   skills: string[];
   face?: string;
+  colour?: string;
   model?: string;
   tools: string[];
-  mcp: { name: string; label: string }[];
-  mcpRemove?: { name: string; label: string }[];
+  connections: number[];
+  session?: RoleSession;
 };
 
-export type SkillInfo = { name: string; description: string };
+export type RoleSession = {
+  backend: string;
+  model?: string;
+  permissionMode: string;
+  write: boolean;
+  tools: string[];
+  skills: { ref: string; compatible: boolean; reason?: string }[];
+  connections: string[];
+  refreshPending: boolean;
+  stale: boolean;
+};
 
-export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
+export type Connection = {
+  id: number;
+  name: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  oauth?: { clientId?: string; callbackPort?: number };
+  signIn?: ConnectionSignIn[];
+  createdAt: string;
+};
 
-export type Gate = { from: string; to: string; on: boolean };
+export type ConnectionSignIn = {
+  backend: string;
+  state: 'signed_in' | 'needs_sign_in' | 'failed';
+  detail: string;
+  updatedAt: string;
+};
+
+export type ConnectionLogin = { backend: string; ok: boolean; output: string };
+
+export type AvailableConnection = {
+  source: string;
+  name: string;
+  kind: 'command' | 'url';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  added: boolean;
+  connectionId?: number;
+};
+
+export type Provider = {
+  name: string;
+  kind: string;
+  detected: boolean;
+  path?: string;
+  version?: string;
+  folder?: string;
+  createdAt?: string;
+};
+
+export type SkillSource = 'reef' | 'claude' | 'codex';
+
+export type SkillInfo = {
+  ref: string;
+  name: string;
+  description: string;
+  source: SkillSource;
+  version?: number;
+  compat?: Record<string, string>;
+};
+
+export type Skills = SkillInfo[];
+
+export type LibrarySkill = {
+  id: number;
+  name: string;
+  description: string;
+  sourceKind: 'folder' | 'git' | 'reef';
+  source: string;
+  ref: string;
+  dir: string;
+  revision: string;
+  version: number;
+};
+
+export type SkillFile = { path: string; body: string };
+
+export type SkillDraft = {
+  id: number;
+  spaceId: number;
+  botId: number;
+  name: string;
+  files: SkillFile[];
+};
+
+export type LibrarySkillFiles = LibrarySkill & { files: SkillFile[] };
+
+export type Bot = Omit<Role, 'lead' | 'botId'> & { id: number };
 
 export type Team = {
+  id: number;
   name: string;
+  responsibility: string;
   roles: Role[];
-  gates?: Gate[];
 };
 
-export type Approval = {
+export type DirectMessage = {
   id: number;
-  channelId: number;
+  spaceId: number;
+  chainId: number;
+  replyToId: number | null;
+  sourceMessageId: number | null;
   from: string;
+  fromBotId?: number | null;
   to: string;
-  messageId: number;
-  text: string;
-  status: string;
+  toBotId?: number | null;
+  body: string;
+  status: 'sent' | 'done' | 'failed';
+  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped' | 'cancelled';
+  kind?: 'request' | 'question' | 'guidance';
   createdAt: string;
 };
 
 export type InboxItem = {
-  kind: 'approval' | 'paused' | 'failed' | 'waiting';
-  channelId: number;
-  featureId: number | null;
+  kind:
+    | 'paused'
+    | 'held'
+    | 'failed'
+    | 'review'
+    | 'question'
+    | 'reply'
+    | 'sub_item'
+    | 'proposed'
+    | 'started'
+    | 'delivery'
+    | 'space_proposed';
+  group: 'needs_you' | 'fyi';
+  spaceId: number;
+  workItemId: number | null;
   text: string;
   at: string;
-  approvalId?: number;
   turnId?: number;
   messageId?: number;
+  id?: number;
+  proposal?: SpaceProposal;
+};
+
+export type SpaceProposal = {
+  id: number;
+  proposedBy: string;
+  name: string;
+  botIds: number[];
+  coordinatorBotId: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';
@@ -186,26 +470,33 @@ export type Usage = {
   cacheWriteTokens: number;
 };
 
+export type ToolTarget = { projectId: number; projectName: string; workspaceId: number };
+
 export type InspectorToolCall = {
   name: string;
   input: string;
   result: string;
+  targets?: ToolTarget[];
+  children?: InspectorToolCall[];
 };
 
 export type InspectorTurn = {
   id: number;
   role: string;
+  botId: number | null;
   startedAt: string;
   status: string;
   model: string;
   usage: Usage;
   costUsd: number | null;
+  instructions: string;
   prompt: string;
   toolCalls: InspectorToolCall[];
 };
 
 export type InspectorRole = {
   role: string;
+  botId: number | null;
   turns: number;
   usage: Usage;
   costUsd: number | null;
@@ -216,7 +507,23 @@ export type Inspector = {
   turns: InspectorTurn[];
 };
 
-export type FeaturePR = {
+export type RepoRequest = {
+  id: number;
+  provider: 'github' | 'gitlab';
+  host: string;
+  path: string;
+  number: number;
+  url: string;
+  state: 'opened' | 'closed' | 'merged';
+  workspaceId: number;
+  review: string;
+  checks: { name: string; state: 'pass' | 'fail' | 'pending' | 'neutral'; key: string }[];
+  checkedAt: string | null;
+  checkError: string;
+  dependsOn: number[];
+};
+
+export type WorkItemPR = {
   number: number;
   title: string;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
@@ -231,17 +538,4 @@ export type FeaturePR = {
   additions: number;
   deletions: number;
   files: { path: string; additions: number; deletions: number }[];
-};
-
-export type TaskStatus = 'todo' | 'doing' | 'done';
-
-export type Task = {
-  id: number;
-  projectId: number;
-  featureId: number | null;
-  title: string;
-  body: string;
-  status: TaskStatus;
-  createdAt: string;
-  updatedAt: string;
 };

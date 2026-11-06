@@ -1,29 +1,32 @@
 #!/bin/sh
-# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang, stopusage, stopmerge.
+# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang, stopusage, stopmerge, stopfull.
 [ "$FAKE_CODEX" = slowstart ] && exec sleep 30
 [ "$FAKE_CODEX" = deafstart ] && { trap '' TERM; exec sleep 30; }
 read -r line
 echo '{"id":1,"result":{"userAgent":"fake"}}'
 read -r line
 read -r line
+echo '{"id":2,"result":{"config":{"mcp_servers":{"user-one":{},"user-two":{}},"plugins":{"on@x":{"enabled":true},"off@x":{"enabled":false}}}}}'
+read -r line
+[ -n "$FAKE_CODEX_THREAD" ] && echo "$line" >"$FAKE_CODEX_THREAD"
 if [ "$FAKE_CODEX" = failstart ]; then
-	echo '{"id":2,"error":{"code":-32600,"message":"bad sandbox"}}'
+	echo '{"id":3,"error":{"code":-32600,"message":"bad sandbox"}}'
 	exec sleep 30
 fi
 if [ "$FAKE_CODEX" = replay ]; then
-	echo '{"id":2,"result":{"thread":{"id":"t1"},"model":"gpt-6-codex"}}'
+	echo '{"id":3,"result":{"thread":{"id":"t1"},"model":"gpt-6-codex"}}'
 else
-	echo '{"id":2,"result":{"thread":{"id":"t1"}}}'
+	echo '{"id":3,"result":{"thread":{"id":"t1"}}}'
 fi
 if [ "$FAKE_CODEX" = replay ]; then
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":100,"cachedInputTokens":0,"outputTokens":1}}}}'
 fi
 read -r line
 if [ "$FAKE_CODEX" = rejected ]; then
-	echo '{"id":3,"error":{"code":-32600,"message":"bad turn"}}'
+	echo '{"id":4,"error":{"code":-32600,"message":"bad turn"}}'
 	exec sleep 30
 fi
-echo '{"id":3,"result":{}}'
+echo '{"id":4,"result":{}}'
 echo '{"method":"turn/started","params":{"turn":{"status":"inProgress"}}}'
 echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"hi"}}'
 case "$FAKE_CODEX" in
@@ -51,8 +54,12 @@ usagehang)
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"outputTokens":3}}}}'
 	exec sleep 30
 	;;
-stopmerge|stopusage)
+stopmerge|stopusage|stopfull)
 	echo '{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"sleep 60"}}}'
+	if [ "$FAKE_CODEX" = stopfull ]; then
+		echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"a"}}'
+		echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"b"}}'
+	fi
 	[ "$FAKE_CODEX" = stopmerge ] && echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"outputTokens":3}}}}'
 	read -r line
 	echo '{"id":"stop","result":{}}'

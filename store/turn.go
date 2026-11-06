@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,30 +21,44 @@ const (
 const _interruptedError = "interrupted"
 
 // _retryable is true for a turn t that retry may run again: it failed, was not retried, kept
-// a wake, and no later turn of its role ran in the channel.
+// a wake, and no later turn of its role ran in the Space.
 const _retryable = `t.status = '` + _turnFailed + `' AND t.retried = 0 AND t.wake_text IS NOT NULL
-	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.channel_id = t.channel_id AND n.role = t.role AND n.id > t.id)`
+	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.space_id = t.space_id AND n.bot_id = t.bot_id AND n.id > t.id)`
 
 const (
 	_restartError  = "server restarted"
 	_restartAdvice = "The worktree may be dirty; retry or roll back."
 )
 
+const _checkpoints = "(SELECT json_group_array(json_object('workspaceId', c.workspace_id, " +
+	"'projectId', w.project_id, 'ref', c.ref)) FROM turn_checkpoint c " +
+	"JOIN workspace w ON w.id = c.workspace_id WHERE c.turn_id = t.id)"
+
 const (
-	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
+	_turnCols = "id, space_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id"
+		"wake_text, wake_parent, retried, " + _checkpoints + ", sent, model, cost_usd, prompt, direct_message_id, reply, " +
+		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
+		"session_cache_write_tokens, scopes, compacted, wake_message_id, bot_id, bot_session_id, context_tokens"
 )
 
-// Turn is one agent run in a channel. It starts running and ends once, as
+// TurnCheckpoint is a snapshot of one workspace taken before a turn ran.
+type TurnCheckpoint struct {
+	WorkspaceID int64  `json:"workspaceId"`
+	ProjectID   int64  `json:"projectId"`
+	Ref         string `json:"ref"`
+}
+
+// Turn is one agent run in a Space. It starts running and ends once, as
 // done or failed. There is no delete. WakeText and WakeParent are the prompt the turn ran
 // and the message its reply answers; WakeText is empty for a turn that kept none. Retried is
 // set once a failed turn has been run again. Sent is true once the turn's prompt reached the
 // agent; false for a turn that failed before then.
 type Turn struct {
 	ID         int64       `json:"id"`
-	ChannelID  int64       `json:"channelId"`
+	SpaceID    int64       `json:"spaceId"`
 	Role       string      `json:"role"`
+	BotID      *int64      `json:"botId,omitempty"`
 	Backend    string      `json:"backend"`
 	SessionID  string      `json:"sessionId"`
 	Status     string      `json:"status"`
@@ -55,11 +70,14 @@ type Turn struct {
 	WakeParent *int64      `json:"wakeParent"`
 	// DirectMessageID is the private wake this turn answers, nil for a public wake.
 	DirectMessageID *int64 `json:"directMessageId"`
-	Retried         bool   `json:"retried"`
-	Sent            bool   `json:"sent"`
-	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
-	// turn that has none.
-	Checkpoint *string `json:"checkpoint"`
+	// WakeMessageID is the public message that woke this turn, nil for a turn no message woke.
+	// Hidden from Turn's own JSON.
+	WakeMessageID *int64 `json:"-"`
+	Retried       bool   `json:"retried"`
+	Sent          bool   `json:"sent"`
+	// Checkpoints are the git refs of the snapshots taken before the turn ran, one per
+	// workspace; empty for a turn that has none.
+	Checkpoints []TurnCheckpoint `json:"checkpoints"`
 	// Model is the backend's model name, set from the agent's first event. Empty until then.
 	Model string `json:"model"`
 	// CostUSD is nil until the agent reports one; codex turns never get one.
@@ -67,12 +85,34 @@ type Turn struct {
 	// Prompt is the full text sent to the agent, set once assembled. Empty for a turn that
 	// never sent one. Hidden from Turn's own JSON; the inspector has its own view of it.
 	Prompt string `json:"-"`
+	// Reply is the plain reply a done turn kept off the Space because the turn already
+	// posted with post_to_space, or because it answered a direct response. Empty otherwise. Hidden from Turn's own JSON; the inspector
+	// has its own view of it.
+	Reply string `json:"-"`
+	// SessionCostUSD and SessionUsage are the running totals of the turn's whole session as the
+	// backend reported them when the turn ended; nil for a turn from before they were kept, a
+	// turn that ended with no report and every codex turn. The turn's own CostUSD and Usage are
+	// these minus the totals its session's earlier turns reported. Hidden from Turn's own JSON.
+	SessionCostUSD *float64     `json:"-"`
+	SessionUsage   *agent.Usage `json:"-"`
+	// Scopes are the threads the turn's wake was routed in. Once the turn sent, each carries
+	// the newest message it sent, so a later turn of the session skips what it read. Nil for
+	// a turn that is not a routed wake, and for one from before scopes: it read nothing.
+	// Hidden from Turn's own JSON.
+	Scopes    Scopes `json:"-"`
+	Compacted bool   `json:"-"`
+	// BotSessionID is the BotSession whose settings the turn ran with.
+	BotSessionID *int64 `json:"botSessionId,omitempty"`
+	// ContextTokens is the size of the session's context at the turn's last model call: its input,
+	// cached input included. Hidden from Turn's own JSON.
+	ContextTokens int64 `json:"-"`
 }
 
-// TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
+// TurnFilter narrows Turns. A nil SpaceID or empty Status matches everything. Retryable
 // keeps the turns Retryable reports true for.
 type TurnFilter struct {
-	ChannelID *int64
+	SpaceID   *int64
+	BotID     *int64
 	Status    string
 	Retryable bool
 }
@@ -86,30 +126,51 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		return Turn{}, fmt.Errorf("%w: unknown backend %q", ErrInvalid, t.Backend)
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at, "+
-			"wake_text, wake_parent, direct_message_id) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)",
-		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
-		t.WakeText, t.WakeParent, t.DirectMessageID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Turn{}, fmt.Errorf("begin turn: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if t.DirectMessageID != nil {
+		if err := claimExchange(ctx, tx, *t.DirectMessageID); err != nil {
+			return Turn{}, err
+		}
+	}
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO turn (space_id, role, backend, session_id, status, started_at, "+
+			"wake_text, wake_parent, direct_message_id, scopes, wake_message_id, bot_id, bot_session_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?)",
+		t.SpaceID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
+		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes, t.WakeMessageID, t.BotID, t.BotSessionID)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
-			parent{table: "channel", id: &t.ChannelID}, parent{table: "message", id: t.WakeParent},
+			parent{table: "space", id: &t.SpaceID}, parent{table: "message", id: t.WakeParent},
+			parent{table: "message", id: t.WakeMessageID},
 			parent{table: "direct_message", id: t.DirectMessageID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
 		return Turn{}, fmt.Errorf("insert turn: %w", err)
 	}
+	if err := tx.Commit(); err != nil {
+		return Turn{}, fmt.Errorf("commit turn: %w", err)
+	}
+	if t.DirectMessageID != nil {
+		if err := s.startDirect(ctx, *t.DirectMessageID); err != nil {
+			return Turn{}, err
+		}
+	}
 	return Turn{
-		ID: id, ChannelID: t.ChannelID, Role: t.Role, Backend: t.Backend,
-		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
+		ID: id, SpaceID: t.SpaceID, Role: t.Role, BotID: t.BotID, Backend: t.Backend,
+		SessionID: t.SessionID, BotSessionID: t.BotSessionID, Status: _turnRunning, StartedAt: now,
 		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
+		WakeMessageID: t.WakeMessageID, Scopes: t.Scopes, Checkpoints: []TurnCheckpoint{},
 	}, nil
 }
 
 // Turn returns the turn with the id, or ErrNotFound.
 func (s *Store) Turn(ctx context.Context, id int64) (Turn, error) {
-	row := s.db.QueryRowContext(ctx, "SELECT "+_turnCols+" FROM turn WHERE id = ?", id)
+	row := s.db.QueryRowContext(ctx, "SELECT "+_turnCols+" FROM turn t WHERE id = ?", id)
 	t, err := scanTurn(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Turn{}, fmt.Errorf("turn %d: %w", id, ErrNotFound)
@@ -123,8 +184,11 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 		return nil, fmt.Errorf("%w: unknown status %q", ErrInvalid, f.Status)
 	}
 	q, args := "SELECT "+_turnCols+" FROM turn t WHERE 1 = 1", []any{}
-	if f.ChannelID != nil {
-		q, args = q+" AND channel_id = ?", append(args, *f.ChannelID)
+	if f.SpaceID != nil {
+		q, args = q+" AND space_id = ?", append(args, *f.SpaceID)
+	}
+	if f.BotID != nil {
+		q, args = q+" AND bot_id = ?", append(args, *f.BotID)
 	}
 	if f.Status != "" {
 		q, args = q+" AND status = ?", append(args, f.Status)
@@ -139,8 +203,108 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	return scanAll(rows, scanTurn)
 }
 
+// LastSentAt is when the newest turn of role in the session of spaceID that sent its prompt
+// started. It is false when no turn of the session sent one.
+func (s *Store) LastSentAt(
+	ctx context.Context, spaceID, botID int64, sessionID string,
+) (time.Time, bool, error) {
+	var started string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT started_at FROM turn WHERE space_id = ? AND bot_id = ? AND session_id = ? "+
+			"AND sent = 1 ORDER BY id DESC LIMIT 1", spaceID, botID, sessionID).Scan(&started)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("last sent turn: %w", err)
+	}
+	t, err := time.Parse(time.RFC3339Nano, started)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("bad started_at: %w", err)
+	}
+	return t, true, nil
+}
+
+// SessionCompacted reports whether the backend compacted the session during or after the
+// newest turn of role in the session of spaceID that sent its prompt.
+func (s *Store) SessionCompacted(
+	ctx context.Context, spaceID, botID int64, sessionID string,
+) (bool, error) {
+	var compacted bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT compacted FROM turn WHERE space_id = ? AND bot_id = ? AND session_id = ? "+
+			"AND sent = 1 ORDER BY id DESC LIMIT 1", spaceID, botID, sessionID).Scan(&compacted)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("session compacted: %w", err)
+	}
+	return compacted, nil
+}
+
+// SetTurnCompacted records that the backend compacted the session after the newest turn of
+// role in the session of spaceID that sent its prompt.
+func (s *Store) SetTurnCompacted(
+	ctx context.Context, spaceID, botID int64, sessionID string,
+) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET compacted = 1 WHERE id = (SELECT id FROM turn WHERE space_id = ? "+
+			"AND bot_id = ? AND session_id = ? AND sent = 1 ORDER BY id DESC LIMIT 1)",
+		spaceID, botID, sessionID)
+	if err != nil {
+		return fmt.Errorf("set turn compacted: %w", err)
+	}
+	return nil
+}
+
+// SessionCostBefore is the running cost of the session with the id when its turns before turn
+// beforeID ended: the total the latest of them reported. A session with only turns stored before
+// totals were kept has the largest cost, a running total, plus the costs stored after it, which
+// are a long-lived process's own shares. 0 for a session with no earlier turn.
+func (s *Store) SessionCostBefore(ctx context.Context, sessionID string, beforeID int64) (float64, error) {
+	var cost float64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(
+			(SELECT session_cost_usd FROM turn WHERE session_id = ?1 AND id < ?2
+				AND session_cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1),
+			(SELECT SUM(cost_usd) FROM turn WHERE session_id = ?1 AND id < ?2 AND id >=
+				(SELECT id FROM turn WHERE session_id = ?1 AND id < ?2
+					ORDER BY cost_usd DESC, id DESC LIMIT 1)), 0)`,
+		sessionID, beforeID).Scan(&cost)
+	if err != nil {
+		return 0, fmt.Errorf("session cost: %w", err)
+	}
+	return cost, nil
+}
+
+// SessionUsageBefore is the usage of the session with the id when its turns before turn
+// beforeID ended: the total of the latest turn that reported one, plus the usage stored for the
+// turns after it, which reported none, such as a stopped turn. With no turn that reported a
+// total it is the usage stored for all of them.
+func (s *Store) SessionUsageBefore(ctx context.Context, sessionID string, beforeID int64) (agent.Usage, error) {
+	var since int64
+	var u agent.Usage
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, session_input_tokens, session_output_tokens, session_cache_read_tokens,
+		session_cache_write_tokens FROM turn WHERE session_id = ? AND id < ?
+		AND session_input_tokens IS NOT NULL ORDER BY id DESC LIMIT 1`, sessionID, beforeID).
+		Scan(&since, &u.InputTokens, &u.OutputTokens, &u.CacheReadTokens, &u.CacheWriteTokens)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return agent.Usage{}, fmt.Errorf("session usage: %w", err)
+	}
+	var rest agent.Usage
+	err = s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+		COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_write_tokens), 0)
+		FROM turn WHERE session_id = ? AND id > ? AND id < ?`, sessionID, since, beforeID).
+		Scan(&rest.InputTokens, &rest.OutputTokens, &rest.CacheReadTokens, &rest.CacheWriteTokens)
+	if err != nil {
+		return agent.Usage{}, fmt.Errorf("session usage: %w", err)
+	}
+	u.Add(rest)
+	return u, nil
+}
+
 // Retryable reports whether retry may run the turn id again: it failed, was not retried, kept
-// a wake, and no later turn of its role ran in the channel.
+// a wake, and no later turn of its role ran in the Space.
 func (s *Store) Retryable(ctx context.Context, id int64) (bool, error) {
 	var ok bool
 	err := s.db.QueryRowContext(ctx,
@@ -162,16 +326,24 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 	if u.InputTokens < 0 || u.OutputTokens < 0 || u.CacheReadTokens < 0 || u.CacheWriteTokens < 0 {
 		return Turn{}, fmt.Errorf("%w: usage counts cannot be negative", ErrInvalid)
 	}
+	var session struct{ input, output, cacheRead, cacheWrite *int64 }
+	if t.SessionUsage != nil {
+		session.input, session.output = &t.SessionUsage.InputTokens, &t.SessionUsage.OutputTokens
+		session.cacheRead, session.cacheWrite = &t.SessionUsage.CacheReadTokens, &t.SessionUsage.CacheWriteTokens
+	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE turn SET status = ?, error = ?, input_tokens = ?, output_tokens = ?,
 		cache_read_tokens = ?, cache_write_tokens = ?,
 		session_id = COALESCE(NULLIF(?, ''), session_id), ended_at = ?,
-		model = ?, cost_usd = ?, prompt = ?
+		model = ?, cost_usd = ?, prompt = ?, reply = ?, session_cost_usd = ?,
+		session_input_tokens = ?, session_output_tokens = ?, session_cache_read_tokens = ?,
+		session_cache_write_tokens = ?, compacted = ?, context_tokens = ?
 		WHERE id = ? AND status = ?`,
 		t.Status, t.Error, t.Usage.InputTokens, t.Usage.OutputTokens,
 		t.Usage.CacheReadTokens, t.Usage.CacheWriteTokens, t.SessionID,
-		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt,
-		t.ID, _turnRunning)
+		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt, t.Reply,
+		t.SessionCostUSD, session.input, session.output, session.cacheRead, session.cacheWrite,
+		t.Compacted, t.ContextTokens, t.ID, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("end turn: %w", err)
 	}
@@ -228,10 +400,10 @@ func (s *Store) SetTurnRetried(ctx context.Context, id int64, retried bool) erro
 	return nil
 }
 
-// SetTurnSent marks the running turn id as having sent its prompt to the agent.
-func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
+// SetTurnSent marks the running turn id as having sent prompt to the agent, and keeps it.
+func (s *Store) SetTurnSent(ctx context.Context, id int64, prompt string) (Turn, error) {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE turn SET sent = 1 WHERE id = ? AND status = ?", id, _turnRunning)
+		"UPDATE turn SET sent = 1, prompt = ? WHERE id = ? AND status = ?", prompt, id, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("set turn sent: %w", err)
 	}
@@ -245,27 +417,51 @@ func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
 	return s.Turn(ctx, id)
 }
 
-// SetTurnCheckpoint records the checkpoint ref of the running turn id.
-func (s *Store) SetTurnCheckpoint(ctx context.Context, id int64, ref string) (Turn, error) {
+// SetTurnUsage records the usage so far of the running turn id without ending it, so a turn
+// that never ends keeps the tokens it used.
+func (s *Store) SetTurnUsage(ctx context.Context, id int64, u agent.Usage) error {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE turn SET checkpoint = ? WHERE id = ? AND status = ?", ref, id, _turnRunning)
+		`UPDATE turn SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
+		cache_write_tokens = ? WHERE id = ? AND status = ?`,
+		u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens, id, _turnRunning)
 	if err != nil {
-		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+		return fmt.Errorf("set turn usage: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+		return fmt.Errorf("set turn usage: %w", err)
 	}
 	if n == 0 {
-		return Turn{}, s.notRunning(ctx, id)
+		return s.notRunning(ctx, id)
 	}
-	return s.Turn(ctx, id)
+	return nil
+}
+
+// AddTurnCheckpoint records the checkpoint ref the running turn id took in workspace
+// workspaceID.
+func (s *Store) AddTurnCheckpoint(ctx context.Context, id, workspaceID int64, ref string) error {
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO turn_checkpoint (turn_id, workspace_id, ref) "+
+			"SELECT id, ?, ? FROM turn WHERE id = ? AND status = ? "+
+			"ON CONFLICT (turn_id, workspace_id) DO UPDATE SET ref = excluded.ref",
+		workspaceID, ref, id, _turnRunning)
+	if err != nil {
+		return fmt.Errorf("add turn checkpoint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("add turn checkpoint: %w", err)
+	}
+	if n == 0 {
+		return s.notRunning(ctx, id)
+	}
+	return nil
 }
 
 // FailRunningTurns marks every running turn failed, for turns the last server
-// run left unfinished, and posts one message per affected channel naming them.
-// Turns of a channel for which keep returns true stay running; keep may be nil.
-func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64) bool) ([]Turn, error) {
+// run left unfinished, and posts one message per affected Space naming them.
+// Turns of a Space for which keep returns true stay running; keep may be nil.
+func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) bool) ([]Turn, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fail running turns: %w", err)
@@ -273,7 +469,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 	defer func() { _ = tx.Rollback() }()
 
 	rows, err := tx.QueryContext(ctx,
-		"SELECT "+_turnCols+" FROM turn WHERE status = ? ORDER BY channel_id, id", _turnRunning)
+		"SELECT "+_turnCols+" FROM turn t WHERE status = ? ORDER BY space_id, id", _turnRunning)
 	if err != nil {
 		return nil, fmt.Errorf("list running turns: %w", err)
 	}
@@ -283,7 +479,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 	}
 	var turns []Turn
 	for _, t := range running {
-		if keep == nil || !keep(t.ChannelID) {
+		if keep == nil || !keep(t.SpaceID) {
 			turns = append(turns, t)
 		}
 	}
@@ -302,20 +498,70 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 			return nil, fmt.Errorf("fail running turns: %w", err)
 		}
 		t.Status, t.Error, t.EndedAt = _turnFailed, _restartError, &now
+		if _, err := tx.ExecContext(ctx, "UPDATE space SET active_turn = '' WHERE id = ?", t.SpaceID); err != nil {
+			return nil, fmt.Errorf("fail running turns: %w", err)
+		}
+		if t.DirectMessageID != nil {
+			// The turn was woken by a direct message. If that message is the original
+			// request (no reply_to), leave a failed response so the sender sees that
+			// delivery did not complete. A missing original message is not an error:
+			// there is nothing to answer.
+			var replyTo, origin sql.NullInt64
+			scanErr := tx.QueryRowContext(ctx,
+				"SELECT reply_to_id, origin_space_id FROM direct_message WHERE id = ?",
+				*t.DirectMessageID).Scan(&replyTo, &origin)
+			switch {
+			case errors.Is(scanErr, sql.ErrNoRows):
+				// missing original direct message: nothing to respond to.
+			case scanErr != nil:
+				return nil, fmt.Errorf("fail running turns: %w", scanErr)
+			case !replyTo.Valid:
+				var answered bool
+				if err := tx.QueryRowContext(ctx,
+					"SELECT EXISTS (SELECT 1 FROM direct_message WHERE reply_to_id = ? AND status = ?)",
+					*t.DirectMessageID, DirectDone).Scan(&answered); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+				if answered {
+					break
+				}
+				body := ""
+				if origin.Valid {
+					body = ExchangeInterrupted
+				}
+				if _, err := s.CreateFailedDirectResponseTx(ctx, tx, *t.DirectMessageID,
+					t.BotID, t.Role, body); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+			case replyTo.Valid:
+				if err := setDirectState(ctx, tx, replyTo.Int64, DirectFailed); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+			}
+		}
+		if err := s.failSentRequests(ctx, tx, *t); err != nil {
+			return nil, fmt.Errorf("fail running turns: %w", err)
+		}
 		label := "turn"
 		if len(names) == 0 {
 			label = "Turn"
 		}
 		names = append(names, fmt.Sprintf("%s %d by %s", label, t.ID, t.Role))
-		if i+1 < len(turns) && turns[i+1].ChannelID == t.ChannelID {
+		if i+1 < len(turns) && turns[i+1].SpaceID == t.SpaceID {
 			continue
 		}
-		body := fmt.Sprintf("%s failed: %s. %s",
-			strings.Join(names, ", "), _restartError, _restartAdvice)
+		var kind string
+		if err := tx.QueryRowContext(ctx, "SELECT kind FROM space WHERE id = ?", t.SpaceID).Scan(&kind); err != nil {
+			return nil, fmt.Errorf("read Space kind: %w", err)
+		}
+		body := fmt.Sprintf("%s failed: %s.", strings.Join(names, ", "), _restartError)
+		if kind == KindWorkItem {
+			body += " " + _restartAdvice
+		}
 		names = nil
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO message (channel_id, author, body, created_at) VALUES (?, ?, ?, ?)",
-			t.ChannelID, ReefAuthor, body, stamp); err != nil {
+			"INSERT INTO message (space_id, author, body, created_at) VALUES (?, ?, ?, ?)",
+			t.SpaceID, ReefAuthor, body, stamp); err != nil {
 			return nil, fmt.Errorf("insert restart message: %w", err)
 		}
 	}
@@ -323,6 +569,47 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 		return nil, fmt.Errorf("fail running turns: %w", err)
 	}
 	return turns, nil
+}
+
+// failSentRequests gives every unanswered request the role of turn t sent since the turn
+// started a failed response with body "failed", so its sender is not left waiting.
+func (s *Store) failSentRequests(ctx context.Context, tx *sql.Tx, t Turn) error {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, to_role, to_bot_id, created_at FROM direct_message d
+		WHERE space_id = ? AND from_bot_id = ? AND reply_to_id IS NULL AND origin_space_id IS NULL
+		AND NOT EXISTS (SELECT 1 FROM direct_message r WHERE r.reply_to_id = d.id) ORDER BY id`,
+		t.SpaceID, t.BotID)
+	if err != nil {
+		return fmt.Errorf("list sent requests: %w", err)
+	}
+	type sent struct {
+		id      int64
+		to      string
+		botID   *int64
+		created time.Time
+	}
+	sents, err := scanAll(rows, func(r interface{ Scan(...any) error }) (sent, error) {
+		var m sent
+		var created string
+		if err := r.Scan(&m.id, &m.to, &m.botID, &created); err != nil {
+			return sent{}, err
+		}
+		var perr error
+		m.created, perr = time.Parse(time.RFC3339Nano, created)
+		return m, perr
+	})
+	if err != nil {
+		return err
+	}
+	for _, m := range sents {
+		if m.created.Before(t.StartedAt) {
+			continue
+		}
+		if _, err := s.CreateFailedDirectResponseTx(ctx, tx, m.id, m.botID, m.to, "failed"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) notRunning(ctx context.Context, id int64) error {
@@ -351,12 +638,22 @@ func isBackend(s string) bool {
 func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
 	var started string
-	var ended, wake, checkpoint sql.NullString
-	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
+	var ended, wake sql.NullString
+	var checkpoints string
+	var session struct{ input, output, cacheRead, cacheWrite *int64 }
+	if err := r.Scan(&t.ID, &t.SpaceID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
-		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID); err != nil {
+		&checkpoints, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
+		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
+		&t.Scopes, &t.Compacted, &t.WakeMessageID, &t.BotID, &t.BotSessionID, &t.ContextTokens); err != nil {
 		return Turn{}, err
+	}
+	if session.input != nil {
+		t.SessionUsage = &agent.Usage{
+			InputTokens: *session.input, OutputTokens: *session.output,
+			CacheReadTokens: *session.cacheRead, CacheWriteTokens: *session.cacheWrite,
+		}
 	}
 	t.WakeText = wake.String
 	var err error
@@ -370,8 +667,8 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		}
 		t.EndedAt = &e
 	}
-	if checkpoint.Valid {
-		t.Checkpoint = &checkpoint.String
+	if err := json.Unmarshal([]byte(checkpoints), &t.Checkpoints); err != nil {
+		return Turn{}, fmt.Errorf("turn %d: bad checkpoints: %w", t.ID, err)
 	}
 	return t, nil
 }

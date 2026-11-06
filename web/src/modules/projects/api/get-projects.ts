@@ -10,3 +10,11 @@ export function useProjects() {
     retry: false,
   });
 }
+
+export function useDeletedProjects() {
+  return useQuery({
+    queryKey: ['projects', 'deleted'],
+    queryFn: () => api<Project[]>('/projects?deleted=1'),
+    refetchInterval: 3000,
+  });
+}

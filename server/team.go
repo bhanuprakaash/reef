@@ -3,62 +3,112 @@ package server
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
+	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
-// their args, env and url may carry keys.
+// teamView is a team as REST shows it.
 type teamView struct {
-	Name  string       `json:"name"`
-	Roles []roleView   `json:"roles"`
-	Gates []store.Gate `json:"gates,omitempty"`
+	ID             int64      `json:"id"`
+	Name           string     `json:"name"`
+	Responsibility string     `json:"responsibility"`
+	Roles          []roleView `json:"roles"`
 }
 
 type roleView struct {
-	Name           string    `json:"name"`
-	Lead           bool      `json:"lead"`
-	Write          bool      `json:"write"`
-	Backend        string    `json:"backend"`
-	PermissionMode string    `json:"permissionMode"`
-	Persona        string    `json:"persona"`
-	Skills         []string  `json:"skills"`
-	Face           string    `json:"face,omitempty"`
-	Model          string    `json:"model,omitempty"`
-	Tools          []string  `json:"tools"`
-	MCP            []mcpView `json:"mcp"`
+	BotID          int64        `json:"botId,omitempty"`
+	Name           string       `json:"name"`
+	Lead           bool         `json:"lead"`
+	Leaving        bool         `json:"leaving,omitempty"`
+	Write          bool         `json:"write"`
+	Backend        string       `json:"backend"`
+	PermissionMode string       `json:"permissionMode"`
+	Description    string       `json:"description"`
+	Skills         []string     `json:"skills"`
+	Face           string       `json:"face,omitempty"`
+	Colour         string       `json:"colour,omitempty"`
+	Model          string       `json:"model,omitempty"`
+	Provider       string       `json:"provider,omitempty"`
+	Tools          []string     `json:"tools"`
+	Connections    []int64      `json:"connections"`
+	Session        *sessionView `json:"session,omitempty"`
 }
 
-// mcpView names one of a role's MCP servers as the agent sees it (mcp1, mcp2, ...) and labels it
-// by its command, or the host of its url.
+// sessionView is what a Bot's active session in a Space runs with. Stale says the Bot's own
+// settings have changed since. Connections are names only: the session's env and urls stay out.
+type sessionView struct {
+	Backend        string             `json:"backend"`
+	Model          string             `json:"model,omitempty"`
+	PermissionMode string             `json:"permissionMode"`
+	Write          bool               `json:"write"`
+	Tools          []string           `json:"tools"`
+	Skills         []sessionSkillView `json:"skills"`
+	Connections    []string           `json:"connections"`
+	RefreshPending bool               `json:"refreshPending"`
+	Stale          bool               `json:"stale"`
+}
+
+type sessionSkillView struct {
+	Ref        string `json:"ref"`
+	Compatible bool   `json:"compatible"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+// mcpView names a connection as the agent sees its MCP server and labels it by its command, or
+// the host of its url.
 type mcpView struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 }
 
-// putRole is a role in a PUT body. Its mcpRemove lists the servers to drop, as GET showed them.
-type putRole struct {
-	store.Role
-	MCPRemove []mcpView `json:"mcpRemove"`
-}
-
-type putBody struct {
-	Name  string       `json:"name"`
-	Roles []putRole    `json:"roles"`
-	Gates []store.Gate `json:"gates,omitempty"`
-}
-
 func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
+	mux.HandleFunc("POST /teams", s.createTeam)
 	mux.HandleFunc("/teams", methodNotAllowed)
 	mux.HandleFunc("GET /teams/{name}", s.getTeam)
 	mux.HandleFunc("PUT /teams/{name}", s.putTeam)
+	mux.HandleFunc("DELETE /teams/{name}", s.deleteTeam)
 	mux.HandleFunc("/teams/{name}", methodNotAllowed)
+	mux.HandleFunc("POST /teams/{name}/members", s.addMember)
+	mux.HandleFunc("/teams/{name}/members", methodNotAllowed)
+	mux.HandleFunc("PUT /teams/{name}/members/{id}", s.editMember)
+	mux.HandleFunc("DELETE /teams/{name}/members/{id}", s.removeMember)
+	mux.HandleFunc("/teams/{name}/members/{id}", methodNotAllowed)
+}
+
+func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
+	var t store.TeamSpec
+	if err := readJSON(r, &t); err != nil {
+		writeError(w, err)
+		return
+	}
+	if from := r.URL.Query().Get("from"); from != "" {
+		if _, err := s.st.Team(r.Context(), from); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	created, err := s.st.CreateTeam(r.Context(), t)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, viewTeam(created))
+}
+
+func (s *server) deleteTeam(w http.ResponseWriter, r *http.Request) {
+	if err := s.st.DeleteTeam(r.Context(), r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) listTeams(w http.ResponseWriter, r *http.Request) {
@@ -83,22 +133,13 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewTeam(t))
 }
 
-// putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
-// the server's stored ones, since the window never sees them, except those its `mcpRemove`
-// lists; a listed server that no longer matches by name and label is a conflict. With a `from` query param it instead copies the team
-// named by `from`: `name` must not exist yet, and a role's stored mcpServers come from
-// `from`'s role of the same name.
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	from := r.URL.Query().Get("from")
-	var body putBody
-	if err := readJSON(r, &body); err != nil {
+	var t store.TeamSpec
+	if err := readJSON(r, &t); err != nil {
 		writeError(w, err)
 		return
-	}
-	t := store.Team{Name: body.Name, Roles: make([]store.Role, len(body.Roles)), Gates: body.Gates}
-	for i, pr := range body.Roles {
-		t.Roles[i] = pr.Role
 	}
 	if t.Name == "" {
 		t.Name = name
@@ -107,15 +148,6 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if from == "" {
-		existing, err := s.st.Team(r.Context(), name)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			writeError(w, err)
-			return
-		}
-		if err := fillMCPServers(t, body, existing); err != nil {
-			writeError(w, err)
-			return
-		}
 		applied, err := s.st.ApplyTeam(r.Context(), t)
 		if err != nil {
 			writeError(w, err)
@@ -124,17 +156,12 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, viewTeam(applied))
 		return
 	}
-	source, err := s.st.Team(r.Context(), from)
-	if err != nil {
+	if _, err := s.st.Team(r.Context(), from); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, fmt.Errorf("%w: team %q not found", store.ErrNotFound, from))
 		} else {
 			writeError(w, err)
 		}
-		return
-	}
-	if err := fillMCPServers(t, body, source); err != nil {
-		writeError(w, err)
 		return
 	}
 	applied, err := s.st.CreateTeam(r.Context(), t)
@@ -145,59 +172,14 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewTeam(applied))
 }
 
-// fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
-// the same name, since the window never sees them, minus the ones the role's body lists in
-// mcpRemove.
-func fillMCPServers(t store.Team, body putBody, existing store.Team) error {
-	for i, role := range t.Roles {
-		if role.MCPServers != nil {
-			continue
-		}
-		for _, er := range existing.Roles {
-			if er.Name != role.Name {
-				continue
-			}
-			kept, err := removeMCP(er.MCPServers, body.Roles[i].MCPRemove)
-			if err != nil {
-				return err
-			}
-			t.Roles[i].MCPServers = kept
-			break
-		}
-	}
-	return nil
-}
-
-// removeMCP drops the servers that remove names. Each must match a stored server by both name
-// and label, so a team changed by `reef team apply` since the window loaded it is a conflict,
-// never a removal of the wrong server.
-func removeMCP(servers []agent.MCPServer, remove []mcpView) ([]agent.MCPServer, error) {
-	if len(remove) == 0 {
-		return servers, nil
-	}
-	views := viewMCP(servers)
-	for _, r := range remove {
-		if !slices.Contains(views, r) {
-			return nil, fmt.Errorf("%w: MCP servers changed since you loaded the team; reload", store.ErrConflict)
-		}
-	}
-	var kept []agent.MCPServer
-	for i, srv := range servers {
-		if !slices.Contains(remove, views[i]) {
-			kept = append(kept, srv)
-		}
-	}
-	return kept, nil
-}
-
-func viewMCP(servers []agent.MCPServer) []mcpView {
-	views := make([]mcpView, len(servers))
-	for i, srv := range servers {
-		label := srv.Command
-		if u, err := url.Parse(srv.URL); label == "" && err == nil {
+func viewMCP(connections []store.Connection) []mcpView {
+	views := make([]mcpView, len(connections))
+	for i, c := range connections {
+		label := c.Command
+		if u, err := url.Parse(c.URL); label == "" && err == nil {
 			label = u.Host
 		}
-		views[i] = mcpView{Name: mcpName(i), Label: label}
+		views[i] = mcpView{Name: c.Name, Label: label}
 	}
 	return views
 }
@@ -205,12 +187,66 @@ func viewMCP(servers []agent.MCPServer) []mcpView {
 func viewTeam(t store.Team) teamView {
 	roles := make([]roleView, len(t.Roles))
 	for i, r := range t.Roles {
-		roles[i] = roleView{
-			Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend, PermissionMode: r.PermissionMode,
-			Persona: r.Persona, Skills: r.Skills, Face: r.Face, Model: r.Model, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
-		}
+		roles[i] = viewRole(r)
 	}
-	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}
+	return teamView{ID: t.ID, Name: t.Name, Responsibility: t.Responsibility, Roles: roles}
 }
 
-func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
+func viewRole(r store.Role) roleView {
+	return roleView{
+		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Leaving: r.Leaving, Write: r.Write, Backend: r.Backend,
+		PermissionMode: r.PermissionMode, Description: r.Description, Skills: r.Skills, Face: r.Face,
+		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools,
+		Connections: connectionIDs(r.Connections),
+	}
+}
+
+func viewSession(bs store.BotSession, live store.Role, library []store.Skill, pending bool) *sessionView {
+	v := &sessionView{
+		Backend: bs.Backend, Model: bs.Model, PermissionMode: bs.PermissionMode, Write: bs.Write,
+		Tools: nonNil(bs.Tools), Skills: make([]sessionSkillView, len(bs.Skills)),
+		Connections: make([]string, len(bs.Connections)), RefreshPending: pending,
+	}
+	for i, k := range bs.Skills {
+		v.Skills[i] = sessionSkillView{Ref: k.Ref, Compatible: k.Compatible, Reason: k.Reason}
+	}
+	for i, c := range bs.Connections {
+		v.Connections[i] = c.Name
+	}
+	adopted := bs.Apply(live)
+	v.Stale = bs.Backend != live.Backend || bs.Provider != live.Provider || bs.Model != live.Model ||
+		bs.Description != live.Description || bs.Write != live.Write ||
+		bs.PermissionMode != live.PermissionMode || !slices.Equal(bs.Tools, live.Tools) ||
+		!slices.Equal(adopted.Skills, live.Skills) ||
+		!slices.EqualFunc(bs.Connections, live.Connections, sameConnection) ||
+		slices.ContainsFunc(bs.Skills, func(k store.AdoptedSkill) bool { return outdated(k, library) })
+	return v
+}
+
+func sameConnection(a, b store.Connection) bool {
+	return a.ID == b.ID && a.Name == b.Name && a.Command == b.Command && a.URL == b.URL &&
+		slices.Equal(a.Args, b.Args) && maps.Equal(a.Env, b.Env) && maps.Equal(a.Headers, b.Headers) &&
+		reflect.DeepEqual(a.OAuth, b.OAuth)
+}
+
+// outdated says a Reef skill's library version has moved on since the session adopted it. A skill
+// read from disk is not compared: its folder is only read when a session adopts.
+func outdated(k store.AdoptedSkill, library []store.Skill) bool {
+	name, ok := strings.CutPrefix(k.Ref, "reef:")
+	if !ok {
+		return false
+	}
+	i := slices.IndexFunc(library, func(l store.Skill) bool { return l.Name == name })
+	if i < 0 {
+		return k.Version != ""
+	}
+	return strconv.Itoa(library[i].Version) != k.Version
+}
+
+func connectionIDs(cs []store.Connection) []int64 {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return ids
+}

@@ -12,8 +12,8 @@ import (
 func TestRemove(t *testing.T) {
 	ctx := context.Background()
 	repo := newRepo(t)
-	dir := Path(t.TempDir(), 1, "login")
-	if err := Ensure(ctx, repo, dir, "feature/login", ""); err != nil {
+	dir := filepath.Join(t.TempDir(), "login")
+	if _, err := Create(ctx, repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("n"), 0o644); err != nil {

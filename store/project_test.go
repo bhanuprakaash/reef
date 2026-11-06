@@ -82,3 +82,41 @@ func TestProjectMemory(t *testing.T) {
 		t.Errorf("PutProjectMemory(9) error = %v, want ErrNotFound", err)
 	}
 }
+
+func TestProjectIcon(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	p, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/work/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Icon != "" || p.Colour != "" {
+		t.Errorf("new project icon, colour = %q, %q, want both empty", p.Icon, p.Colour)
+	}
+
+	p.Icon, p.Colour = "rocket", "#2F72C0"
+	if _, err := s.UpdateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Project(ctx, p.ID)
+	if err != nil || got.Icon != "rocket" || got.Colour != "#2F72C0" {
+		t.Errorf("Project = %q, %q, %v, want rocket, #2F72C0", got.Icon, got.Colour, err)
+	}
+
+	for _, icon := range []string{"🚀", "nope"} {
+		p.Icon = icon
+		if _, err := s.UpdateProject(ctx, p); !errors.Is(err, ErrInvalid) {
+			t.Errorf("UpdateProject with icon %q error = %v, want ErrInvalid", icon, err)
+		}
+	}
+
+	p.Icon, p.Colour = "rocket", "blue; x"
+	if _, err := s.UpdateProject(ctx, p); !errors.Is(err, ErrInvalid) {
+		t.Errorf("UpdateProject with colour %q error = %v, want ErrInvalid", p.Colour, err)
+	}
+}

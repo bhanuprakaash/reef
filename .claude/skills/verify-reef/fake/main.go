@@ -33,8 +33,15 @@ func main() {
 
 // cliArgs is the subset of claude's flags the fake reads from argv.
 type cliArgs struct {
+	// mcpConfig is the --mcp-config file's content, read at start-up as claude does: reef
+	// removes the file at claude's first output line.
 	mcpConfig string
 	resume    string
+	// fork, with resume, continues in a copy of the session that has a new id.
+	fork bool
+	// askPermissions is --permission-prompt-tool stdio: a tool call that needs permission waits
+	// for an answer on stdin instead of being refused.
+	askPermissions bool
 }
 
 func parseArgs(args []string) cliArgs {
@@ -44,12 +51,20 @@ func parseArgs(args []string) cliArgs {
 		case "--mcp-config":
 			if i+1 < len(args) {
 				i++
-				c.mcpConfig = args[i]
+				b, _ := os.ReadFile(args[i])
+				c.mcpConfig = string(b)
 			}
 		case "--resume":
 			if i+1 < len(args) {
 				i++
 				c.resume = args[i]
+			}
+		case "--fork-session":
+			c.fork = true
+		case "--permission-prompt-tool":
+			if i+1 < len(args) {
+				i++
+				c.askPermissions = args[i] == "stdio"
 			}
 		case "--permission-mode", "--allowedTools", "--disallowedTools":
 			i++ // value is unused by the fake

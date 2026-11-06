@@ -20,18 +20,18 @@ func TestTurnStatus(t *testing.T) {
 		wantBody   string
 	}{
 		{
-			name:       "unknown channel",
+			name:       "unknown space",
 			method:     http.MethodPost,
 			path:       "/turns",
-			give:       `{"channelId":9,"role":"architect","backend":"claude"}`,
+			give:       `{"spaceId":9,"role":"architect","backend":"claude"}`,
 			wantStatus: 400,
-			wantBody:   `{"error":"invalid: unknown channel 9"}`,
+			wantBody:   `{"error":"invalid: unknown space 9"}`,
 		},
 		{
 			name:       "missing role",
 			method:     http.MethodPost,
 			path:       "/turns",
-			give:       `{"channelId":1,"backend":"claude"}`,
+			give:       `{"spaceId":1,"backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: turn role is required"}`,
 		},
@@ -39,7 +39,7 @@ func TestTurnStatus(t *testing.T) {
 			name:       "unknown backend",
 			method:     http.MethodPost,
 			path:       "/turns",
-			give:       `{"channelId":1,"role":"architect","backend":"gpt"}`,
+			give:       `{"spaceId":1,"role":"architect","backend":"gpt"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown backend \"gpt\""}`,
 		},
@@ -125,8 +125,8 @@ func TestTurnStatus(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-			do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
-			do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"architect","backend":"claude"}`)
+			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
+			do(t, http.MethodPost, ts.URL+"/turns", `{"spaceId":1,"role":"architect","backend":"claude"}`)
 			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
 			if status != tt.wantStatus {
 				t.Errorf("status = %d, want %d", status, tt.wantStatus)
@@ -141,12 +141,12 @@ func TestTurnStatus(t *testing.T) {
 func TestTurnRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
 
-	status, body := do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"architect","backend":"claude","status":"done"}`)
+	status, body := do(t, http.MethodPost, ts.URL+"/turns", `{"spaceId":1,"role":"architect","backend":"claude","status":"done"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"channelId":1,"role":"architect","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"`) ||
-		!strings.HasSuffix(body, `"endedAt":null,"wakeText":"","wakeParent":null,"directMessageId":null,"retried":false,"sent":false,"checkpoint":null,"model":"","costUsd":null}`) {
+		`{"id":1,"spaceId":1,"role":"architect","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"`) ||
+		!strings.HasSuffix(body, `"endedAt":null,"wakeText":"","wakeParent":null,"directMessageId":null,"retried":false,"sent":false,"checkpoints":[],"model":"","costUsd":null}`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
@@ -173,16 +173,16 @@ func TestTurnRoundTrip(t *testing.T) {
 		t.Fatalf("get = %d %s", status, body)
 	}
 
-	do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"developer","backend":"codex"}`)
+	do(t, http.MethodPost, ts.URL+"/turns", `{"spaceId":1,"role":"developer","backend":"codex"}`)
 	for _, tt := range []struct {
 		query string
 		want  int
 	}{
 		{"", 2},
-		{"?channel=1", 2},
-		{"?channel=2", 0},
+		{"?space=1", 2},
+		{"?space=2", 0},
 		{"?status=running", 1},
-		{"?channel=1&status=done", 1},
+		{"?space=1&status=done", 1},
 	} {
 		status, body = do(t, http.MethodGet, ts.URL+"/turns"+tt.query, "")
 		if status != 200 || strings.Count(body, `"role"`) != tt.want {
@@ -193,19 +193,19 @@ func TestTurnRoundTrip(t *testing.T) {
 
 func TestTurnHasNoPrompt(t *testing.T) {
 	ctx := context.Background()
-	st, err := store.Open(t.TempDir())
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
-	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.EndTurn(ctx, store.Turn{ID: 1, Status: "done", Prompt: "do it"}); err != nil {
@@ -219,7 +219,7 @@ func TestTurnHasNoPrompt(t *testing.T) {
 		}
 	}
 
-	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/inspector", "")
 	if status != 200 || !strings.Contains(body, `"prompt":"do it"`) {
 		t.Errorf("inspector = %d %s, want prompt \"do it\"", status, body)
 	}

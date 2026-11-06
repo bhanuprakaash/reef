@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -14,7 +15,7 @@ func (e *liveEnv) failedTurn(t *testing.T, role, text string, parent *int64) sto
 	t.Helper()
 	ctx := context.Background()
 	turn, err := e.st.CreateTurn(ctx, store.Turn{
-		ChannelID: 1, Role: role, Backend: "claude", WakeText: text, WakeParent: parent,
+		SpaceID: 1, Role: role, BotID: testServerBot(t, e.st, role), Backend: "claude", WakeText: text, WakeParent: parent,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -52,21 +53,66 @@ func TestRetry_RunsTheWakeAgain(t *testing.T) {
 	}
 }
 
+func TestRetry_RoutedWakeThatNeverSentIsBuiltAgain(t *testing.T) {
+	scopes := store.Scopes{{Thread: 7, Asked: []string{"Asked together: @lead, @architect"}}}
+	tests := []struct {
+		name     string
+		sent     bool
+		wantWoke []store.Scopes
+	}{
+		{"never sent", false, []store.Scopes{scopes}},
+		{"sent", true, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			env := newLiveEnv(t)
+			turn, err := env.st.CreateTurn(ctx, store.Turn{
+				SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "routed text", Scopes: scopes,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.sent {
+				if _, err := env.st.SetTurnSent(ctx, turn.ID, "prompt"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			turn.Status, turn.Error = "failed", "no binary"
+			if _, err := env.st.EndTurn(ctx, turn); err != nil {
+				t.Fatal(err)
+			}
+			sub := subscribe(t, env.url)
+
+			if status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", ""); status != 202 {
+				t.Fatalf("retry = %d %q, want 202", status, body)
+			}
+			sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+				`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
+			env.fake.mu.Lock()
+			defer env.fake.mu.Unlock()
+			if !reflect.DeepEqual(env.fake.woke, tt.wantWoke) {
+				t.Errorf("woke = %+v, want %+v", env.fake.woke, tt.wantWoke)
+			}
+		})
+	}
+}
+
 func TestRetry_DirectTurnKeepsReplyPrivate(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	channelID, _ := env.teamChannel(t)
+	spaceID, _ := env.teamSpace(t)
 	req, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-		ChannelID: int64(channelID), From: "lead", To: "architect", Body: "plan it",
+		SpaceID: int64(spaceID), From: "lead", To: "architect", FromBotID: testServerBot(t, env.st, "lead"), ToBotID: testServerBot(t, env.st, "architect"), Body: "plan it",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := env.st.CreateFailedDirectResponse(ctx, req.ID, "architect", "partial"); err != nil {
+	if _, err := env.st.CreateFailedDirectResponse(ctx, req.ID, req.ToBotID, "architect", "partial"); err != nil {
 		t.Fatal(err)
 	}
 	turn, err := env.st.CreateTurn(ctx, store.Turn{
-		ChannelID: int64(channelID), Role: "architect", Backend: "claude",
+		SpaceID: int64(spaceID), Role: "architect", BotID: testServerBot(t, env.st, "architect"), Backend: "claude",
 		WakeText: "direct wake", DirectMessageID: &req.ID,
 	})
 	if err != nil {
@@ -76,20 +122,30 @@ func TestRetry_DirectTurnKeepsReplyPrivate(t *testing.T) {
 	if _, err := env.st.EndTurn(ctx, turn); err != nil {
 		t.Fatal(err)
 	}
-	sub := subscribeTo(t, env.url, channelID)
+	sub := subscribeTo(t, env.url, spaceID)
+	l := env.h.s.lookup(int64(spaceID))
+	l.mu.Lock()
+	l.hops = store.HopCap
+	l.mu.Unlock()
 
 	if status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", ""); status != 202 || body != "" {
 		t.Fatalf("retry = %d %q, want 202", status, body)
 	}
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "architect", "lead")
-	direct, err := env.st.DirectMessages(ctx, int64(channelID), 0)
+	sub.want(t,
+		`turn {"role":"architect","status":"running","directMessageId":1}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done","directMessageId":1}`,
+		`turn {"role":"lead","status":"running","directMessageId":3}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done","directMessageId":3}`)
+	direct, err := env.st.DirectMessages(ctx, int64(spaceID), 0)
 	if err != nil || len(direct) != 3 || direct[1].Status != store.DirectFailed ||
 		direct[2].Status != store.DirectDone || direct[2].ReplyToID == nil ||
 		*direct[2].ReplyToID != req.ID {
 		t.Errorf("direct messages = %+v, %v, want failed attempt then retried response", direct, err)
 	}
-	public, err := env.st.Messages(ctx, int64(channelID), 0)
+	public, err := env.st.Messages(ctx, int64(spaceID), 0)
 	if err != nil || len(public) != 0 {
 		t.Errorf("public messages = %+v, %v, want none", public, err)
 	}
@@ -102,7 +158,7 @@ func TestRetry_Refused(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	done, err := env.st.CreateTurn(ctx, store.Turn{
-		ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "hello",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "hello",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -112,7 +168,7 @@ func TestRetry_Refused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := env.st.CreateTurn(ctx, store.Turn{
-		ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "hello",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "hello",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -140,28 +196,28 @@ func TestRetry_Refused(t *testing.T) {
 	}
 
 	const reason = "token budget of 1000000 used: 1000312 tokens"
-	if err := env.st.PauseChannel(ctx, 1, reason); err != nil {
+	if err := env.st.PauseSpace(ctx, 1, reason); err != nil {
 		t.Fatal(err)
 	}
 	status, body := do(t, http.MethodPost, env.url+"/turns/4/retry", "")
-	if status != 409 || body != `{"error":"channel 1 is paused: `+reason+`: conflict"}` {
-		t.Errorf("retry on a paused channel = %d %s, want 409", status, body)
+	if status != 409 || body != `{"error":"space 1 is paused: `+reason+`: conflict"}` {
+		t.Errorf("retry on a paused Space = %d %s, want 409", status, body)
 	}
 	if _, body := do(t, http.MethodGet, env.url+"/turns/4", ""); !strings.Contains(body, `"retried":false`) {
 		t.Errorf("turn = %s, want not retried after a refused retry", body)
 	}
-	if err := env.st.ContinueChannel(ctx, 1, store.TokenBudget); err != nil {
+	if err := env.st.ContinueSpace(ctx, 1, store.TokenBudget); err != nil {
 		t.Fatal(err)
 	}
 
 	env.send(t, "block")
 	<-env.fake.started
 	status, body = do(t, http.MethodPost, env.url+"/turns/4/retry", "")
-	if status != 409 || body != `{"error":"channel 1 has a turn running: conflict"}` {
+	if status != 409 || body != `{"error":"space 1 has a turn running: conflict"}` {
 		t.Errorf("retry while a turn runs = %d %s, want 409", status, body)
 	}
 	env.fake.release <- struct{}{}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 1, message 1]\nblock"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 1, message 1]\nblock"}) {
 		t.Errorf("ran = %q, want only the send: no refused retry ran", got)
 	}
 }
@@ -171,7 +227,7 @@ func TestRetry_RefusedWhenSuperseded(t *testing.T) {
 	env := newLiveEnv(t)
 	env.failedTurn(t, "lead", "build it", nil)
 	later, err := env.st.CreateTurn(ctx, store.Turn{
-		ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "build it again",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "build it again",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +241,7 @@ func TestRetry_RefusedWhenSuperseded(t *testing.T) {
 	if status != 409 || body != `{"error":"turn 1 cannot be retried: conflict"}` {
 		t.Errorf("retry = %d %s, want 409", status, body)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/turns?channel=1&retryable=1", ""); body != "[]" {
+	if _, body := do(t, http.MethodGet, env.url+"/turns?space=1&retryable=1", ""); body != "[]" {
 		t.Errorf("retryable turns = %s, want none", body)
 	}
 	env.wantInbox(t)
@@ -195,7 +251,7 @@ func TestRetry_StoppedTurnIsRetryableButNotInTheInbox(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	turn, err := env.st.CreateTurn(ctx, store.Turn{
-		ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "build it",
+		SpaceID: 1, Role: "lead", BotID: testServerBot(t, env.st, "lead"), Backend: "claude", WakeText: "build it",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +262,7 @@ func TestRetry_StoppedTurnIsRetryableButNotInTheInbox(t *testing.T) {
 	}
 	env.wantInbox(t)
 
-	_, body := do(t, http.MethodGet, env.url+"/turns?channel=1&retryable=1", "")
+	_, body := do(t, http.MethodGet, env.url+"/turns?space=1&retryable=1", "")
 	if !strings.Contains(body, `"id":1`) || !strings.Contains(body, `"error":"interrupted"`) {
 		t.Errorf("retryable turns = %s, want the stopped turn", body)
 	}

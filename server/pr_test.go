@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/bhanuprakaash/reef/store"
 )
 
 // writePRGh writes a fake `gh` for the PR panel. `pr view` answers with $GH_RESP, or fails
@@ -33,8 +31,8 @@ fi
 	}
 }
 
-func TestFeaturePR(t *testing.T) {
-	st, err := store.Open(t.TempDir())
+func TestWorkItemPR(t *testing.T) {
+	st, err := openStore(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,24 +54,24 @@ func TestFeaturePR(t *testing.T) {
 		}
 	}
 
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	t.Cleanup(h.Close)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+t.TempDir()+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 
-	set("err.txt", "no pull requests found for branch \"feature/demo\"\n")
-	if code, body := do(t, http.MethodGet, ts.URL+"/features/1/pr", ""); code != 200 ||
+	set("err.txt", "no pull requests found for branch \"work-item/1\"\n")
+	if code, body := do(t, http.MethodGet, ts.URL+"/work-items/1/pr", ""); code != 200 ||
 		body != `{"pr":null}` {
 		t.Errorf("GET without a PR = %d %s, want 200 {\"pr\":null}", code, body)
 	}
-	if code, _ := do(t, http.MethodPost, ts.URL+"/features/1/pr/merge", ""); code != 404 {
+	if code, _ := do(t, http.MethodPost, ts.URL+"/work-items/1/pr/merge", ""); code != 404 {
 		t.Errorf("merge without a PR = %d, want 404", code)
 	}
 
 	set("err.txt", "gh: not logged in")
-	if code, body := do(t, http.MethodGet, ts.URL+"/features/1/pr", ""); code != 502 ||
+	if code, body := do(t, http.MethodGet, ts.URL+"/work-items/1/pr", ""); code != 502 ||
 		body != `{"error":"gh pr view: gh: not logged in"}` {
 		t.Errorf("GET with gh failing = %d %s, want 502 and gh's text", code, body)
 	}
@@ -81,7 +79,7 @@ func TestFeaturePR(t *testing.T) {
 
 	set("resp.json", `{"number":12,"title":"Add login","url":"https://github.com/x/y/pull/12",`+
 		`"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","reviewDecision":"APPROVED",`+
-		`"headRefName":"feature/demo","baseRefName":"main","statusCheckRollup":[`+
+		`"headRefName":"work-item/1","baseRefName":"main","statusCheckRollup":[`+
 		`{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},`+
 		`{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"},`+
 		`{"__typename":"StatusContext","context":"deploy","state":"PENDING"}],`+
@@ -89,23 +87,23 @@ func TestFeaturePR(t *testing.T) {
 		`{"path":"a.go","additions":7,"deletions":1},{"path":"b.go","additions":3,"deletions":2}]}`)
 	const open = `{"pr":{"number":12,"title":"Add login","state":"OPEN",` +
 		`"url":"https://github.com/x/y/pull/12","isDraft":false,"reviewDecision":"APPROVED",` +
-		`"base":"main","head":"feature/demo","canMerge":true,"checks":[` +
+		`"base":"main","head":"work-item/1","canMerge":true,"checks":[` +
 		`{"name":"build","state":"pass"},{"name":"lint","state":"fail"},` +
 		`{"name":"deploy","state":"pending"}],"body":"Line one\nLine two","additions":10,` +
 		`"deletions":3,"files":[{"path":"a.go","additions":7,"deletions":1},` +
 		`{"path":"b.go","additions":3,"deletions":2}]}}`
-	if code, body := do(t, http.MethodGet, ts.URL+"/features/1/pr", ""); code != 200 || body != open {
+	if code, body := do(t, http.MethodGet, ts.URL+"/work-items/1/pr", ""); code != 200 || body != open {
 		t.Errorf("GET open PR = %d %s, want 200 %s", code, body, open)
 	}
 
 	set("merge-err.txt", "Pull request is not mergeable: the base branch policy prohibits the merge.\n")
-	if code, body := do(t, http.MethodPost, ts.URL+"/features/1/pr/merge", ""); code != 409 ||
+	if code, body := do(t, http.MethodPost, ts.URL+"/work-items/1/pr/merge", ""); code != 409 ||
 		!strings.Contains(body, "base branch policy prohibits the merge") {
 		t.Errorf("merge refused by gh = %d %s, want 409 with gh's text", code, body)
 	}
 	set("merge-err.txt", "")
 
-	code, body := do(t, http.MethodPost, ts.URL+"/features/1/pr/merge", "")
+	code, body := do(t, http.MethodPost, ts.URL+"/work-items/1/pr/merge", "")
 	if code != 200 || !strings.Contains(body, `"state":"MERGED"`) ||
 		!strings.Contains(body, `"canMerge":false`) {
 		t.Errorf("merge = %d %s, want 200 with state MERGED and canMerge false", code, body)

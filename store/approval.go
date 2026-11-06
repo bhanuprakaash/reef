@@ -4,149 +4,161 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"slices"
 	"time"
 )
 
-// Approval statuses. Only a pending approval can be decided.
+// Hold statuses. A claimed hold is reopened when its wake cannot start.
 const (
-	ApprovalPending  = "pending"
-	ApprovalApproved = "approved"
-	ApprovalRejected = "rejected"
+	HoldPending = "pending"
+	HoldClaimed = "approved"
+	HoldDropped = "rejected"
 )
 
-// Approval kinds: a gate holds a wake until the user approves it; a hold keeps a wake a pause
-// kept from running until the channel continues.
-const (
-	ApprovalGate = "gate"
-	ApprovalHold = "hold"
-)
+const _holdKind = "hold"
 
-const _approvalCols = "id, channel_id, from_role, to_role, message_id, text, parent, status, kind, created_at"
+const _holdCols = "id, space_id, from_role, to_role, message_id, direct_message_id, text, parent, status, created_at, scopes, from_bot_id, to_bot_id"
 
-// Approval is a wake held at a gate or by a pause: Text is what To would run for the message
-// MessageID that From wrote, as a reply in the thread of Parent when it is set. An empty Kind
-// is a gate.
-type Approval struct {
-	ID        int64     `json:"id"`
-	ChannelID int64     `json:"channelId"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	MessageID int64     `json:"messageId"`
-	Text      string    `json:"text"`
-	Parent    *int64    `json:"-"`
-	Status    string    `json:"status"`
-	Kind      string    `json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
+// Hold is a wake kept from running by a paused Space. Text is what To would run for the
+// message MessageID that From wrote, as a reply in the thread of Parent when it is set.
+type Hold struct {
+	ID              int64 `json:"id"`
+	SpaceID         int64
+	From            string
+	To              string
+	FromBotID       *int64
+	ToBotID         *int64
+	MessageID       int64
+	DirectMessageID *int64
+	Text            string
+	Parent          *int64
+	Scopes          Scopes
+	Status          string
+	CreatedAt       time.Time
 }
 
-// CreateApproval adds a as pending.
-func (s *Store) CreateApproval(ctx context.Context, a Approval) (Approval, error) {
-	if a.Kind == "" {
-		a.Kind = ApprovalGate
-	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO approval (channel_id, from_role, to_role, message_id, text, parent, kind, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		a.ChannelID, a.From, a.To, a.MessageID, a.Text, a.Parent, a.Kind,
-		now.Format(time.RFC3339Nano))
+// CreateHold adds h as pending.
+func (s *Store) CreateHold(ctx context.Context, h Hold) (Hold, error) {
+	h, err := insertHold(ctx, s.db, h)
 	if err != nil {
-		return Approval{}, s.writeErr(ctx, "insert approval", err, ErrNotFound,
-			parent{table: "channel", id: &a.ChannelID}, parent{table: "message", id: &a.MessageID})
+		return Hold{}, s.writeErr(ctx, "insert hold", err, ErrNotFound,
+			parent{table: "space", id: &h.SpaceID}, parent{table: "message", id: &h.MessageID})
+	}
+	return h, nil
+}
+
+func insertHold(ctx context.Context, db execer, h Hold) (Hold, error) {
+	now := time.Now().UTC()
+	var messageID any
+	if h.MessageID != 0 {
+		messageID = h.MessageID
+	}
+	res, err := db.ExecContext(ctx,
+		"INSERT INTO approval (space_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes, from_bot_id, to_bot_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		h.SpaceID, h.From, h.To, messageID, h.DirectMessageID, h.Text, h.Parent, _holdKind,
+		now.Format(time.RFC3339Nano), h.Scopes, h.FromBotID, h.ToBotID)
+	if err != nil {
+		return h, err
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return Approval{}, fmt.Errorf("insert approval: %w", err)
+		return h, fmt.Errorf("insert hold: %w", err)
 	}
-	a.ID, a.Status, a.CreatedAt = id, ApprovalPending, now
-	return a, nil
+	h.ID, h.Status, h.CreatedAt = id, HoldPending, now
+	return h, nil
 }
 
-// PendingApprovals lists the channel's pending gate approvals, oldest first.
-func (s *Store) PendingApprovals(ctx context.Context, channelID int64) ([]Approval, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
-		return nil, err
-	}
+// PendingHolds lists the Space's pending holds, oldest first.
+func (s *Store) PendingHolds(ctx context.Context, spaceID int64) ([]Hold, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_approvalCols+" FROM approval WHERE channel_id = ? AND status = ? AND kind = ? ORDER BY id",
-		channelID, ApprovalPending, ApprovalGate)
+		"SELECT "+_holdCols+" FROM approval WHERE space_id = ? AND status = ? AND kind = ? ORDER BY id",
+		spaceID, HoldPending, _holdKind)
 	if err != nil {
-		return nil, fmt.Errorf("list approvals: %w", err)
+		return nil, fmt.Errorf("list holds: %w", err)
 	}
-	return scanAll(rows, scanApproval)
+	return scanAll(rows, scanHold)
 }
 
-// Approval returns the gate approval of the channel with the id in any status, or ErrNotFound.
-func (s *Store) Approval(ctx context.Context, channelID, id int64) (Approval, error) {
-	row := s.db.QueryRowContext(ctx,
-		"SELECT "+_approvalCols+" FROM approval WHERE id = ? AND channel_id = ? AND kind = ?",
-		id, channelID, ApprovalGate)
-	a, err := scanApproval(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Approval{}, fmt.Errorf("approval %d of channel %d: %w", id, channelID, ErrNotFound)
-	}
-	return a, err
-}
-
-// DecideApproval sets a pending approval to status, approved or rejected, or returns
-// ErrConflict when it was decided already.
-func (s *Store) DecideApproval(ctx context.Context, id int64, status string) error {
-	res, err := s.db.ExecContext(ctx,
-		"UPDATE approval SET status = ? WHERE id = ? AND status = ?", status, id, ApprovalPending)
-	if err != nil {
-		return fmt.Errorf("decide approval: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("decide approval: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("approval %d is not pending: %w", id, ErrConflict)
-	}
-	return nil
-}
-
-// ClaimHolds sets the channel's pending holds to approved and returns them, oldest first.
+// ClaimHolds sets the Space's pending holds to claimed and returns them, oldest first.
 // A second call finds none, so a hold is claimed once.
-func (s *Store) ClaimHolds(ctx context.Context, channelID int64) ([]Approval, error) {
+func (s *Store) ClaimHolds(ctx context.Context, spaceID int64) ([]Hold, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"UPDATE approval SET status = ? WHERE channel_id = ? AND status = ? AND kind = ? "+
-			"RETURNING "+_approvalCols,
-		ApprovalApproved, channelID, ApprovalPending, ApprovalHold)
+		"UPDATE approval SET status = ? WHERE space_id = ? AND status = ? AND kind = ? "+
+			"RETURNING "+_holdCols,
+		HoldClaimed, spaceID, HoldPending, _holdKind)
 	if err != nil {
 		return nil, fmt.Errorf("claim holds: %w", err)
 	}
-	as, err := scanAll(rows, scanApproval)
+	hs, err := scanAll(rows, scanHold)
 	if err != nil {
 		return nil, fmt.Errorf("claim holds: %w", err)
 	}
-	slices.SortFunc(as, func(a, b Approval) int { return cmp.Compare(a.ID, b.ID) })
-	return as, nil
+	slices.SortFunc(hs, func(a, b Hold) int { return cmp.Compare(a.ID, b.ID) })
+	return hs, nil
 }
 
-// ReopenApproval sets a decided approval back to pending, for a wake that could not start.
-func (s *Store) ReopenApproval(ctx context.Context, id int64) error {
+// PendingReplyExchanges lists the exchanges whose reply wake is a pending hold of the Space.
+func (s *Store) PendingReplyExchanges(ctx context.Context, spaceID int64) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT m.exchange_id FROM approval a JOIN message m ON m.id = a.message_id WHERE a.space_id = ? "+
+			"AND a.status = ? AND a.kind = ? AND m.exchange_id IS NOT NULL ORDER BY a.id",
+		spaceID, HoldPending, _holdKind)
+	if err != nil {
+		return nil, fmt.Errorf("list reply holds: %w", err)
+	}
+	return scanAll(rows, func(r interface{ Scan(...any) error }) (id int64, err error) {
+		return id, r.Scan(&id)
+	})
+}
+
+// ClaimExchangeHold claims the pending hold that wakes the asker of exchange id with its reply.
+// It returns false when there is none, because it is claimed or the exchange has no such hold.
+func (s *Store) ClaimExchangeHold(ctx context.Context, id int64) (Hold, bool, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"UPDATE approval SET status = ? WHERE status = ? AND kind = ? AND message_id IN "+
+			"(SELECT id FROM message WHERE exchange_id = ?) RETURNING "+_holdCols,
+		HoldClaimed, HoldPending, _holdKind, id)
+	if err != nil {
+		return Hold{}, false, fmt.Errorf("claim exchange hold: %w", err)
+	}
+	hs, err := scanAll(rows, scanHold)
+	if err != nil || len(hs) == 0 {
+		return Hold{}, false, err
+	}
+	return hs[0], true, nil
+}
+
+// ReopenHold sets a claimed hold back to pending, for a wake that could not start.
+func (s *Store) ReopenHold(ctx context.Context, id int64) error {
 	if _, err := s.db.ExecContext(ctx,
-		"UPDATE approval SET status = ? WHERE id = ?", ApprovalPending, id); err != nil {
-		return fmt.Errorf("reopen approval: %w", err)
+		"UPDATE approval SET status = ? WHERE id = ? AND kind = ?", HoldPending, id, _holdKind); err != nil {
+		return fmt.Errorf("reopen hold: %w", err)
 	}
 	return nil
 }
 
-func scanApproval(r interface{ Scan(...any) error }) (Approval, error) {
-	var a Approval
+func scanHold(r interface{ Scan(...any) error }) (Hold, error) {
+	var h Hold
 	var created string
-	if err := r.Scan(&a.ID, &a.ChannelID, &a.From, &a.To, &a.MessageID, &a.Text, &a.Parent,
-		&a.Status, &a.Kind, &created); err != nil {
-		return Approval{}, err
+	var messageID sql.NullInt64
+	var directMessageID sql.NullInt64
+	if err := r.Scan(&h.ID, &h.SpaceID, &h.From, &h.To, &messageID, &directMessageID, &h.Text, &h.Parent,
+		&h.Status, &created, &h.Scopes, &h.FromBotID, &h.ToBotID); err != nil {
+		return Hold{}, err
+	}
+	if messageID.Valid {
+		h.MessageID = messageID.Int64
+	}
+	if directMessageID.Valid {
+		v := directMessageID.Int64
+		h.DirectMessageID = &v
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {
-		return Approval{}, fmt.Errorf("approval %d: bad created_at: %w", a.ID, err)
+		return Hold{}, fmt.Errorf("hold %d: bad created_at: %w", h.ID, err)
 	}
-	a.CreatedAt = t
-	return a, nil
+	h.CreatedAt = t
+	return h, nil
 }

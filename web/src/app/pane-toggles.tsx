@@ -42,14 +42,16 @@ export function PaneToggles({
   onBrowser,
   terminalOpen,
   onTerminal,
+  className = 'absolute top-3 right-3 z-30 flex gap-0.5',
 }: {
   browserOpen: boolean;
   onBrowser: () => void;
   terminalOpen: boolean;
   onTerminal?: () => void;
+  className?: string;
 }) {
   return (
-    <div className="absolute top-3 right-3 z-30 flex gap-0.5">
+    <div className={className}>
       <Toggle label="Browser" pressed={browserOpen} onClick={onBrowser}>
         <circle cx="12" cy="12" r="9" />
         <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />

@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
-import { createTerminals } from './terminal.js';
+import { clipboardFile } from './clipboard-file.js';
+import { createTerminals, installedTerminalApps, launchTerminalApp } from './terminal.js';
 import { createUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -245,6 +246,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('terminal:open', (_event, cwd, cols, rows) => terminals.open(cwd, cols, rows));
   ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
+  ipcMain.handle('terminal:apps', () => installedTerminalApps());
+  ipcMain.handle('terminal:launch', (_event, app, cwd) => launchTerminalApp(app, cwd, PATH));
   ipcMain.handle('capture:open', () => openCaptureWindow(win));
   ipcMain.handle('folder:choose', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
@@ -252,6 +255,7 @@ app.whenReady().then(async () => {
     });
     return canceled ? null : filePaths[0];
   });
+  ipcMain.handle('clipboard:file', clipboardFile);
   globalShortcut.register('CommandOrControl+Shift+Space', () => openCaptureWindow(win));
   await new Promise((resolve) => setTimeout(resolve, Math.max(0, splashAt + SPLASH_MIN - Date.now())));
   if (win.isDestroyed()) return;
